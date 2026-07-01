@@ -71,13 +71,15 @@ export function InvoiceForm({ mode, existing }: Props) {
 
   useEffect(() => { partyRef.current?.focus(); }, []);
 
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+
   const recalc = (lines: LineItem[], discount = inv.discount, gst = gstOn) => {
-    const subtotal = lines.reduce((s, l) => s + l.qty * l.price, 0);
-    const afterLineDisc = lines.reduce((s, l) => s + l.qty * l.price * (1 - l.discountPct / 100), 0);
+    const subtotal = r2(lines.reduce((s, l) => s + l.qty * l.price, 0));
+    const afterLineDisc = r2(lines.reduce((s, l) => s + r2(l.qty * l.price * (1 - l.discountPct / 100)), 0));
     const taxAmount = gst
-      ? lines.reduce((s, l) => s + (l.qty * l.price * (1 - l.discountPct / 100)) * (l.gstRate / 100), 0)
+      ? r2(lines.reduce((s, l) => s + r2(r2(l.qty * l.price * (1 - l.discountPct / 100)) * (l.gstRate / 100)), 0))
       : 0;
-    const total = Math.max(0, afterLineDisc + taxAmount - discount);
+    const total = Math.max(0, r2(afterLineDisc + taxAmount - discount));
     return { subtotal, taxAmount, total };
   };
 
@@ -109,7 +111,7 @@ export function InvoiceForm({ mode, existing }: Props) {
       amount: 0,
     };
     const gstMult = gstOn ? (1 + line.gstRate / 100) : 1;
-    line.amount = line.qty * line.price * (1 - line.discountPct / 100) * gstMult;
+    line.amount = r2(r2(line.qty * line.price * (1 - line.discountPct / 100)) * gstMult);
     const lines = [...inv.lineItems, line];
     setInv({ ...inv, lineItems: lines, ...recalc(lines) });
   };
@@ -119,7 +121,7 @@ export function InvoiceForm({ mode, existing }: Props) {
       if (l.id !== id) return l;
       const nl = { ...l, ...patch };
       const gstMult = gstOn ? (1 + nl.gstRate / 100) : 1;
-      nl.amount = nl.qty * nl.price * (1 - nl.discountPct / 100) * gstMult;
+      nl.amount = r2(r2(nl.qty * nl.price * (1 - nl.discountPct / 100)) * gstMult);
       return nl;
     });
     setInv({ ...inv, lineItems: lines, ...recalc(lines) });
@@ -183,10 +185,19 @@ export function InvoiceForm({ mode, existing }: Props) {
 
     const finalInv: Invoice = { ...inv, partyId, partyName, partyPhone: phone };
 
+    if (existing?.id) {
+      // Reverse original stock before applying new quantities
+      const origDelta = isSale ? 1 : -1;
+      for (const l of existing.lineItems) {
+        const it = ItemRepo.get(l.itemId);
+        if (it) ItemRepo.update(it.id, { stock: r2(it.stock + origDelta * l.qty) } as any);
+      }
+    }
+
     const stockDelta = isSale ? -1 : 1;
     for (const l of finalInv.lineItems) {
       const it = ItemRepo.get(l.itemId);
-      if (it) ItemRepo.update(it.id, { stock: it.stock + stockDelta * l.qty } as any);
+      if (it) ItemRepo.update(it.id, { stock: r2(it.stock + stockDelta * l.qty) } as any);
     }
 
     if (existing?.id) {
@@ -380,7 +391,10 @@ export function InvoiceForm({ mode, existing }: Props) {
             <label className="flex flex-col gap-1 text-[12px]">
               <span className="text-muted-foreground font-medium">Payment Mode</span>
               <select value={inv.paymentMode}
-                onChange={(e) => setInv({ ...inv, paymentMode: e.target.value as PaymentMode })}
+                onChange={(e) => {
+                  const mode = e.target.value as PaymentMode;
+                  setInv({ ...inv, paymentMode: mode, paid: mode === "credit" ? 0 : inv.paid });
+                }}
                 className="h-9 px-3 border rounded-md bg-background focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none">
                 <option value="cash">Cash</option>
                 <option value="bank">Bank</option>
@@ -388,9 +402,20 @@ export function InvoiceForm({ mode, existing }: Props) {
               </select>
             </label>
 
-            <Field label="Paid Amount" type="number" value={inv.paid || ""}
-              onChange={(e) => setInv({ ...inv, paid: parseFloat(e.target.value) || 0 })}
-              placeholder="0" />
+            <div className="flex flex-col gap-1 text-[12px]">
+              <span className="text-muted-foreground font-medium">Paid Amount</span>
+              {inv.paymentMode === "credit" ? (
+                <div className="h-9 px-3 border rounded-md bg-muted flex items-center text-muted-foreground text-[12px] select-none">
+                  ₹0.00 — will pay later
+                </div>
+              ) : (
+                <input type="number" value={inv.paid || ""} min={0}
+                  onWheel={(e) => e.currentTarget.blur()}
+                  onChange={(e) => setInv({ ...inv, paid: parseFloat(e.target.value) || 0 })}
+                  placeholder="0"
+                  className="h-9 px-3 border rounded-md bg-background focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none" />
+              )}
+            </div>
           </div>
         </div>
 

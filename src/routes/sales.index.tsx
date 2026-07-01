@@ -38,7 +38,7 @@ function SalesPage() {
       if (dateTo && r.date > dateTo) return false;
       if (partyId !== "all" && r.partyId !== partyId) return false;
       if (status !== "all") {
-        const bal = r.total - r.paid;
+        const bal = Math.round((r.total - r.paid) * 100) / 100;
         if (status === "paid" && bal > 0) return false;
         if (status === "unpaid" && r.paid > 0) return false;
         if (status === "partial" && (r.paid === 0 || bal <= 0)) return false;
@@ -231,15 +231,14 @@ function SalesPage() {
               </tr>
             ) : (
               filtered.map((r) => {
-                const balance = r.total - r.paid;
+                const balance = Math.round((r.total - r.paid) * 100) / 100;
                 const isPaid = balance <= 0;
                 const isUnpaid = r.paid === 0 && r.total > 0;
                 const isPartial = r.paid > 0 && balance > 0;
                 return (
                   <tr
                     key={r.id}
-                    className="border-b border-gray-100 hover:bg-blue-50/40 transition cursor-pointer group"
-                    onDoubleClick={() => navigate({ to: "/sales/new" })}
+                    className="border-b border-gray-100 hover:bg-primary/5 transition-colors cursor-default group"
                   >
                     <td className="px-4 py-3 font-mono font-semibold text-blue-600 text-xs">{r.number}</td>
                     <td className="px-4 py-3 text-gray-600">{fmtDate(r.date)}</td>
