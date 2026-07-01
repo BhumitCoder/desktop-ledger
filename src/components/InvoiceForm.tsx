@@ -22,7 +22,7 @@ export function InvoiceForm({ mode, existing }: Props) {
   const company = CompanyRepo.get();
   const isSale = mode === "sale";
   const repo = isSale ? SalesRepo : PurchaseRepo;
-  const partyFilter = (p: Party) => (isSale ? p.type !== "supplier" : p.type !== "customer");
+  const partyFilter = (_p: Party) => true;
 
   const [inv, setInv] = useState<Invoice>(() => existing ?? {
     id: "",
@@ -166,7 +166,7 @@ export function InvoiceForm({ mode, existing }: Props) {
         const newParty: Party = {
           id: genId(),
           name: partyName || `Party ${phone}`,
-          type: isSale ? "customer" : "supplier",
+          type: "both",
           phone,
           openingBalance: 0,
           createdAt: new Date().toISOString(),
@@ -175,7 +175,7 @@ export function InvoiceForm({ mode, existing }: Props) {
         setAllParties(PartyRepo.all());
         partyId = newParty.id;
         partyName = newParty.name;
-        toast.success(`New ${isSale ? "customer" : "supplier"} added: ${partyName}`);
+        toast.success(`New party added: ${partyName}`);
       }
     }
 
@@ -253,7 +253,7 @@ export function InvoiceForm({ mode, existing }: Props) {
             </span>
             {inv.partyId ? (
               <span className="text-[11px] inline-flex items-center gap-1 text-success font-medium bg-success-soft px-2 py-0.5 rounded">
-                ✓ Existing {isSale ? "customer" : "supplier"}
+                ✓ Existing party
               </span>
             ) : (partyQ || phoneQ) ? (
               <span className="text-[11px] inline-flex items-center gap-1 text-primary font-medium bg-primary-soft px-2 py-0.5 rounded">

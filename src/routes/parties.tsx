@@ -37,7 +37,6 @@ function PartiesPage() {
 
   const columns: Column<Party>[] = [
     { key: "name", label: "Name", render: (r) => <span className="font-medium">{r.name}</span>, sortValue: (r) => r.name },
-    { key: "type", label: "Type", width: "90px", render: (r) => <span className="capitalize text-xs px-1.5 py-0.5 rounded bg-muted">{r.type}</span> },
     { key: "phone", label: "Phone", width: "140px", render: (r) => r.phone ?? "—" },
     { key: "gstin", label: "GSTIN", width: "160px", render: (r) => <span className="font-mono text-xs">{r.gstin ?? "—"}</span> },
     { key: "balance", label: "Opening Balance", align: "right", width: "140px", render: (r) => fmtMoney(r.openingBalance), sortValue: (r) => r.openingBalance },
@@ -74,7 +73,7 @@ function PartyDialog({ open, onOpenChange, party, onSaved }: { open: boolean; on
 
   useEffect(() => {
     if (open) {
-      setForm(party ?? { type: "customer", openingBalance: 0 });
+      setForm(party ?? { type: "both", openingBalance: 0 });
       setTimeout(() => firstRef.current?.focus(), 50);
     }
   }, [open, party]);
@@ -86,7 +85,7 @@ function PartyDialog({ open, onOpenChange, party, onSaved }: { open: boolean; on
       PartyRepo.update(party.id, form as Party);
       toast.success("Party updated");
     } else {
-      PartyRepo.add({ ...form, name: form.name!, type: form.type ?? "customer", openingBalance: form.openingBalance ?? 0 } as any);
+      PartyRepo.add({ ...form, name: form.name!, type: "both", openingBalance: form.openingBalance ?? 0 } as any);
       toast.success("Party created");
     }
     onSaved();
@@ -99,14 +98,6 @@ function PartyDialog({ open, onOpenChange, party, onSaved }: { open: boolean; on
         <DialogHeader><DialogTitle>{party ? "Edit Party" : "New Party"}</DialogTitle></DialogHeader>
         <form onSubmit={save} className="grid grid-cols-2 gap-3">
           <Field ref={firstRef} label="Name *" value={form.name ?? ""} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <label className="flex flex-col gap-1 text-[12px]">
-            <span className="text-muted-foreground font-medium">Type</span>
-            <select value={form.type ?? "customer"} onChange={(e) => setForm({ ...form, type: e.target.value as any })} className="h-8 px-2 border rounded bg-background focus:border-primary outline-none">
-              <option value="customer">Customer</option>
-              <option value="supplier">Supplier</option>
-              <option value="both">Both</option>
-            </select>
-          </label>
           <Field label="Phone" value={form.phone ?? ""} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
           <Field label="Email" type="email" value={form.email ?? ""} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           <Field label="GSTIN" value={form.gstin ?? ""} onChange={(e) => setForm({ ...form, gstin: e.target.value.toUpperCase() })} />
