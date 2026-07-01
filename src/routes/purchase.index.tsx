@@ -172,23 +172,6 @@ function PurchasePage() {
           )}
         </div>
 
-        {/* Status tabs */}
-        <div className="flex items-center bg-gray-100 rounded-md p-0.5 gap-0.5">
-          {STATUSES.map((s) => (
-            <button
-              key={s.value}
-              onClick={() => setStatus(s.value)}
-              className={`px-3 py-1 text-xs font-medium rounded transition ${
-                status === s.value
-                  ? "bg-white text-blue-600 shadow-sm font-semibold"
-                  : "text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
-
         {/* Search */}
         <div className="flex items-center gap-1.5 border border-gray-200 rounded-md px-2.5 py-1.5 bg-white flex-1 min-w-[180px] max-w-xs">
           <Search className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
