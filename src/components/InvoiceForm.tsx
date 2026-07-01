@@ -437,6 +437,7 @@ export function InvoiceForm({ mode, existing }: Props) {
           </div>
         </div>
       </div>
+      <PrintableInvoice inv={inv} company={company} mode={mode} />
     </div>
   );
 }
