@@ -22,6 +22,9 @@ export const Field = forwardRef<HTMLInputElement, Props>(function Field(
           error && "border-destructive",
           className,
         )}
+        onWheel={(e) => {
+          if (rest.type === "number") e.currentTarget.blur();
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !(e.target as HTMLInputElement).form) return;
           if (e.key === "Enter") {
