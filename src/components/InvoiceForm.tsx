@@ -418,7 +418,7 @@ export function InvoiceForm({ mode, existing }: Props) {
             {gstOn && <Row label="Tax (GST)" value={fmtMoney(inv.taxAmount)} />}
             <div className="flex justify-between items-center gap-2">
               <span className="text-muted-foreground">Extra Discount</span>
-              <input type="number" value={inv.discount || ""} onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)}
+              <input type="number" value={inv.discount || ""} onWheel={(e) => e.currentTarget.blur()} onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)}
                 placeholder="0"
                 className="w-28 h-8 px-2 text-right border rounded-md bg-background focus:border-primary outline-none tabular-nums" />
             </div>
