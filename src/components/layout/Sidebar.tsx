@@ -68,7 +68,7 @@ export function Sidebar() {
     <aside
       className={cn(
         "shrink-0 border-r bg-sidebar text-sidebar-foreground flex flex-col transition-[width] duration-200",
-        collapsed ? "w-14" : "w-60",
+        collapsed ? "w-14" : "w-48",
       )}
     >
       {/* Brand */}
