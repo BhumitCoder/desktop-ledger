@@ -8,7 +8,7 @@ import {
 import type { Invoice, LineItem, Party, Item, PaymentMode } from "@/types";
 import { fmtMoney, today } from "@/lib/format";
 import { toast } from "sonner";
-import { Trash2, UserPlus, Save, X, Printer, FileText, Receipt } from "lucide-react";
+import { Trash2, UserPlus, Save, X, Printer, FileText, Receipt, Pencil, Check } from "lucide-react";
 import { PrintableInvoice } from "@/components/PrintableInvoice";
 import { genId } from "@/repositories/base";
 
@@ -54,6 +54,8 @@ export function InvoiceForm({ mode, existing }: Props) {
   const [phoneQ, setPhoneQ] = useState(existing?.partyPhone ?? "");
   const [partyOpen, setPartyOpen] = useState(false);
   const [partyIdx, setPartyIdx] = useState(0);
+  const [numberEditing, setNumberEditing] = useState(false);
+  const numberRef = useRef<HTMLInputElement>(null);
 
   const partySuggests = useMemo(() => {
     const q = partyQ.trim().toLowerCase();
@@ -343,10 +345,36 @@ export function InvoiceForm({ mode, existing }: Props) {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
             <div className="flex flex-col gap-1 text-[12px]">
               <span className="text-muted-foreground font-medium">{isSale ? "Invoice #" : "Bill #"}</span>
-              <div className="h-9 px-3 border rounded-md bg-muted flex items-center font-mono font-semibold text-muted-foreground select-none cursor-not-allowed">
-                {inv.number}
+              <div className="flex items-center gap-1">
+                {numberEditing ? (
+                  <>
+                    <input
+                      ref={numberRef}
+                      value={inv.number}
+                      onChange={(e) => setInv({ ...inv, number: e.target.value })}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") setNumberEditing(false); }}
+                      className="h-9 px-3 border-2 border-primary rounded-md bg-background focus:outline-none font-mono font-semibold text-primary flex-1"
+                    />
+                    <button type="button" onClick={() => setNumberEditing(false)}
+                      className="h-9 w-9 flex items-center justify-center rounded-md border bg-success-soft text-success hover:opacity-80 transition flex-shrink-0">
+                      <Check className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="h-9 px-3 border rounded-md bg-muted flex items-center font-mono font-semibold text-muted-foreground flex-1">
+                      {inv.number}
+                    </div>
+                    <button type="button"
+                      onClick={() => { setNumberEditing(true); setTimeout(() => numberRef.current?.focus(), 30); }}
+                      className="h-9 w-9 flex items-center justify-center rounded-md border bg-background hover:bg-accent text-muted-foreground hover:text-foreground transition flex-shrink-0"
+                      title="Edit invoice number">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                )}
               </div>
-              <span className="text-[10px] text-muted-foreground">Auto-generated</span>
+              <span className="text-[10px] text-muted-foreground">Auto-generated · click ✎ to edit</span>
             </div>
 
             <label className="flex flex-col gap-1 text-[12px]">
