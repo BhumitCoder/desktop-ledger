@@ -388,11 +388,11 @@ export function InvoiceForm({ mode, existing }: Props) {
                   <tr key={l.id} className="border-t hover:bg-accent/30">
                     <td className="px-3 py-1.5 text-muted-foreground text-[11px]">{idx + 1}</td>
                     <td className="px-3 py-1.5"><div className="font-medium">{l.name}</div></td>
-                    <td className="py-1.5"><input type="number" value={l.qty} onChange={(e) => updateLine(l.id, { qty: parseFloat(e.target.value) || 0 })} className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none" /></td>
+                    <td className="py-1.5"><input type="number" value={l.qty} onWheel={(e) => e.currentTarget.blur()} onChange={(e) => updateLine(l.id, { qty: parseFloat(e.target.value) || 0 })} className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none" /></td>
                     <td className="py-1.5"><input value={l.unit} onChange={(e) => updateLine(l.id, { unit: e.target.value })} className="w-full h-7 px-1.5 border rounded bg-background focus:border-primary outline-none" /></td>
-                    <td className="py-1.5"><input type="number" value={l.price} onChange={(e) => updateLine(l.id, { price: parseFloat(e.target.value) || 0 })} className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none" /></td>
-                    <td className="py-1.5"><input type="number" value={l.discountPct} onChange={(e) => updateLine(l.id, { discountPct: parseFloat(e.target.value) || 0 })} className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none" /></td>
-                    {gstOn && <td className="py-1.5"><input type="number" value={l.gstRate} onChange={(e) => updateLine(l.id, { gstRate: parseFloat(e.target.value) || 0 })} className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none" /></td>}
+                    <td className="py-1.5"><input type="number" value={l.price} onWheel={(e) => e.currentTarget.blur()} onChange={(e) => updateLine(l.id, { price: parseFloat(e.target.value) || 0 })} className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none" /></td>
+                    <td className="py-1.5"><input type="number" value={l.discountPct} onWheel={(e) => e.currentTarget.blur()} onChange={(e) => updateLine(l.id, { discountPct: parseFloat(e.target.value) || 0 })} className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none" /></td>
+                    {gstOn && <td className="py-1.5"><input type="number" value={l.gstRate} onWheel={(e) => e.currentTarget.blur()} onChange={(e) => updateLine(l.id, { gstRate: parseFloat(e.target.value) || 0 })} className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none" /></td>}
                     <td className="text-right px-3 py-1.5 font-semibold tabular-nums">{fmtMoney(l.amount)}</td>
                     <td className="py-1.5"><button type="button" onClick={() => removeLine(l.id)} className="text-destructive p-1 hover:bg-destructive/10 rounded"><Trash2 className="h-3.5 w-3.5" /></button></td>
                   </tr>
@@ -418,7 +418,7 @@ export function InvoiceForm({ mode, existing }: Props) {
             {gstOn && <Row label="Tax (GST)" value={fmtMoney(inv.taxAmount)} />}
             <div className="flex justify-between items-center gap-2">
               <span className="text-muted-foreground">Extra Discount</span>
-              <input type="number" value={inv.discount || ""} onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)}
+              <input type="number" value={inv.discount || ""} onWheel={(e) => e.currentTarget.blur()} onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)}
                 placeholder="0"
                 className="w-28 h-8 px-2 text-right border rounded-md bg-background focus:border-primary outline-none tabular-nums" />
             </div>
