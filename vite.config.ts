@@ -12,9 +12,8 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
-  // Use Vercel preset for Nitro so `bun run build` produces .vercel/output
   nitro: {
-    preset: "vercel",
+    preset: "node-server",
   },
   vite: {
     server: {
