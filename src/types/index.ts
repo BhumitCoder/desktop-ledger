@@ -53,6 +53,8 @@ export interface Invoice {
   date: string;
   partyId: ID;
   partyName: string;
+  partyPhone?: string;
+  gstEnabled?: boolean;
   lineItems: LineItem[];
   subtotal: number;
   discount: number;
@@ -115,4 +117,5 @@ export interface Company {
   currency: string;
   invoicePrefix: string;
   purchasePrefix: string;
+  enableGst?: boolean;
 }

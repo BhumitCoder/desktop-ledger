@@ -16,13 +16,23 @@ interface WorkspaceState {
   setGlobalSearch: (v: boolean) => void;
   quickAddOpen: null | "sale" | "purchase";
   setQuickAdd: (v: null | "sale" | "purchase") => void;
+  sidebarCollapsed: boolean;
+  toggleSidebar: () => void;
+  setSidebarCollapsed: (v: boolean) => void;
 }
+
+const SIDEBAR_KEY = "bz.sidebarCollapsed";
+const initialCollapsed = (() => {
+  if (typeof window === "undefined") return false;
+  try { return localStorage.getItem(SIDEBAR_KEY) === "1"; } catch { return false; }
+})();
 
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
   tabs: [],
   activeId: null,
   globalSearchOpen: false,
   quickAddOpen: null,
+  sidebarCollapsed: initialCollapsed,
   openTab: (tab) => {
     const exists = get().tabs.find((t) => t.id === tab.id);
     if (exists) {
@@ -40,4 +50,13 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   setActive: (id) => set({ activeId: id }),
   setGlobalSearch: (v) => set({ globalSearchOpen: v }),
   setQuickAdd: (v) => set({ quickAddOpen: v }),
+  toggleSidebar: () => {
+    const v = !get().sidebarCollapsed;
+    set({ sidebarCollapsed: v });
+    try { localStorage.setItem(SIDEBAR_KEY, v ? "1" : "0"); } catch {}
+  },
+  setSidebarCollapsed: (v) => {
+    set({ sidebarCollapsed: v });
+    try { localStorage.setItem(SIDEBAR_KEY, v ? "1" : "0"); } catch {}
+  },
 }));

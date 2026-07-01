@@ -25,6 +25,7 @@ const defaultCompany: Company = {
   currency: "INR",
   invoicePrefix: "INV-",
   purchasePrefix: "PUR-",
+  enableGst: true,
 };
 
 export const CompanyRepo = {
