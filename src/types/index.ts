@@ -53,6 +53,8 @@ export interface Invoice {
   date: string;
   partyId: ID;
   partyName: string;
+  partyPhone?: string;
+  gstEnabled?: boolean;
   lineItems: LineItem[];
   subtotal: number;
   discount: number;
