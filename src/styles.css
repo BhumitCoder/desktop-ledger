@@ -188,3 +188,23 @@
   & tbody tr:hover { background: var(--color-accent); }
   & tbody tr[data-selected="true"] { background: color-mix(in oklch, var(--color-primary) 12%, transparent); }
 }
+
+/* ===== Print styles ===== */
+@media print {
+  @page { size: A4; margin: 12mm; }
+  html, body { background: #fff !important; }
+  body * { visibility: hidden !important; }
+  .print-area, .print-area * { visibility: visible !important; }
+  .print-area {
+    position: absolute !important;
+    left: 0; top: 0; right: 0;
+    width: 100%;
+    padding: 0;
+    color: #000;
+    background: #fff;
+    font-size: 12px;
+  }
+  .no-print { display: none !important; }
+}
+.print-area { display: none; }
+@media print { .print-area { display: block; } }
