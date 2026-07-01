@@ -384,9 +384,6 @@ export function InvoiceForm({ mode, existing }: Props) {
                 className="h-9 px-3 border rounded-md bg-background focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none">
                 <option value="cash">Cash</option>
                 <option value="bank">Bank</option>
-                <option value="upi">UPI</option>
-                <option value="credit">Credit / Due</option>
-                <option value="cheque">Cheque</option>
               </select>
             </label>
 
