@@ -214,27 +214,10 @@ function SalesPage() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-0 bg-white border-b">
+      <div className="grid grid-cols-3 gap-0 bg-white border-b">
         <SummaryCard label="Total Sale" value={totalAmount} color="text-gray-800" border />
         <SummaryCard label="Total Paid" value={totalPaid} color="text-emerald-600" border />
-        <SummaryCard label="Total Receivable" value={totalBalance} color="text-rose-600" border />
-        <div className="px-5 py-3.5">
-          <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-1.5">Status Breakdown</p>
-          <div className="flex flex-col gap-0.5">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-emerald-600 font-medium">Paid</span>
-              <span className="font-semibold text-gray-700">{paidCount}</span>
-            </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-amber-500 font-medium">Partial</span>
-              <span className="font-semibold text-gray-700">{partialCount}</span>
-            </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-rose-500 font-medium">Unpaid</span>
-              <span className="font-semibold text-gray-700">{unpaidCount}</span>
-            </div>
-          </div>
-        </div>
+        <SummaryCard label="Total Receivable" value={totalBalance} color="text-rose-600" />
       </div>
 
       {/* Table */}
