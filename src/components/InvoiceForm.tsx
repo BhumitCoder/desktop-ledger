@@ -343,13 +343,10 @@ export function InvoiceForm({ mode, existing }: Props) {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
             <div className="flex flex-col gap-1 text-[12px]">
               <span className="text-muted-foreground font-medium">{isSale ? "Invoice #" : "Bill #"}</span>
-              <input
-                value={inv.number}
-                onChange={(e) => setInv({ ...inv, number: e.target.value })}
-                className="h-9 px-3 border-2 border-primary/40 rounded-md bg-primary-soft focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none font-mono font-semibold text-primary"
-                placeholder="e.g. INV-0001"
-              />
-              <span className="text-[10px] text-muted-foreground">Auto-generated · editable</span>
+              <div className="h-9 px-3 border rounded-md bg-muted flex items-center font-mono font-semibold text-muted-foreground select-none cursor-not-allowed">
+                {inv.number}
+              </div>
+              <span className="text-[10px] text-muted-foreground">Auto-generated</span>
             </div>
 
             <label className="flex flex-col gap-1 text-[12px]">
