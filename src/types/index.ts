@@ -108,6 +108,23 @@ export interface Payment {
   createdAt: string;
 }
 
+export interface Return {
+  id: ID;
+  number: string;
+  date: string;
+  originalRef?: string;
+  partyId: ID;
+  partyName: string;
+  partyPhone?: string;
+  gstEnabled?: boolean;
+  lineItems: LineItem[];
+  subtotal: number;
+  taxAmount: number;
+  total: number;
+  notes?: string;
+  createdAt: string;
+}
+
 export interface Company {
   name: string;
   gstin?: string;

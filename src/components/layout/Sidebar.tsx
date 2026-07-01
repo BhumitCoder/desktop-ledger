@@ -16,6 +16,8 @@ import {
   Sparkles,
   ChevronsLeft,
   ChevronsRight,
+  CornerDownLeft,
+  CornerUpLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWorkspace } from "@/store/workspace";
@@ -37,7 +39,9 @@ const groups: NavGroup[] = [
     title: "Transactions",
     items: [
       { path: "/sales", label: "Sales", icon: ShoppingCart, key: "4" },
+      { path: "/sale-return", label: "Sale Return", icon: CornerDownLeft },
       { path: "/purchase", label: "Purchase", icon: Truck, key: "5" },
+      { path: "/purchase-return", label: "Purchase Return", icon: CornerUpLeft },
       { path: "/expenses", label: "Expenses", icon: Receipt, key: "6" },
       { path: "/payments", label: "Payments", icon: Wallet },
     ],

@@ -7,6 +7,7 @@ import type {
   BankAccount,
   BankTxn,
   Payment,
+  Return,
   Company,
 } from "@/types";
 
@@ -14,6 +15,8 @@ export const PartyRepo = new Repository<Party>("bz.parties");
 export const ItemRepo = new Repository<Item>("bz.items");
 export const SalesRepo = new Repository<Invoice>("bz.sales");
 export const PurchaseRepo = new Repository<Invoice>("bz.purchases");
+export const SaleReturnRepo = new Repository<Return>("bz.sale-returns");
+export const PurchaseReturnRepo = new Repository<Return>("bz.purchase-returns");
 export const ExpenseRepo = new Repository<Expense>("bz.expenses");
 export const BankRepo = new Repository<BankAccount>("bz.banks");
 export const BankTxnRepo = new Repository<BankTxn>("bz.bankTxns");
