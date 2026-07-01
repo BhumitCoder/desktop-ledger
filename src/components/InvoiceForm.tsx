@@ -9,6 +9,7 @@ import type { Invoice, LineItem, Party, Item, PaymentMode } from "@/types";
 import { fmtMoney, today } from "@/lib/format";
 import { toast } from "sonner";
 import { Trash2, UserPlus, Save, X, Printer, FileText, Receipt } from "lucide-react";
+import { PrintableInvoice } from "@/components/PrintableInvoice";
 import { genId } from "@/repositories/base";
 
 interface Props {
