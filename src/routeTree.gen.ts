@@ -9,38 +9,294 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as ReportsRouteImport } from './routes/reports'
+import { Route as PaymentsRouteImport } from './routes/payments'
+import { Route as PartiesRouteImport } from './routes/parties'
+import { Route as ItemsRouteImport } from './routes/items'
+import { Route as InventoryRouteImport } from './routes/inventory'
+import { Route as GstRouteImport } from './routes/gst'
+import { Route as ExpensesRouteImport } from './routes/expenses'
+import { Route as CashRouteImport } from './routes/cash'
+import { Route as BankRouteImport } from './routes/bank'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SalesIndexRouteImport } from './routes/sales.index'
+import { Route as PurchaseIndexRouteImport } from './routes/purchase.index'
+import { Route as SalesNewRouteImport } from './routes/sales.new'
+import { Route as PurchaseNewRouteImport } from './routes/purchase.new'
 
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReportsRoute = ReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PaymentsRoute = PaymentsRouteImport.update({
+  id: '/payments',
+  path: '/payments',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PartiesRoute = PartiesRouteImport.update({
+  id: '/parties',
+  path: '/parties',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ItemsRoute = ItemsRouteImport.update({
+  id: '/items',
+  path: '/items',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InventoryRoute = InventoryRouteImport.update({
+  id: '/inventory',
+  path: '/inventory',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GstRoute = GstRouteImport.update({
+  id: '/gst',
+  path: '/gst',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ExpensesRoute = ExpensesRouteImport.update({
+  id: '/expenses',
+  path: '/expenses',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CashRoute = CashRouteImport.update({
+  id: '/cash',
+  path: '/cash',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BankRoute = BankRouteImport.update({
+  id: '/bank',
+  path: '/bank',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SalesIndexRoute = SalesIndexRouteImport.update({
+  id: '/sales/',
+  path: '/sales/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PurchaseIndexRoute = PurchaseIndexRouteImport.update({
+  id: '/purchase/',
+  path: '/purchase/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SalesNewRoute = SalesNewRouteImport.update({
+  id: '/sales/new',
+  path: '/sales/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PurchaseNewRoute = PurchaseNewRouteImport.update({
+  id: '/purchase/new',
+  path: '/purchase/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/bank': typeof BankRoute
+  '/cash': typeof CashRoute
+  '/expenses': typeof ExpensesRoute
+  '/gst': typeof GstRoute
+  '/inventory': typeof InventoryRoute
+  '/items': typeof ItemsRoute
+  '/parties': typeof PartiesRoute
+  '/payments': typeof PaymentsRoute
+  '/reports': typeof ReportsRoute
+  '/settings': typeof SettingsRoute
+  '/purchase/new': typeof PurchaseNewRoute
+  '/sales/new': typeof SalesNewRoute
+  '/purchase/': typeof PurchaseIndexRoute
+  '/sales/': typeof SalesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/bank': typeof BankRoute
+  '/cash': typeof CashRoute
+  '/expenses': typeof ExpensesRoute
+  '/gst': typeof GstRoute
+  '/inventory': typeof InventoryRoute
+  '/items': typeof ItemsRoute
+  '/parties': typeof PartiesRoute
+  '/payments': typeof PaymentsRoute
+  '/reports': typeof ReportsRoute
+  '/settings': typeof SettingsRoute
+  '/purchase/new': typeof PurchaseNewRoute
+  '/sales/new': typeof SalesNewRoute
+  '/purchase': typeof PurchaseIndexRoute
+  '/sales': typeof SalesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/bank': typeof BankRoute
+  '/cash': typeof CashRoute
+  '/expenses': typeof ExpensesRoute
+  '/gst': typeof GstRoute
+  '/inventory': typeof InventoryRoute
+  '/items': typeof ItemsRoute
+  '/parties': typeof PartiesRoute
+  '/payments': typeof PaymentsRoute
+  '/reports': typeof ReportsRoute
+  '/settings': typeof SettingsRoute
+  '/purchase/new': typeof PurchaseNewRoute
+  '/sales/new': typeof SalesNewRoute
+  '/purchase/': typeof PurchaseIndexRoute
+  '/sales/': typeof SalesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/bank'
+    | '/cash'
+    | '/expenses'
+    | '/gst'
+    | '/inventory'
+    | '/items'
+    | '/parties'
+    | '/payments'
+    | '/reports'
+    | '/settings'
+    | '/purchase/new'
+    | '/sales/new'
+    | '/purchase/'
+    | '/sales/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/bank'
+    | '/cash'
+    | '/expenses'
+    | '/gst'
+    | '/inventory'
+    | '/items'
+    | '/parties'
+    | '/payments'
+    | '/reports'
+    | '/settings'
+    | '/purchase/new'
+    | '/sales/new'
+    | '/purchase'
+    | '/sales'
+  id:
+    | '__root__'
+    | '/'
+    | '/bank'
+    | '/cash'
+    | '/expenses'
+    | '/gst'
+    | '/inventory'
+    | '/items'
+    | '/parties'
+    | '/payments'
+    | '/reports'
+    | '/settings'
+    | '/purchase/new'
+    | '/sales/new'
+    | '/purchase/'
+    | '/sales/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  BankRoute: typeof BankRoute
+  CashRoute: typeof CashRoute
+  ExpensesRoute: typeof ExpensesRoute
+  GstRoute: typeof GstRoute
+  InventoryRoute: typeof InventoryRoute
+  ItemsRoute: typeof ItemsRoute
+  PartiesRoute: typeof PartiesRoute
+  PaymentsRoute: typeof PaymentsRoute
+  ReportsRoute: typeof ReportsRoute
+  SettingsRoute: typeof SettingsRoute
+  PurchaseNewRoute: typeof PurchaseNewRoute
+  SalesNewRoute: typeof SalesNewRoute
+  PurchaseIndexRoute: typeof PurchaseIndexRoute
+  SalesIndexRoute: typeof SalesIndexRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reports': {
+      id: '/reports'
+      path: '/reports'
+      fullPath: '/reports'
+      preLoaderRoute: typeof ReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/payments': {
+      id: '/payments'
+      path: '/payments'
+      fullPath: '/payments'
+      preLoaderRoute: typeof PaymentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/parties': {
+      id: '/parties'
+      path: '/parties'
+      fullPath: '/parties'
+      preLoaderRoute: typeof PartiesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/items': {
+      id: '/items'
+      path: '/items'
+      fullPath: '/items'
+      preLoaderRoute: typeof ItemsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/inventory': {
+      id: '/inventory'
+      path: '/inventory'
+      fullPath: '/inventory'
+      preLoaderRoute: typeof InventoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/gst': {
+      id: '/gst'
+      path: '/gst'
+      fullPath: '/gst'
+      preLoaderRoute: typeof GstRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/expenses': {
+      id: '/expenses'
+      path: '/expenses'
+      fullPath: '/expenses'
+      preLoaderRoute: typeof ExpensesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cash': {
+      id: '/cash'
+      path: '/cash'
+      fullPath: '/cash'
+      preLoaderRoute: typeof CashRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/bank': {
+      id: '/bank'
+      path: '/bank'
+      fullPath: '/bank'
+      preLoaderRoute: typeof BankRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -48,22 +304,54 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/sales/': {
+      id: '/sales/'
+      path: '/sales'
+      fullPath: '/sales/'
+      preLoaderRoute: typeof SalesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/purchase/': {
+      id: '/purchase/'
+      path: '/purchase'
+      fullPath: '/purchase/'
+      preLoaderRoute: typeof PurchaseIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sales/new': {
+      id: '/sales/new'
+      path: '/sales/new'
+      fullPath: '/sales/new'
+      preLoaderRoute: typeof SalesNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/purchase/new': {
+      id: '/purchase/new'
+      path: '/purchase/new'
+      fullPath: '/purchase/new'
+      preLoaderRoute: typeof PurchaseNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  BankRoute: BankRoute,
+  CashRoute: CashRoute,
+  ExpensesRoute: ExpensesRoute,
+  GstRoute: GstRoute,
+  InventoryRoute: InventoryRoute,
+  ItemsRoute: ItemsRoute,
+  PartiesRoute: PartiesRoute,
+  PaymentsRoute: PaymentsRoute,
+  ReportsRoute: ReportsRoute,
+  SettingsRoute: SettingsRoute,
+  PurchaseNewRoute: PurchaseNewRoute,
+  SalesNewRoute: SalesNewRoute,
+  PurchaseIndexRoute: PurchaseIndexRoute,
+  SalesIndexRoute: SalesIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
