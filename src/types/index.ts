@@ -117,4 +117,5 @@ export interface Company {
   currency: string;
   invoicePrefix: string;
   purchasePrefix: string;
+  enableGst?: boolean;
 }
