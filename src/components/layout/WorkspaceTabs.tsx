@@ -17,15 +17,17 @@ export function WorkspaceTabs() {
   if (!tabs.length) return null;
 
   return (
-    <div className="h-9 border-b bg-muted/40 flex items-end px-1 gap-0.5 overflow-x-auto shrink-0">
+    <div className="h-10 border-b bg-muted/50 flex items-end px-2 gap-0.5 overflow-x-auto shrink-0">
       {tabs.map((tab) => {
         const active = tab.path === pathname;
         return (
           <div
             key={tab.id}
             className={cn(
-              "group flex items-center gap-1.5 h-8 pl-3 pr-1.5 border border-b-0 rounded-t-md text-xs cursor-pointer",
-              active ? "bg-background border-border" : "bg-transparent border-transparent hover:bg-background/60",
+              "group flex items-center gap-1.5 h-9 pl-3.5 pr-1.5 border border-b-0 rounded-t-md text-[12px] cursor-pointer transition-colors",
+              active
+                ? "bg-background border-border font-semibold text-foreground shadow-[0_-2px_0_var(--color-primary)_inset]"
+                : "bg-transparent border-transparent text-muted-foreground hover:bg-background/70 hover:text-foreground",
             )}
           >
             <Link to={tab.path} className="max-w-[160px] truncate">
