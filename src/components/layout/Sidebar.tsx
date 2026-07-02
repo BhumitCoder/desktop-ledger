@@ -18,12 +18,15 @@ import {
   ChevronsRight,
   CornerDownLeft,
   CornerUpLeft,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWorkspace } from "@/store/workspace";
+import { useState } from "react";
 
 type NavItem = { path: string; label: string; icon: any; key?: string };
-type NavGroup = { title: string; items: NavItem[] };
+type NavGroup = { title: string; items: NavItem[]; collapsible?: boolean; defaultOpen?: boolean };
 
 const groups: NavGroup[] = [
   { title: "Overview", items: [{ path: "/", label: "Dashboard", icon: LayoutDashboard, key: "1" }] },
@@ -37,6 +40,8 @@ const groups: NavGroup[] = [
   },
   {
     title: "Sales",
+    collapsible: true,
+    defaultOpen: false,
     items: [
       { path: "/sales", label: "Sales", icon: ShoppingCart, key: "4" },
       { path: "/sale-return", label: "Sale Return", icon: CornerDownLeft },
@@ -44,6 +49,8 @@ const groups: NavGroup[] = [
   },
   {
     title: "Purchase & Expenses",
+    collapsible: true,
+    defaultOpen: false,
     items: [
       { path: "/purchase", label: "Purchase", icon: Truck, key: "5" },
       { path: "/purchase-return", label: "Purchase Return", icon: CornerUpLeft },
@@ -52,6 +59,8 @@ const groups: NavGroup[] = [
   },
   {
     title: "Payments",
+    collapsible: true,
+    defaultOpen: false,
     items: [
       { path: "/payments", label: "Payments", icon: Wallet },
     ],
@@ -78,6 +87,17 @@ export function Sidebar() {
   const collapsed = useWorkspace((s) => s.sidebarCollapsed);
   const toggle = useWorkspace((s) => s.toggleSidebar);
 
+  const initOpen: Record<string, boolean> = {};
+  groups.forEach((g) => { if (g.collapsible) initOpen[g.title] = g.defaultOpen ?? false; });
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(initOpen);
+
+  const toggleGroup = (title: string) =>
+    setOpenGroups((prev) => ({ ...prev, [title]: !prev[title] }));
+
+  // Auto-expand group if the active route belongs to it
+  const isGroupActive = (g: NavGroup) =>
+    g.items.some((it) => it.path === pathname || (it.path !== "/" && pathname.startsWith(it.path)));
+
   return (
     <aside
       className={cn(
@@ -86,7 +106,7 @@ export function Sidebar() {
       )}
     >
       {/* Brand */}
-      <div className="h-14 flex items-center gap-2.5 bg-gradient-brand text-brand-foreground shrink-0 px-3 relative">
+      <div className="h-14 flex items-center gap-2.5 bg-gradient-brand text-brand-foreground shrink-0 px-3">
         <div className="h-8 w-8 rounded-md bg-white/15 backdrop-blur flex items-center justify-center ring-1 ring-white/20 shrink-0">
           <Sparkles className="h-4 w-4" />
         </div>
@@ -99,39 +119,60 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 overflow-y-auto overflow-x-hidden py-2 text-[13px]">
-        {groups.map((g) => (
-          <div key={g.title} className="mb-2">
-            {!collapsed && (
-              <div className="px-4 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-muted">
-                {g.title}
-              </div>
-            )}
-            {collapsed && <div className="mx-3 my-2 border-t border-sidebar-border" />}
-            {g.items.map((it) => {
-              const active = pathname === it.path || (it.path !== "/" && pathname.startsWith(it.path));
-              const Icon = it.icon;
-              return (
-                <Link
-                  key={it.path}
-                  to={it.path}
-                  title={collapsed ? it.label : undefined}
-                  className={cn(
-                    "group flex items-center gap-2.5 py-2 border-l-[3px] border-transparent transition-colors",
-                    collapsed ? "px-3 justify-center" : "px-4",
-                    "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                    active && "bg-sidebar-accent text-sidebar-accent-foreground border-primary font-semibold",
-                  )}
-                >
-                  <Icon className={cn("h-4 w-4 shrink-0", active ? "opacity-100" : "opacity-70 group-hover:opacity-100")} />
-                  {!collapsed && <span className="flex-1 truncate">{it.label}</span>}
-                  {!collapsed && it.key && (
-                    <kbd className="text-[9px] opacity-60 font-mono">Alt+{it.key}</kbd>
-                  )}
-                </Link>
-              );
-            })}
-          </div>
-        ))}
+        {groups.map((g) => {
+          const active = isGroupActive(g);
+          const isOpen = g.collapsible ? (openGroups[g.title] || active) : true;
+
+          return (
+            <div key={g.title} className="mb-1">
+              {!collapsed && (
+                g.collapsible ? (
+                  <button
+                    onClick={() => toggleGroup(g.title)}
+                    className={cn(
+                      "w-full flex items-center justify-between px-4 pt-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-wider transition-colors",
+                      active ? "text-primary" : "text-sidebar-muted hover:text-sidebar-foreground",
+                    )}
+                  >
+                    <span>{g.title}</span>
+                    {isOpen && !active
+                      ? <ChevronDown className="h-3 w-3 opacity-60" />
+                      : <ChevronRight className="h-3 w-3 opacity-60" />}
+                  </button>
+                ) : (
+                  <div className="px-4 pt-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-sidebar-muted">
+                    {g.title}
+                  </div>
+                )
+              )}
+              {collapsed && <div className="mx-3 my-1.5 border-t border-sidebar-border" />}
+
+              {(collapsed || isOpen) && g.items.map((it) => {
+                const itemActive = pathname === it.path || (it.path !== "/" && pathname.startsWith(it.path));
+                const Icon = it.icon;
+                return (
+                  <Link
+                    key={it.path}
+                    to={it.path}
+                    title={collapsed ? it.label : undefined}
+                    className={cn(
+                      "group flex items-center gap-2.5 py-2 border-l-[3px] border-transparent transition-colors",
+                      collapsed ? "px-3 justify-center" : "px-4",
+                      "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                      itemActive && "bg-sidebar-accent text-sidebar-accent-foreground border-primary font-semibold",
+                    )}
+                  >
+                    <Icon className={cn("h-4 w-4 shrink-0", itemActive ? "opacity-100" : "opacity-70 group-hover:opacity-100")} />
+                    {!collapsed && <span className="flex-1 truncate">{it.label}</span>}
+                    {!collapsed && it.key && (
+                      <kbd className="text-[9px] opacity-60 font-mono">Alt+{it.key}</kbd>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          );
+        })}
       </nav>
 
       <button
