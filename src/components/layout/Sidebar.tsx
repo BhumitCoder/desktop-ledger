@@ -36,13 +36,23 @@ const groups: NavGroup[] = [
     ],
   },
   {
-    title: "Transactions",
+    title: "Sales",
     items: [
       { path: "/sales", label: "Sales", icon: ShoppingCart, key: "4" },
       { path: "/sale-return", label: "Sale Return", icon: CornerDownLeft },
+    ],
+  },
+  {
+    title: "Purchase & Expenses",
+    items: [
       { path: "/purchase", label: "Purchase", icon: Truck, key: "5" },
       { path: "/purchase-return", label: "Purchase Return", icon: CornerUpLeft },
       { path: "/expenses", label: "Expenses", icon: Receipt, key: "6" },
+    ],
+  },
+  {
+    title: "Payments",
+    items: [
       { path: "/payments", label: "Payments", icon: Wallet },
     ],
   },
