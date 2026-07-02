@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bun -v)",
+      "Bash(npm -v)",
+      "Bash(npx --yes bun --version)",
+      "Bash(NITRO_PRESET=vercel npx bun run build)",
+      "Bash(git rm *)"
+    ]
+  }
+}
