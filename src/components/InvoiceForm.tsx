@@ -30,7 +30,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { PrintableInvoice } from "@/components/PrintableInvoice";
-import { genId } from "@/repositories/base";
+import { genId, newBatch, commitBatch } from "@/repositories/base";
 
 interface Props {
   mode: "sale" | "purchase";
@@ -92,6 +92,7 @@ export function InvoiceForm({ mode, existing }: Props) {
       isSale ? SalesRepo.all() : PurchaseRepo.all(),
       isSale ? SaleReturnRepo.all() : PurchaseReturnRepo.all(),
       PaymentRepo.all().filter((p) => p.type === (isSale ? "in" : "out")),
+      allParties.filter((p) => (isSale ? p.type !== "supplier" : p.type !== "customer")),
     );
     return list.find((b) => b.partyId === inv.partyId)?.balance ?? 0;
   }, [inv.partyId, isSale]);
@@ -202,6 +203,10 @@ export function InvoiceForm({ mode, existing }: Props) {
     const lines = inv.lineItems.map((l) => {
       if (l.id !== id) return l;
       const nl = { ...l, ...patch };
+      // Clamp so a mistyped discount (e.g. 500 instead of 50) or a negative
+      // GST rate can never flip the line amount negative.
+      nl.discountPct = Math.min(100, Math.max(0, nl.discountPct));
+      nl.gstRate = Math.max(0, nl.gstRate);
       const gstMult = gstOn ? 1 + nl.gstRate / 100 : 1;
       nl.amount = r2(r2(nl.qty * nl.price * (1 - nl.discountPct / 100)) * gstMult);
       return nl;
@@ -262,6 +267,36 @@ export function InvoiceForm({ mode, existing }: Props) {
       toast.info(`Paid amount adjusted to bill total ${fmtMoney(inv.total)}`);
     }
 
+    // Everything below must land together or not at all: the invoice write,
+    // its stock adjustments, and any Payment re-allocation. A shared batch
+    // commits them as one atomic Firestore write instead of independent
+    // fire-and-forget calls that could partially fail and desync stock/money.
+    const batch = newBatch();
+
+    // If editing dropped the settled amount (bill total reduced, or paid
+    // lowered manually), any Payment allocations tied to this invoice can now
+    // exceed what's actually owed. Trim them so the freed money surfaces as
+    // an advance for the party instead of silently vanishing from every
+    // ledger report (same invariant the delete flow already protects).
+    if (existing?.id && paid < existing.paid) {
+      let excess = r2(existing.paid - paid);
+      for (const p of PaymentRepo.all()) {
+        if (excess <= 0) break;
+        const alloc = p.allocations?.find((a) => a.invoiceId === existing.id);
+        if (!alloc) continue;
+        const reduceBy = Math.min(alloc.amount, excess);
+        const remaining = p
+          .allocations!.map((a) =>
+            a.invoiceId === existing.id ? { ...a, amount: r2(a.amount - reduceBy) } : a,
+          )
+          .filter((a) => a.amount > 0);
+        PaymentRepo.updateBatched(batch, p.id, {
+          allocations: remaining.length ? remaining : undefined,
+        });
+        excess = r2(excess - reduceBy);
+      }
+    }
+
     // Resolve or auto-create party
     let partyId = inv.partyId;
     let partyName = inv.partyName || partyQ.trim();
@@ -293,7 +328,7 @@ export function InvoiceForm({ mode, existing }: Props) {
           openingBalance: 0,
           createdAt: new Date().toISOString(),
         };
-        PartyRepo.add(newParty);
+        PartyRepo.addBatched(batch, newParty);
         setAllParties(PartyRepo.all());
         partyId = newParty.id;
         partyName = newParty.name;
@@ -311,7 +346,7 @@ export function InvoiceForm({ mode, existing }: Props) {
       const origDelta = isSale ? 1 : -1;
       for (const l of existing.lineItems) {
         const it = ItemRepo.get(l.itemId);
-        if (it) ItemRepo.adjustField(it.id, "stock", origDelta * l.qty);
+        if (it) ItemRepo.adjustFieldBatched(batch, it.id, "stock", origDelta * l.qty);
       }
     }
 
@@ -326,7 +361,7 @@ export function InvoiceForm({ mode, existing }: Props) {
         // Purchase price: always track the LATEST cost so profit stays accurate
         if (!isSale && it.purchasePrice !== l.price) extra.purchasePrice = l.price;
       }
-      ItemRepo.adjustField(it.id, "stock", stockDelta * l.qty, extra);
+      ItemRepo.adjustFieldBatched(batch, it.id, "stock", stockDelta * l.qty, extra);
     }
 
     // Warn (non-blocking) when a sale pushes stock below zero — shop can still bill
@@ -356,13 +391,14 @@ export function InvoiceForm({ mode, existing }: Props) {
 
     let savedId: string;
     if (existing?.id) {
-      repo.update(existing.id, finalInv);
+      repo.updateBatched(batch, existing.id, finalInv);
       savedId = existing.id;
       toast.success(`${isSale ? "Sale" : "Purchase"} ${finalInv.number} updated`);
     } else {
-      savedId = (repo.add(finalInv as any) as Invoice).id;
+      savedId = (repo.addBatched(batch, finalInv as any) as Invoice).id;
       toast.success(`${isSale ? "Sale" : "Purchase"} ${finalInv.number} saved`);
     }
+    commitBatch(batch, `save ${isSale ? "sale" : "purchase"}`);
     if (andPrint) {
       navigate({
         to: isSale ? "/sales/$id" : "/purchase/$id",

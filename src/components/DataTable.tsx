@@ -54,6 +54,14 @@ export function DataTable<T>({
     if (selectedIdx >= paged.length) setSelectedIdx(Math.max(0, paged.length - 1));
   }, [paged.length, selectedIdx]);
 
+  // The "selected" row is tracked by numeric index into `paged` — if that
+  // index isn't reset when the row order/page changes, keyboard actions
+  // (Enter, Ctrl+Delete) silently act on whatever record now sits at the
+  // same position instead of the row the user actually selected.
+  useEffect(() => {
+    setSelectedIdx(0);
+  }, [sortKey, sortDir, pg.page]);
+
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();

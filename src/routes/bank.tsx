@@ -65,6 +65,7 @@ function BankPage() {
   ];
 
   const accountsTotal = rows.reduce((s, r) => s + r.balance, 0);
+  const openingTotal = rows.reduce((s, r) => s + r.openingBalance, 0);
   // All bank/UPI/cheque activity (sales, purchases, expenses, payments) affects the real balance
   const bankActivity = netFlow(
     bankFlows(SalesRepo.all(), PurchaseRepo.all(), ExpenseRepo.all(), PaymentRepo.all()),
@@ -75,7 +76,7 @@ function BankPage() {
     <div className="flex flex-col h-full">
       <PageHeader
         title="Bank Accounts"
-        subtitle={`${rows.length} accounts · Opening: ${fmtMoney(accountsTotal)} · Bank transactions: ${bankActivity >= 0 ? "+" : "−"}${fmtMoney(Math.abs(bankActivity))} · Total: ${fmtMoney(totalBalance)}`}
+        subtitle={`${rows.length} accounts · Opening: ${fmtMoney(openingTotal)} · Bank transactions: ${bankActivity >= 0 ? "+" : "−"}${fmtMoney(Math.abs(bankActivity))} · Total: ${fmtMoney(totalBalance)}`}
         actions={
           <div className="flex gap-2">
             {rows.length > 0 && (

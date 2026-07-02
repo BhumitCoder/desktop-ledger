@@ -70,9 +70,15 @@ export function PrintableInvoice({ inv, company, mode }: Props) {
   // Aggregate GST by rate for summary
   const gstBuckets: Record<string, { taxable: number; tax: number }> = {};
   let taxableTotal = 0;
+  // Sum of the printed "Amount" column (taxable + GST per line) — must match
+  // the line-items table footer exactly, since that footer is not the same
+  // figure as the Grand Total below (which also applies Extra Discount/Round Off).
+  let lineAmountTotal = 0;
   inv.lineItems.forEach((l) => {
     const taxable = l.qty * l.price * (1 - l.discountPct / 100);
     taxableTotal += taxable;
+    const gstAmt = gstOn ? taxable * (l.gstRate / 100) : 0;
+    lineAmountTotal += taxable + gstAmt;
     if (gstOn) {
       const key = l.gstRate.toString();
       if (!gstBuckets[key]) gstBuckets[key] = { taxable: 0, tax: 0 };
@@ -206,17 +212,17 @@ export function PrintableInvoice({ inv, company, mode }: Props) {
             ))}
           <tr>
             <td style={{ ...cellStyle, fontWeight: 700 }} colSpan={2}>
-              Total
+              Item Total
             </td>
             <td style={{ ...cellStyle, textAlign: "right", fontWeight: 700 }}>{totalQty}</td>
             <td style={cellStyle} colSpan={gstOn ? 4 : 2}></td>
             {gstOn && (
               <td style={{ ...cellStyle, textAlign: "right", fontWeight: 700 }}>
-                {fmtMoney(inv.taxAmount)}
+                {fmtMoney(Object.values(gstBuckets).reduce((s, b) => s + b.tax, 0))}
               </td>
             )}
             <td style={{ ...cellStyle, textAlign: "right", fontWeight: 700 }}>
-              {fmtMoney(inv.subtotal + inv.taxAmount)}
+              {fmtMoney(lineAmountTotal)}
             </td>
           </tr>
         </tbody>

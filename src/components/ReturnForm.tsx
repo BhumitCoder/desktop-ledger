@@ -16,7 +16,7 @@ import type { Return, LineItem, Party, Item, Invoice } from "@/types";
 import { fmtMoney, today } from "@/lib/format";
 import { toast } from "sonner";
 import { Trash2, UserPlus, Save, X, CornerDownLeft, CornerUpLeft, Loader2 } from "lucide-react";
-import { genId } from "@/repositories/base";
+import { genId, newBatch, commitBatch } from "@/repositories/base";
 
 interface Props {
   mode: "sale-return" | "purchase-return";
@@ -153,6 +153,10 @@ export function ReturnForm({ mode }: Props) {
     const lines = ret.lineItems.map((l) => {
       if (l.id !== id) return l;
       const nl = { ...l, ...patch };
+      // Clamp so a mistyped discount (e.g. 500 instead of 50) or a negative
+      // GST rate can never flip the line amount negative.
+      nl.discountPct = Math.min(100, Math.max(0, nl.discountPct));
+      nl.gstRate = Math.max(0, nl.gstRate);
       const gstMult = gstOn ? 1 + nl.gstRate / 100 : 1;
       nl.amount = r2(r2(nl.qty * nl.price * (1 - nl.discountPct / 100)) * gstMult);
       return nl;
@@ -192,8 +196,50 @@ export function ReturnForm({ mode }: Props) {
       toast.error(`Check quantity/price for "${badLine.name}" — qty must be more than 0`);
       return;
     }
+
+    // When this return is linked to an original invoice, cap each item's
+    // return qty at what's actually left to return — otherwise the same
+    // invoice can be returned twice (or more than was ever sold/purchased),
+    // crediting stock and the party's balance more than once.
+    const ref = (ret.originalRef ?? "").trim();
+    if (ref) {
+      const originalInvoice = invoiceRepo.all().find((i) => i.number.trim() === ref);
+      if (originalInvoice) {
+        const originalQty = new Map<string, number>();
+        for (const l of originalInvoice.lineItems) {
+          originalQty.set(l.itemId, (originalQty.get(l.itemId) ?? 0) + l.qty);
+        }
+        const alreadyReturned = new Map<string, number>();
+        for (const r of repo.all()) {
+          if ((r.originalRef ?? "").trim() !== ref) continue;
+          for (const l of r.lineItems) {
+            alreadyReturned.set(l.itemId, (alreadyReturned.get(l.itemId) ?? 0) + l.qty);
+          }
+        }
+        for (const l of ret.lineItems) {
+          const bought = originalQty.get(l.itemId) ?? 0;
+          const already = alreadyReturned.get(l.itemId) ?? 0;
+          const remaining = r2(bought - already);
+          if (l.qty > remaining + 0.0001) {
+            toast.error(
+              remaining > 0
+                ? `"${l.name}" — only ${remaining} ${l.unit} left to return from ${ref} (already returned ${already})`
+                : `"${l.name}" has already been fully returned from ${ref}`,
+            );
+            return;
+          }
+        }
+      }
+    }
+
     savingRef.current = true;
     setSaving(true);
+
+    // The new party (if any), the return document, and its stock adjustments
+    // must all land together or not at all — a shared batch commits them as
+    // one atomic Firestore write, so a failed commit can't leave an orphaned
+    // party with no corresponding return.
+    const batch = newBatch();
 
     if (!partyId) {
       const match = allParties.find((p) => p.name.toLowerCase() === partyName.toLowerCase());
@@ -208,7 +254,7 @@ export function ReturnForm({ mode }: Props) {
           openingBalance: 0,
           createdAt: new Date().toISOString(),
         };
-        PartyRepo.add(np);
+        PartyRepo.addBatched(batch, np);
         partyId = np.id;
         toast.success(`New party added: ${partyName}`);
       }
@@ -221,10 +267,11 @@ export function ReturnForm({ mode }: Props) {
     const stockDelta = isSaleReturn ? 1 : -1;
     for (const l of finalRet.lineItems) {
       const it = ItemRepo.get(l.itemId);
-      if (it) ItemRepo.adjustField(it.id, "stock", stockDelta * l.qty);
+      if (it) ItemRepo.adjustFieldBatched(batch, it.id, "stock", stockDelta * l.qty);
     }
 
-    repo.add(finalRet as any);
+    repo.addBatched(batch, finalRet as any);
+    commitBatch(batch, `save ${isSaleReturn ? "sale return" : "purchase return"}`);
     toast.success(`${isSaleReturn ? "Sale Return" : "Purchase Return"} saved`);
     navigate({ to: backPath });
   };

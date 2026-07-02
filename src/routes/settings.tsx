@@ -40,6 +40,26 @@ function SettingsPage() {
     toast.success("Backup downloaded");
   };
 
+  // A hand-edited or old/partial backup can carry invoice/return line items
+  // missing numeric fields (qty, price, discountPct, gstRate). Left as-is,
+  // those turn every GST/report total that touches them into NaN. Coerce to
+  // 0 at the import boundary so bad data can never enter the system.
+  const sanitizeRecords = (records: any[]): any[] =>
+    records.map((r) =>
+      Array.isArray(r?.lineItems)
+        ? {
+            ...r,
+            lineItems: r.lineItems.map((l: any) => ({
+              ...l,
+              qty: Number(l?.qty) || 0,
+              price: Number(l?.price) || 0,
+              discountPct: Number(l?.discountPct) || 0,
+              gstRate: Number(l?.gstRate) || 0,
+            })),
+          }
+        : r,
+    );
+
   const importData = async (file: File) => {
     try {
       const dump = JSON.parse(await file.text());
@@ -61,7 +81,7 @@ function SettingsPage() {
         const v = dump[k];
         const records = typeof v === "string" ? JSON.parse(v) : v;
         if (Array.isArray(records) && records.length) {
-          await REPO_BY_KEY[k].importAll(records);
+          await REPO_BY_KEY[k].importAll(sanitizeRecords(records));
         }
       }
       if (hasCompany) {

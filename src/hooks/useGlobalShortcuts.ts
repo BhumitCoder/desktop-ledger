@@ -19,6 +19,18 @@ export function useGlobalShortcuts() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Never hijack these while the user is typing — Ctrl+N/Ctrl+P/Alt+1..8
+      // navigate away, which would silently discard an unsaved form (e.g. an
+      // in-progress invoice) with no confirmation.
+      const el = e.target as HTMLElement | null;
+      const typing =
+        !!el &&
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.tagName === "SELECT" ||
+          el.isContentEditable);
+      if (typing) return;
+
       const ctrl = e.ctrlKey || e.metaKey;
       if (ctrl && e.key.toLowerCase() === "f") {
         e.preventDefault();

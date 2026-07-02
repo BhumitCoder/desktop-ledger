@@ -399,10 +399,16 @@ function ReportView({
       const map = new Map<number, { taxable: number; cgst: number; sgst: number }>();
       invoices.forEach((inv) =>
         inv.lineItems.forEach((l: any) => {
-          const taxable = l.qty * l.price * (1 - l.discountPct / 100);
-          const tax = taxable * (l.gstRate / 100);
-          const cur = map.get(l.gstRate) ?? { taxable: 0, cgst: 0, sgst: 0 };
-          map.set(l.gstRate, {
+          // Guard against legacy/imported line items missing a numeric field —
+          // one bad record must not turn the whole GST summary into NaN.
+          const qty = l.qty ?? 0;
+          const price = l.price ?? 0;
+          const discountPct = l.discountPct ?? 0;
+          const gstRate = l.gstRate ?? 0;
+          const taxable = qty * price * (1 - discountPct / 100);
+          const tax = taxable * (gstRate / 100);
+          const cur = map.get(gstRate) ?? { taxable: 0, cgst: 0, sgst: 0 };
+          map.set(gstRate, {
             taxable: cur.taxable + taxable,
             cgst: cur.cgst + tax / 2,
             sgst: cur.sgst + tax / 2,
@@ -460,6 +466,7 @@ function ReportView({
       SalesRepo.all(),
       SaleReturnRepo.all(),
       PaymentRepo.all().filter((p) => p.type === "in"),
+      parties.filter((p) => p.type !== "supplier"),
     )
       .filter((r) => Math.abs(r.balance) > 0.01)
       .sort((a, b) => b.balance - a.balance);
@@ -490,6 +497,7 @@ function ReportView({
       PurchaseRepo.all(),
       PurchaseReturnRepo.all(),
       PaymentRepo.all().filter((p) => p.type === "out"),
+      parties.filter((p) => p.type !== "customer"),
     )
       .filter((r) => Math.abs(r.balance) > 0.01)
       .sort((a, b) => b.balance - a.balance);
@@ -517,7 +525,9 @@ function ReportView({
 
   if (which === "stock") {
     const totalValue = items.reduce((a, i) => a + i.stock * i.purchasePrice, 0);
-    const lowStock = items.filter((i) => i.minStock && i.stock <= i.minStock).length;
+    const lowStock = items.filter(
+      (i) => (i.minStock != null && i.stock <= i.minStock) || i.stock < 0,
+    ).length;
     return (
       <TableReport
         label={label}

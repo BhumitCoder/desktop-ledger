@@ -31,5 +31,5 @@ function EditSalePage() {
       </div>
     );
   }
-  return <InvoiceForm mode="sale" existing={inv} />;
+  return <InvoiceForm key={inv.id} mode="sale" existing={inv} />;
 }

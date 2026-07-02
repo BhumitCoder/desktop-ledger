@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { SalesRepo, PartyRepo, ItemRepo, PaymentRepo } from "@/repositories";
+import { newBatch, commitBatch } from "@/repositories/base";
 import type { Invoice } from "@/types";
 import { fmtMoney, fmtDate, ymd, today } from "@/lib/format";
 import { Plus, Search, X, ChevronDown, FileText, Trash2, Pencil } from "lucide-react";
@@ -24,6 +25,7 @@ function SalesPage() {
   const [status, setStatus] = useState<Status>("all");
   const [search, setSearch] = useState("");
   const [showPartyDrop, setShowPartyDrop] = useState(false);
+  const [partyDropQ, setPartyDropQ] = useState("");
 
   const refresh = () => {
     setRows(SalesRepo.all());
@@ -61,6 +63,14 @@ function SalesPage() {
 
   const selectedParty = parties.find((p) => p.id === partyId);
 
+  // Local search over the dropdown only — must never overwrite `parties`
+  // itself, or the master list (used for `selectedParty` lookup and "All
+  // Customers") gets stuck as whatever subset was last typed/searched.
+  const filteredDropdownParties = useMemo(() => {
+    const q = partyDropQ.trim().toLowerCase();
+    return q ? parties.filter((p) => p.name.toLowerCase().includes(q)) : parties;
+  }, [parties, partyDropQ]);
+
   const clearFilters = () => {
     setDateFrom(THIS_MONTH_START);
     setDateTo(TODAY);
@@ -76,20 +86,26 @@ function SalesPage() {
       )
     )
       return;
+    // Stock restore, payment unlinking, and the invoice delete must land
+    // together — a shared batch commits them as one atomic Firestore write.
+    const batch = newBatch();
     // Reverse the stock deduction this sale made
     for (const l of r.lineItems) {
       const it = ItemRepo.get(l.itemId);
-      if (it) ItemRepo.adjustField(it.id, "stock", l.qty);
+      if (it) ItemRepo.adjustFieldBatched(batch, it.id, "stock", l.qty);
     }
     // Payments applied to this invoice: unlink them so the money stays
     // counted as an advance instead of silently disappearing
     for (const p of PaymentRepo.all()) {
       if (p.allocations?.some((a) => a.invoiceId === r.id)) {
         const remaining = p.allocations.filter((a) => a.invoiceId !== r.id);
-        PaymentRepo.update(p.id, { allocations: remaining.length ? remaining : undefined });
+        PaymentRepo.updateBatched(batch, p.id, {
+          allocations: remaining.length ? remaining : undefined,
+        });
       }
     }
-    SalesRepo.remove(r.id);
+    SalesRepo.removeBatched(batch, r.id);
+    commitBatch(batch, "delete sale");
     refresh();
     toast.success("Invoice deleted — stock restored");
   };
@@ -157,42 +173,52 @@ function SalesPage() {
                 <input
                   autoFocus
                   placeholder="Search customer..."
+                  value={partyDropQ}
                   className="w-full text-xs px-2 py-1.5 border border-gray-200 rounded focus:outline-none"
-                  onChange={(e) => {
-                    const q = e.target.value.toLowerCase();
-                    const items = PartyRepo.all().filter((p) => p.name.toLowerCase().includes(q));
-                    setParties(items.map((p) => ({ id: p.id, name: p.name })));
-                  }}
+                  onChange={(e) => setPartyDropQ(e.target.value)}
                 />
               </div>
               <button
                 onClick={() => {
                   setPartyId("all");
                   setShowPartyDrop(false);
-                  setParties(PartyRepo.all().map((p) => ({ id: p.id, name: p.name })));
+                  setPartyDropQ("");
                 }}
                 className={`w-full text-left px-3 py-2 text-xs hover:bg-blue-50 ${partyId === "all" ? "text-blue-600 font-semibold bg-blue-50" : "text-gray-700"}`}
               >
                 All Customers
               </button>
-              {parties.map((p) => (
+              {filteredDropdownParties.map((p) => (
                 <button
                   key={p.id}
                   onClick={() => {
                     setPartyId(p.id);
                     setShowPartyDrop(false);
-                    setParties(PartyRepo.all().map((x) => ({ id: x.id, name: x.name })));
+                    setPartyDropQ("");
                   }}
                   className={`w-full text-left px-3 py-2 text-xs hover:bg-blue-50 truncate ${partyId === p.id ? "text-blue-600 font-semibold bg-blue-50" : "text-gray-700"}`}
                 >
                   {p.name}
                 </button>
               ))}
-              {parties.length === 0 && (
+              {filteredDropdownParties.length === 0 && (
                 <p className="text-xs text-gray-400 text-center py-3">No customers found</p>
               )}
             </div>
           )}
+        </div>
+
+        {/* Status filter */}
+        <div className="flex items-center gap-0.5 border border-gray-200 rounded-md p-0.5 bg-white">
+          {STATUSES.map((s) => (
+            <button
+              key={s.value}
+              onClick={() => setStatus(s.value)}
+              className={`px-2.5 py-1 rounded text-xs transition ${status === s.value ? "bg-primary text-primary-foreground font-semibold" : "text-gray-500 hover:bg-gray-50"}`}
+            >
+              {s.label}
+            </button>
+          ))}
         </div>
 
         {/* Search */}

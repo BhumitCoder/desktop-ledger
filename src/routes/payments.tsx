@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PaymentRepo, PartyRepo, SalesRepo, PurchaseRepo } from "@/repositories";
 import type { Payment, PaymentAllocation, PaymentMode, Invoice } from "@/types";
 import { fmtMoney, fmtDate, today } from "@/lib/format";
@@ -73,21 +73,28 @@ function PaymentsPage() {
         if (repo.get(a.invoiceId)) repo.adjustField(a.invoiceId, "paid", -a.amount);
       }
     } else if (r.ref) {
-      // Legacy payment: linked invoice numbers were stored in ref — reverse greedily
+      // Legacy payment (predates per-invoice allocations): only a lump amount
+      // and a comma-separated list of invoice numbers was stored, with no
+      // record of how much actually went to each one. There's no way to
+      // recover the true original split, so distribute the reversal
+      // proportionally to each invoice's CURRENT paid amount — this is the
+      // closest fair approximation and, unlike taking a fixed amount per
+      // invoice in list order, never leaves a leftover silently undone when
+      // an earlier invoice's paid has since dropped below its original share.
       const tokens = r.ref
         .split(",")
         .map((t) => t.trim())
         .filter(Boolean);
       const all = repo.all();
-      let remaining = r.amount;
-      for (const t of tokens) {
-        if (remaining <= 0) break;
-        const inv = all.find((i) => i.number === t);
-        if (!inv) continue;
-        const take = Math.min(remaining, inv.paid);
-        if (take > 0) {
-          repo.update(inv.id, { paid: r2(inv.paid - take) });
-          remaining = r2(remaining - take);
+      const invoices = tokens
+        .map((t) => all.find((i) => i.number === t))
+        .filter((i): i is Invoice => !!i && i.paid > 0);
+      const totalPaid = invoices.reduce((s, inv) => s + inv.paid, 0);
+      const totalReverse = Math.min(r.amount, totalPaid);
+      if (totalReverse > 0) {
+        for (const inv of invoices) {
+          const take = Math.min(inv.paid, r2((inv.paid / totalPaid) * totalReverse));
+          if (take > 0) repo.update(inv.id, { paid: r2(inv.paid - take) });
         }
       }
     }
@@ -345,7 +352,11 @@ function ReceivePaymentDialog({
 }) {
   const isIn = type === "in";
   const partyRef = useRef<HTMLInputElement>(null);
-  const allParties = useMemo(() => PartyRepo.all(), []);
+  // Refreshed every time the dialog opens (not memoized once) — otherwise a
+  // party created by an earlier payment in this same session (e.g. a
+  // walk-in customer typed by name) would never show up in the dedupe
+  // lookup or the search suggestions, creating a duplicate Party record.
+  const [allParties, setAllParties] = useState<{ id: string; name: string }[]>([]);
 
   const [partyQ, setPartyQ] = useState("");
   const [partyOpen, setPartyOpen] = useState(false);
@@ -367,6 +378,7 @@ function ReceivePaymentDialog({
   // Reset (or prefill when editing) on open
   useEffect(() => {
     if (open) {
+      setAllParties(PartyRepo.all());
       if (editing) {
         setPartyQ(editing.partyName);
         setSelectedParty({ id: editing.partyId, name: editing.partyName });
@@ -427,8 +439,13 @@ function ReceivePaymentDialog({
 
   const totalOutstanding = applyRows.reduce((s, r) => s + r.due, 0);
   const totalApplied = r2(applyRows.reduce((s, r) => s + r.apply, 0));
-  // Advance / general payment when there are no open invoices to apply to
-  const effectiveAmount = applyRows.length > 0 ? totalApplied : parseFloat(manualAmount) || 0;
+  // Advance / general payment whenever nothing is actually applied to an
+  // invoice — not just when there are no open invoices at all. Without this,
+  // editing an old advance payment for a party that has since accrued open
+  // invoices would populate an all-unchecked list, drive this to 0, hide the
+  // manual amount field (it was only shown when applyRows.length===0), and
+  // permanently block saving.
+  const effectiveAmount = totalApplied > 0 ? totalApplied : parseFloat(manualAmount) || 0;
 
   const toggleRow = (idx: number) => {
     setApplyRows((rows) =>
@@ -463,6 +480,10 @@ function ReceivePaymentDialog({
       toast.error("Select or enter a party");
       return;
     }
+    if (!date) {
+      toast.error("Enter a payment date");
+      return;
+    }
     const amount = effectiveAmount;
     if (!amount || amount <= 0) {
       toast.error("Enter or select an amount to pay");
@@ -471,74 +492,102 @@ function ReceivePaymentDialog({
     savingRef.current = true;
     setSaving(true);
 
-    let partyId = selectedParty?.id ?? "";
-    const partyName = selectedParty?.name ?? partyQ.trim();
-    if (!partyId) {
-      const match = allParties.find((p) => p.name.toLowerCase() === partyName.toLowerCase());
-      partyId = match?.id ?? genId();
-      if (!match) PartyRepo.add({ id: partyId, name: partyName, type: "both", openingBalance: 0 });
-    }
-
-    const repo = isIn ? SalesRepo : PurchaseRepo;
-
-    // Editing: first reverse this payment's previous applications (atomic)
-    if (editing?.allocations?.length) {
-      for (const a of editing.allocations) {
-        if (repo.get(a.invoiceId)) repo.adjustField(a.invoiceId, "paid", -a.amount);
+    // Wrapped so an unexpected failure partway through (reversing an old
+    // allocation, applying new ones, persisting the Payment record) can't
+    // leave the Confirm button permanently stuck disabled/spinning — saving
+    // state is only otherwise reset by the dialog's open effect.
+    try {
+      let partyId = selectedParty?.id ?? "";
+      const partyName = selectedParty?.name ?? partyQ.trim();
+      if (!partyId) {
+        const match = allParties.find((p) => p.name.toLowerCase() === partyName.toLowerCase());
+        partyId = match?.id ?? genId();
+        if (!match)
+          PartyRepo.add({ id: partyId, name: partyName, type: "both", openingBalance: 0 });
       }
-    }
 
-    // Apply to invoices — atomic increments so simultaneous cashiers both count
-    const allocations: PaymentAllocation[] = [];
-    for (const row of applyRows) {
-      if (row.apply > 0) {
-        const cur = repo.get(row.invoice.id);
-        if (!cur) continue;
-        repo.adjustField(cur.id, "paid", r2(row.apply));
-        allocations.push({ invoiceId: cur.id, number: cur.number, amount: r2(row.apply) });
+      const repo = isIn ? SalesRepo : PurchaseRepo;
+
+      // Editing: first reverse this payment's previous applications (atomic)
+      if (editing?.allocations?.length) {
+        for (const a of editing.allocations) {
+          if (repo.get(a.invoiceId)) repo.adjustField(a.invoiceId, "paid", -a.amount);
+        }
       }
-    }
 
-    // Record payment
-    if (editing) {
-      PaymentRepo.update(editing.id, {
-        date,
-        partyId,
-        partyName,
-        type,
-        amount: r2(amount),
-        mode,
-        ref: ref.trim() || undefined,
-        allocations: allocations.length ? allocations : undefined,
-      });
-    } else {
-      const payment: Payment = {
-        id: genId(),
-        date,
-        partyId,
-        partyName,
-        type,
-        amount: r2(amount),
-        mode,
-        ref: ref.trim() || undefined,
-        allocations: allocations.length ? allocations : undefined,
-        createdAt: new Date().toISOString(),
-      };
-      PaymentRepo.add(payment);
-    }
+      // Apply to invoices — atomic increments so simultaneous cashiers both count.
+      // row.due/row.apply were computed from a snapshot taken when the party
+      // was selected, which can go stale if another payment lands on the same
+      // invoice before this one saves (this payment's own prior allocation was
+      // already reversed above, so `cur` here reflects that reversal too) —
+      // re-check against the live due right before applying so paid can never
+      // be pushed past total.
+      const allocations: PaymentAllocation[] = [];
+      let clamped = false;
+      for (const row of applyRows) {
+        if (row.apply > 0) {
+          const cur = repo.get(row.invoice.id);
+          if (!cur) continue;
+          const liveDue = Math.max(0, r2(cur.total - cur.paid));
+          const amt = Math.min(r2(row.apply), liveDue);
+          if (amt <= 0) continue;
+          if (amt < r2(row.apply)) clamped = true;
+          repo.adjustField(cur.id, "paid", amt);
+          allocations.push({ invoiceId: cur.id, number: cur.number, amount: amt });
+        }
+      }
+      if (clamped) {
+        toast.warning(
+          "Some amounts were reduced — one or more invoices had already been partly paid elsewhere",
+        );
+      }
 
-    const invWord = isIn ? "invoice" : "bill";
-    if (editing) {
-      toast.success(`Payment updated — ${fmtMoney(amount)}`);
-    } else if (allocations.length) {
-      toast.success(
-        `${fmtMoney(amount)} applied to ${allocations.length} ${invWord}${allocations.length > 1 ? "s" : ""}`,
-      );
-    } else {
-      toast.success(`Payment ${isIn ? "received" : "sent"} recorded`);
+      // Record payment
+      if (editing) {
+        PaymentRepo.update(editing.id, {
+          date,
+          partyId,
+          partyName,
+          type,
+          amount: r2(amount),
+          mode,
+          ref: ref.trim() || undefined,
+          allocations: allocations.length ? allocations : undefined,
+        });
+      } else {
+        const payment: Payment = {
+          id: genId(),
+          date,
+          partyId,
+          partyName,
+          type,
+          amount: r2(amount),
+          mode,
+          ref: ref.trim() || undefined,
+          allocations: allocations.length ? allocations : undefined,
+          createdAt: new Date().toISOString(),
+        };
+        PaymentRepo.add(payment);
+      }
+
+      const invWord = isIn ? "invoice" : "bill";
+      if (editing) {
+        toast.success(`Payment updated — ${fmtMoney(amount)}`);
+      } else if (allocations.length) {
+        toast.success(
+          `${fmtMoney(amount)} applied to ${allocations.length} ${invWord}${allocations.length > 1 ? "s" : ""}`,
+        );
+      } else {
+        toast.success(`Payment ${isIn ? "received" : "sent"} recorded`);
+      }
+      onSaved();
+      onOpenChange(false);
+    } catch (err) {
+      console.error("Payment save failed", err);
+      toast.error("Could not save payment — please try again");
+      savingRef.current = false;
+      setSaving(false);
     }
-    onSaved();
-    onOpenChange(false);
   };
 
   return (
@@ -727,11 +776,12 @@ function ReceivePaymentDialog({
                 </div>
               )}
 
-              {/* Use manual amount toggle when no invoices */}
-              {applyRows.length === 0 && (
+              {/* Manual amount — shown whenever nothing is applied to an invoice
+                  yet, whether because there are none or none are checked */}
+              {totalApplied === 0 && (
                 <div className="mt-3">
                   <label className="text-[12px] font-semibold text-gray-600 block mb-1">
-                    Amount (₹) *
+                    {applyRows.length > 0 ? "Or record as advance (₹)" : "Amount (₹) *"}
                   </label>
                   <input
                     type="number"

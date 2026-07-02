@@ -139,11 +139,13 @@ function Dashboard() {
     data.sales,
     data.saleReturns,
     data.payments.filter((p: any) => p.type === "in"),
+    data.parties.filter((p: any) => p.type !== "supplier"),
   );
   const supplierBalances = partyBalances(
     data.purchases,
     data.purchaseReturns,
     data.payments.filter((p: any) => p.type === "out"),
+    data.parties.filter((p: any) => p.type !== "customer"),
   );
   const receivable = customerBalances.reduce((a, b) => a + Math.max(0, b.balance), 0);
   const payable = supplierBalances.reduce((a, b) => a + Math.max(0, b.balance), 0);
@@ -156,14 +158,16 @@ function Dashboard() {
   );
   // Stored account balances + all bank/UPI/cheque activity (sales, purchases, expenses, payments)
   const bankBalance =
-    data.banks.reduce((a, b) => a + (b.balance || b.openingBalance || 0), 0) +
+    data.banks.reduce((a, b) => a + (b.balance ?? b.openingBalance ?? 0), 0) +
     netFlow(bankFlows(data.sales, data.purchases, data.expenses, data.payments));
 
   // Profit like the P&L report: net revenue − cost of goods sold − expenses
   const periodCogs = computeCogs(periodSales, periodSaleReturns, data.items);
   const netProfit = totalSale - totalSaleReturn - periodCogs - totalExpense;
 
-  const lowStock = data.items.filter((i) => i.minStock && i.stock <= i.minStock);
+  const lowStock = data.items.filter(
+    (i) => (i.minStock != null && i.stock <= i.minStock) || i.stock < 0,
+  );
 
   const chartData = useMemo(() => buildChartData(data.sales, start, end), [data.sales, start, end]);
 
@@ -427,7 +431,8 @@ function Dashboard() {
         <StatRow
           label="Cash In Hand"
           badge="As of Now"
-          value={`₹ ${fmt(Math.max(0, cashInHand))}`}
+          value={`₹ ${fmt(cashInHand)}`}
+          valueClass={cashInHand < 0 ? "text-rose-600" : "text-gray-800"}
         />
         <StatRow label="Total Bank Balance" badge="As of Now" value={`₹ ${fmt(bankBalance)}`} />
         <StatRow

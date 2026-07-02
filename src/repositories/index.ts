@@ -151,8 +151,15 @@ export async function migrateFromLocalStorage(): Promise<number> {
 }
 
 export function nextInvoiceNumber(prefix: string, existing: { number: string }[]): string {
+  // Read the trailing digit run instead of stripping the CURRENT prefix —
+  // if the prefix is ever changed in Settings, older numbers (saved under
+  // the old prefix) would otherwise be invisible to the max() below and
+  // could get reissued once the prefix is changed back.
   const nums = existing
-    .map((i) => parseInt(i.number.replace(prefix, ""), 10))
+    .map((i) => {
+      const m = i.number.match(/(\d+)\s*$/);
+      return m ? parseInt(m[1], 10) : NaN;
+    })
     .filter((n) => !isNaN(n));
   const next = nums.length ? Math.max(...nums) + 1 : 1;
   return `${prefix}${String(next).padStart(4, "0")}`;

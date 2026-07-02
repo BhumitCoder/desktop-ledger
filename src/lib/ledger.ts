@@ -53,11 +53,18 @@ export interface PartyBalance {
  * payments for customers, or purchases + purchase returns + type "out"
  * payments for suppliers. Applied payments are already inside invoice.paid,
  * so only the advance portion of each payment is subtracted separately —
- * this is what keeps the dashboard and ledger reports in agreement. */
+ * this is what keeps the dashboard and ledger reports in agreement.
+ *
+ * Pass the relevant parties (filtered to type "customer"/"both" or
+ * "supplier"/"both" by the caller) so a party's openingBalance is folded
+ * into the result — without this, a migrated party with a non-zero opening
+ * balance but no transactions yet would be invisible here even though their
+ * own statement page (parties_.$id.tsx) correctly shows what they owe. */
 export function partyBalances(
   invoices: Invoice[],
   returns: Return[],
   payments: Payment[],
+  parties: { id: string; name: string; openingBalance?: number }[] = [],
 ): PartyBalance[] {
   const numbers = new Set(invoices.map((i) => i.number));
   const map = new Map<string, PartyBalance>();
@@ -69,6 +76,9 @@ export function partyBalances(
     }
     return e;
   };
+  for (const p of parties) {
+    entry(p.id, p.name);
+  }
   for (const inv of invoices) {
     const e = entry(inv.partyId, inv.partyName);
     e.invoiced = r2(e.invoiced + (inv.total || 0));
@@ -82,8 +92,10 @@ export function partyBalances(
     const e = entry(p.partyId, p.partyName);
     e.advances = r2(e.advances + advanceAmount(p, numbers));
   }
+  const openingById = new Map(parties.map((p) => [p.id, p.openingBalance ?? 0]));
   for (const e of map.values()) {
-    e.balance = r2(e.invoiced - e.returned - e.settled - e.advances);
+    const opening = openingById.get(e.partyId) ?? 0;
+    e.balance = r2(opening + e.invoiced - e.returned - e.settled - e.advances);
   }
   return Array.from(map.values());
 }

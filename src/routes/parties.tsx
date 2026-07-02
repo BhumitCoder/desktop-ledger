@@ -2,7 +2,14 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
-import { PartyRepo } from "@/repositories";
+import {
+  PartyRepo,
+  SalesRepo,
+  PurchaseRepo,
+  SaleReturnRepo,
+  PurchaseReturnRepo,
+  PaymentRepo,
+} from "@/repositories";
 import type { Party } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -132,6 +139,22 @@ function PartiesPage() {
           rowKey={(r) => r.id}
           onRowActivate={(r) => navigate({ to: "/parties/$id", params: { id: r.id } })}
           onDelete={(r) => {
+            // A party with any history must never be removable — old
+            // invoices/payments would keep referencing a partyId that
+            // resolves to nothing, making their statement/edit/reminder
+            // permanently inaccessible while dashboard totals still count them.
+            const hasHistory =
+              SalesRepo.all().some((i) => i.partyId === r.id) ||
+              PurchaseRepo.all().some((i) => i.partyId === r.id) ||
+              SaleReturnRepo.all().some((i) => i.partyId === r.id) ||
+              PurchaseReturnRepo.all().some((i) => i.partyId === r.id) ||
+              PaymentRepo.all().some((i) => i.partyId === r.id);
+            if (hasHistory) {
+              toast.error(
+                `Cannot delete ${r.name} — it has invoices, returns, or payments on record`,
+              );
+              return;
+            }
             if (confirm(`Delete ${r.name}?`)) {
               PartyRepo.remove(r.id);
               refresh();

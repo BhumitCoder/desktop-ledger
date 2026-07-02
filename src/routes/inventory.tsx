@@ -17,7 +17,17 @@ export const Route = createFileRoute("/inventory")({ component: InventoryPage })
 
 function InventoryPage() {
   const [rows, setRows] = useState<Item[]>([]);
-  useEffect(() => setRows(ItemRepo.all()), []);
+  const refresh = () => setRows(ItemRepo.all());
+  useEffect(() => {
+    refresh();
+    // This is a read-only page with no local mutations to trigger a refresh
+    // from, but stock genuinely changes elsewhere (another device/tab
+    // billing a sale) while a user stays parked here — resync when they
+    // come back to this tab/window instead of showing stale figures
+    // indefinitely.
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, []);
 
   // Stock In = purchases + sale returns + manual additions
   // Stock Out = sales + purchase returns + manual reductions
@@ -80,7 +90,10 @@ function InventoryPage() {
       align: "right",
       width: "100px",
       render: (r) => {
-        const low = r.minStock && r.stock <= r.minStock;
+        // minStock=0 is a valid "alert exactly at zero" threshold (must not
+        // be treated as unset), and negative/oversold stock should always
+        // stand out even when no threshold is configured at all.
+        const low = (r.minStock != null && r.stock <= r.minStock) || r.stock < 0;
         return (
           <span className={`font-medium ${low ? "text-warning" : ""}`}>
             {r.stock} {r.unit}
@@ -101,7 +114,9 @@ function InventoryPage() {
   ];
 
   const totalValue = rows.reduce((s, r) => s + r.stock * r.purchasePrice, 0);
-  const lowCount = rows.filter((r) => r.minStock && r.stock <= r.minStock).length;
+  const lowCount = rows.filter(
+    (r) => (r.minStock != null && r.stock <= r.minStock) || r.stock < 0,
+  ).length;
 
   return (
     <div className="flex flex-col h-full">

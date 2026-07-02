@@ -17,10 +17,16 @@ function GstPage() {
       const map = new Map<number, { taxable: number; tax: number }>();
       invoices.forEach((inv) =>
         inv.lineItems.forEach((l: any) => {
-          const taxable = l.qty * l.price * (1 - l.discountPct / 100);
-          const tax = taxable * (l.gstRate / 100);
-          const cur = map.get(l.gstRate) ?? { taxable: 0, tax: 0 };
-          map.set(l.gstRate, { taxable: cur.taxable + taxable, tax: cur.tax + tax });
+          // Guard against legacy/imported line items missing a numeric field —
+          // one bad record must not turn the whole GST summary into NaN.
+          const qty = l.qty ?? 0;
+          const price = l.price ?? 0;
+          const discountPct = l.discountPct ?? 0;
+          const gstRate = l.gstRate ?? 0;
+          const taxable = qty * price * (1 - discountPct / 100);
+          const tax = taxable * (gstRate / 100);
+          const cur = map.get(gstRate) ?? { taxable: 0, tax: 0 };
+          map.set(gstRate, { taxable: cur.taxable + taxable, tax: cur.tax + tax });
         }),
       );
       return Array.from(map, ([rate, v]) => ({ rate, ...v })).sort((a, b) => a.rate - b.rate);

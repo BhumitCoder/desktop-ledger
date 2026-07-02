@@ -8,11 +8,32 @@ import {
   deleteDoc,
   writeBatch,
   increment,
+  type WriteBatch,
 } from "firebase/firestore";
 import { db, isBrowser } from "@/lib/firebase";
 import { toast } from "sonner";
 
 export const genId = () => nanoid(10);
+
+/** Start a batch of writes across one or more repositories that must all
+ * commit together (e.g. an invoice plus the stock adjustments it triggers) —
+ * see `commitBatch`. Returns null outside the browser, matching every other
+ * write path's SSR no-op. */
+export function newBatch(): WriteBatch | null {
+  return isBrowser ? writeBatch(db) : null;
+}
+
+/** Commit a batch started with `newBatch`. All staged writes succeed or fail
+ * together — no partial state where stock moves but the invoice doesn't
+ * save, or vice versa. */
+export async function commitBatch(batch: WriteBatch | null, action: string): Promise<void> {
+  if (!batch) return;
+  try {
+    await batch.commit();
+  } catch (err) {
+    writeError(action)(err);
+  }
+}
 
 /** Firestore rejects `undefined` field values — strip them deeply before writing. */
 function stripUndefined<T>(v: T): T {
@@ -106,6 +127,22 @@ export class Repository<T extends { id: string }> {
     return record;
   }
 
+  /** Same as add(), but stages the write on a shared batch (see `newBatch`)
+   * instead of writing immediately, so it commits atomically with other
+   * staged writes — e.g. an invoice plus the stock adjustments it triggers. */
+  addBatched(batch: WriteBatch | null, item: Omit<T, "id" | "createdAt"> & { id?: string }): T {
+    const record = {
+      ...item,
+      id: item.id || genId(),
+      createdAt: new Date().toISOString(),
+    } as unknown as T;
+    this.cache.unshift(record);
+    if (isBrowser && batch) {
+      batch.set(doc(db, this.name, record.id), stripUndefined(record));
+    }
+    return record;
+  }
+
   update(id: string, patch: Partial<T>): T | undefined {
     const idx = this.cache.findIndex((i) => i.id === id);
     if (idx < 0) return undefined;
@@ -114,6 +151,18 @@ export class Repository<T extends { id: string }> {
     if (isBrowser) {
       // Write the full merged record so the cloud doc always mirrors the cache
       setDoc(doc(db, this.name, id), stripUndefined(merged)).catch(writeError("update"));
+    }
+    return merged;
+  }
+
+  /** Batched counterpart to update() — see addBatched(). */
+  updateBatched(batch: WriteBatch | null, id: string, patch: Partial<T>): T | undefined {
+    const idx = this.cache.findIndex((i) => i.id === id);
+    if (idx < 0) return undefined;
+    const merged = { ...this.cache[idx], ...patch };
+    this.cache[idx] = merged;
+    if (isBrowser && batch) {
+      batch.set(doc(db, this.name, id), stripUndefined(merged));
     }
     return merged;
   }
@@ -147,10 +196,44 @@ export class Repository<T extends { id: string }> {
     return merged;
   }
 
+  /** Batched counterpart to adjustField() — see addBatched(). */
+  adjustFieldBatched(
+    batch: WriteBatch | null,
+    id: string,
+    field: keyof T & string,
+    delta: number,
+    extra?: Partial<T>,
+  ): T | undefined {
+    const idx = this.cache.findIndex((i) => i.id === id);
+    if (idx < 0) return undefined;
+    const cur = ((this.cache[idx] as Record<string, unknown>)[field] as number) ?? 0;
+    const merged = {
+      ...this.cache[idx],
+      ...(extra ?? {}),
+      [field]: Math.round((cur + delta) * 100) / 100,
+    } as T;
+    this.cache[idx] = merged;
+    if (isBrowser && batch) {
+      batch.update(doc(db, this.name, id), {
+        ...stripUndefined(extra ?? {}),
+        [field]: increment(Math.round(delta * 100) / 100),
+      } as never);
+    }
+    return merged;
+  }
+
   remove(id: string) {
     this.cache = this.cache.filter((i) => i.id !== id);
     if (isBrowser) {
       deleteDoc(doc(db, this.name, id)).catch(writeError("delete"));
+    }
+  }
+
+  /** Batched counterpart to remove() — see addBatched(). */
+  removeBatched(batch: WriteBatch | null, id: string) {
+    this.cache = this.cache.filter((i) => i.id !== id);
+    if (isBrowser && batch) {
+      batch.delete(doc(db, this.name, id));
     }
   }
 

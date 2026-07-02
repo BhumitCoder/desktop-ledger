@@ -10,10 +10,10 @@ export function waLink(phone: string | undefined, text: string): string | null {
 }
 
 export function billMessage(inv: Invoice, company: Company): string {
-  const lines = inv.lineItems
+  const lines = (inv.lineItems ?? [])
     .map((l) => `• ${l.name} — ${l.qty} ${l.unit} × ${fmtMoney(l.price)} = ${fmtMoney(l.amount)}`)
     .join("\n");
-  const balance = Math.max(0, Math.round((inv.total - inv.paid) * 100) / 100);
+  const balance = Math.max(0, Math.round(((inv.total || 0) - (inv.paid || 0)) * 100) / 100);
   return [
     `*${company.name}*`,
     `Bill: *${inv.number}* · ${fmtDate(inv.date)}`,
