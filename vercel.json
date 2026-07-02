@@ -1,15 +1,6 @@
 {
-  "buildCommand": "bun run build",
+  "buildCommand": "NITRO_PRESET=vercel bun run build",
   "installCommand": "bun install",
-  "outputDirectory": "dist/client",
-  "framework": null,
-  "routes": [
-    {
-      "src": "/assets/(.*)",
-      "headers": { "cache-control": "public, max-age=31536000, immutable" },
-      "continue": true
-    },
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/index.html" }
-  ]
+  "outputDirectory": ".vercel/output",
+  "framework": null
 }

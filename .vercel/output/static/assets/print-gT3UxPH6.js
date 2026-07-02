@@ -1,0 +1,1 @@
+function e(e){let t=document.title;document.title=e;let n=()=>{document.title=t,window.removeEventListener(`afterprint`,n)};window.addEventListener(`afterprint`,n),window.print(),setTimeout(n,3e3)}export{e as t};

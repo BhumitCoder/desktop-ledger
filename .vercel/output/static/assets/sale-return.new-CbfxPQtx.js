@@ -1,0 +1,1 @@
+import{O as e}from"./repositories-qGs3nVIg.js";import{t}from"./ReturnForm-BXM3oJmg.js";var n=e(),r=()=>(0,n.jsx)(t,{mode:`sale-return`});export{r as component};
