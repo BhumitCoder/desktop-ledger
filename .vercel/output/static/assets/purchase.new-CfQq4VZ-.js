@@ -1,0 +1,1 @@
+import{O as e}from"./repositories-DFiwbcwn.js";import{t}from"./InvoiceForm-ZBoa7Oee.js";var n=e(),r=()=>(0,n.jsx)(t,{mode:`purchase`});export{r as component};

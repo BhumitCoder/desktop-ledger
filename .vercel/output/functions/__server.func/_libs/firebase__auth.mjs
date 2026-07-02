@@ -3632,18 +3632,21 @@ var UserCredentialImpl = class UserCredentialImpl {
 		this.operationType = params.operationType;
 	}
 	static async _fromIdTokenResponse(auth, operationType, idTokenResponse, isAnonymous = false) {
+		const user = await UserImpl._fromIdTokenResponse(auth, idTokenResponse, isAnonymous);
+		const providerId = providerIdForResponse(idTokenResponse);
 		return new UserCredentialImpl({
-			user: await UserImpl._fromIdTokenResponse(auth, idTokenResponse, isAnonymous),
-			providerId: providerIdForResponse(idTokenResponse),
+			user,
+			providerId,
 			_tokenResponse: idTokenResponse,
 			operationType
 		});
 	}
 	static async _forOperation(user, operationType, response) {
 		await user._updateTokensIfNecessary(response, true);
+		const providerId = providerIdForResponse(response);
 		return new UserCredentialImpl({
 			user,
-			providerId: providerIdForResponse(response),
+			providerId,
 			_tokenResponse: response,
 			operationType
 		});

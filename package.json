@@ -6,6 +6,9 @@
   "engines": {
     "node": ">=22.12.0"
   },
+  "overrides": {
+    "nf3": "0.3.17"
+  },
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",

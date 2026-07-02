@@ -1,7 +1,6 @@
 import { o as __toESM } from "../_runtime.mjs";
 import { r as require_react, t as composeRefs } from "./@radix-ui/react-compose-refs+[...].mjs";
-import { a as Portal, c as useId, i as Overlay, n as Content, o as Root } from "./@radix-ui/react-dialog+[...].mjs";
-import { t as Primitive } from "./@radix-ui/react-primitive+[...].mjs";
+import { a as DialogOverlay, c as Primitive, o as DialogPortal, r as DialogContent, t as Dialog, u as useId } from "./@radix-ui/react-dialog+[...].mjs";
 //#region node_modules/cmdk/dist/chunk-NZJY6EH4.mjs
 var U = 1, Y$1 = .9, H = .8, J = .17, p = .1, u = .999, $ = .9999;
 var k$1 = .99, m = /[\\\/_+.#"@\[\(\{&]/, B$1 = /[\\\/_+.#"@\[\(\{&]/g, K$1 = /[\s-]/, X = /[\s-]/g;
@@ -80,7 +79,7 @@ var N = "[cmdk-group=\"\"]", Y = "[cmdk-group-items=\"\"]", be = "[cmdk-group-he
 				z(), E.emit();
 			}));
 		},
-		item: (e, a) => (u.current.add(e), a && (c.current.has(a) ? c.current.get(a).add(e) : c.current.set(a, new Set([e]))), v(3, () => {
+		item: (e, a) => (u.current.add(e), a && (c.current.has(a) ? c.current.get(a).add(e) : c.current.set(a, /* @__PURE__ */ new Set([e]))), v(3, () => {
 			J(), z(), n.current.value || W(), E.emit();
 		}), () => {
 			d.current.delete(e), u.current.delete(e), n.current.filtered.items.delete(e);
@@ -358,13 +357,13 @@ var N = "[cmdk-group=\"\"]", Y = "[cmdk-group-items=\"\"]", be = "[cmdk-group-he
 	}, m)));
 }), xe = import_react.forwardRef((r, o) => {
 	let { open: n, onOpenChange: u, overlayClassName: c, contentClassName: d, container: f, ...p } = r;
-	return import_react.createElement(Root, {
+	return import_react.createElement(Dialog, {
 		open: n,
 		onOpenChange: u
-	}, import_react.createElement(Portal, { container: f }, import_react.createElement(Overlay, {
+	}, import_react.createElement(DialogPortal, { container: f }, import_react.createElement(DialogOverlay, {
 		"cmdk-overlay": "",
 		className: c
-	}), import_react.createElement(Content, {
+	}), import_react.createElement(DialogContent, {
 		"aria-label": r.label,
 		"cmdk-dialog": "",
 		className: d

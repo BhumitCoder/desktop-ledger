@@ -1,7 +1,7 @@
 import { o as __toESM } from "../_runtime.mjs";
 import { r as require_react } from "../_libs/@radix-ui/react-compose-refs+[...].mjs";
 import { i as CompanyRepo, l as PurchaseRepo } from "./repositories-DM2yCNqC.mjs";
-import { r as require_jsx_runtime } from "../_libs/radix-ui__react-context+react.mjs";
+import { n as require_jsx_runtime } from "../_libs/radix-ui__react-context+react.mjs";
 import { B as CircleAlert, K as Check, h as Printer, tt as ArrowLeft, v as Pencil } from "../_libs/lucide-react.mjs";
 import { n as fmtMoney, t as fmtDate } from "./format-uyyFg6A-.mjs";
 import { t as printWithName } from "./print-DvWXB8RH.mjs";
