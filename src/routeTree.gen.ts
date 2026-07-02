@@ -25,8 +25,10 @@ import { Route as SaleReturnIndexRouteImport } from './routes/sale-return.index'
 import { Route as PurchaseIndexRouteImport } from './routes/purchase.index'
 import { Route as PurchaseReturnIndexRouteImport } from './routes/purchase-return.index'
 import { Route as SalesNewRouteImport } from './routes/sales.new'
+import { Route as SalesIdRouteImport } from './routes/sales.$id'
 import { Route as SaleReturnNewRouteImport } from './routes/sale-return.new'
 import { Route as PurchaseNewRouteImport } from './routes/purchase.new'
+import { Route as PurchaseIdRouteImport } from './routes/purchase.$id'
 import { Route as PurchaseReturnNewRouteImport } from './routes/purchase-return.new'
 
 const SettingsRoute = SettingsRouteImport.update({
@@ -109,6 +111,11 @@ const SalesNewRoute = SalesNewRouteImport.update({
   path: '/sales/new',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SalesIdRoute = SalesIdRouteImport.update({
+  id: '/sales/$id',
+  path: '/sales/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SaleReturnNewRoute = SaleReturnNewRouteImport.update({
   id: '/sale-return/new',
   path: '/sale-return/new',
@@ -117,6 +124,11 @@ const SaleReturnNewRoute = SaleReturnNewRouteImport.update({
 const PurchaseNewRoute = PurchaseNewRouteImport.update({
   id: '/purchase/new',
   path: '/purchase/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PurchaseIdRoute = PurchaseIdRouteImport.update({
+  id: '/purchase/$id',
+  path: '/purchase/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PurchaseReturnNewRoute = PurchaseReturnNewRouteImport.update({
@@ -138,8 +150,10 @@ export interface FileRoutesByFullPath {
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
   '/purchase-return/new': typeof PurchaseReturnNewRoute
+  '/purchase/$id': typeof PurchaseIdRoute
   '/purchase/new': typeof PurchaseNewRoute
   '/sale-return/new': typeof SaleReturnNewRoute
+  '/sales/$id': typeof SalesIdRoute
   '/sales/new': typeof SalesNewRoute
   '/purchase-return/': typeof PurchaseReturnIndexRoute
   '/purchase/': typeof PurchaseIndexRoute
@@ -159,8 +173,10 @@ export interface FileRoutesByTo {
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
   '/purchase-return/new': typeof PurchaseReturnNewRoute
+  '/purchase/$id': typeof PurchaseIdRoute
   '/purchase/new': typeof PurchaseNewRoute
   '/sale-return/new': typeof SaleReturnNewRoute
+  '/sales/$id': typeof SalesIdRoute
   '/sales/new': typeof SalesNewRoute
   '/purchase-return': typeof PurchaseReturnIndexRoute
   '/purchase': typeof PurchaseIndexRoute
@@ -181,8 +197,10 @@ export interface FileRoutesById {
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
   '/purchase-return/new': typeof PurchaseReturnNewRoute
+  '/purchase/$id': typeof PurchaseIdRoute
   '/purchase/new': typeof PurchaseNewRoute
   '/sale-return/new': typeof SaleReturnNewRoute
+  '/sales/$id': typeof SalesIdRoute
   '/sales/new': typeof SalesNewRoute
   '/purchase-return/': typeof PurchaseReturnIndexRoute
   '/purchase/': typeof PurchaseIndexRoute
@@ -204,8 +222,10 @@ export interface FileRouteTypes {
     | '/reports'
     | '/settings'
     | '/purchase-return/new'
+    | '/purchase/$id'
     | '/purchase/new'
     | '/sale-return/new'
+    | '/sales/$id'
     | '/sales/new'
     | '/purchase-return/'
     | '/purchase/'
@@ -225,8 +245,10 @@ export interface FileRouteTypes {
     | '/reports'
     | '/settings'
     | '/purchase-return/new'
+    | '/purchase/$id'
     | '/purchase/new'
     | '/sale-return/new'
+    | '/sales/$id'
     | '/sales/new'
     | '/purchase-return'
     | '/purchase'
@@ -246,8 +268,10 @@ export interface FileRouteTypes {
     | '/reports'
     | '/settings'
     | '/purchase-return/new'
+    | '/purchase/$id'
     | '/purchase/new'
     | '/sale-return/new'
+    | '/sales/$id'
     | '/sales/new'
     | '/purchase-return/'
     | '/purchase/'
@@ -268,8 +292,10 @@ export interface RootRouteChildren {
   ReportsRoute: typeof ReportsRoute
   SettingsRoute: typeof SettingsRoute
   PurchaseReturnNewRoute: typeof PurchaseReturnNewRoute
+  PurchaseIdRoute: typeof PurchaseIdRoute
   PurchaseNewRoute: typeof PurchaseNewRoute
   SaleReturnNewRoute: typeof SaleReturnNewRoute
+  SalesIdRoute: typeof SalesIdRoute
   SalesNewRoute: typeof SalesNewRoute
   PurchaseReturnIndexRoute: typeof PurchaseReturnIndexRoute
   PurchaseIndexRoute: typeof PurchaseIndexRoute
@@ -391,6 +417,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SalesNewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/sales/$id': {
+      id: '/sales/$id'
+      path: '/sales/$id'
+      fullPath: '/sales/$id'
+      preLoaderRoute: typeof SalesIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/sale-return/new': {
       id: '/sale-return/new'
       path: '/sale-return/new'
@@ -403,6 +436,13 @@ declare module '@tanstack/react-router' {
       path: '/purchase/new'
       fullPath: '/purchase/new'
       preLoaderRoute: typeof PurchaseNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/purchase/$id': {
+      id: '/purchase/$id'
+      path: '/purchase/$id'
+      fullPath: '/purchase/$id'
+      preLoaderRoute: typeof PurchaseIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/purchase-return/new': {
@@ -428,8 +468,10 @@ const rootRouteChildren: RootRouteChildren = {
   ReportsRoute: ReportsRoute,
   SettingsRoute: SettingsRoute,
   PurchaseReturnNewRoute: PurchaseReturnNewRoute,
+  PurchaseIdRoute: PurchaseIdRoute,
   PurchaseNewRoute: PurchaseNewRoute,
   SaleReturnNewRoute: SaleReturnNewRoute,
+  SalesIdRoute: SalesIdRoute,
   SalesNewRoute: SalesNewRoute,
   PurchaseReturnIndexRoute: PurchaseReturnIndexRoute,
   PurchaseIndexRoute: PurchaseIndexRoute,

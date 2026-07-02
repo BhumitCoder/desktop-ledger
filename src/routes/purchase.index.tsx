@@ -238,7 +238,8 @@ function PurchasePage() {
                 return (
                   <tr
                     key={r.id}
-                    className="border-b border-gray-100 hover:bg-primary/5 transition-colors cursor-default group"
+                    onClick={() => navigate({ to: "/purchase/$id", params: { id: r.id } })}
+                    className="border-b border-gray-100 hover:bg-primary/5 transition-colors cursor-pointer group"
                   >
                     <td className="px-4 py-3 font-mono font-semibold text-blue-600 text-xs">{r.number}</td>
                     <td className="px-4 py-3 text-gray-600">{fmtDate(r.date)}</td>
