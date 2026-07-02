@@ -7,6 +7,7 @@ import {
   ItemRepo,
   ExpenseRepo,
   BankRepo,
+  PaymentRepo,
 } from "@/repositories";
 import { fmtMoney } from "@/lib/format";
 import {
@@ -93,6 +94,7 @@ function Dashboard() {
     items: [] as any[],
     expenses: [] as any[],
     banks: [] as any[],
+    payments: [] as any[],
   });
 
   useEffect(() => {
@@ -103,6 +105,7 @@ function Dashboard() {
       items: ItemRepo.all(),
       expenses: ExpenseRepo.all(),
       banks: BankRepo.all(),
+      payments: PaymentRepo.all(),
     });
   }, []);
 
@@ -130,7 +133,9 @@ function Dashboard() {
   const stockValue = data.items.reduce((a, i) => a + (i.stock || 0) * (i.purchasePrice || 0), 0);
   const cashInHand = data.sales.filter((s) => s.paymentMode === "cash").reduce((a, s) => a + (s.paid || 0), 0)
     - data.purchases.filter((s) => s.paymentMode === "cash").reduce((a, s) => a + (s.paid || 0), 0)
-    - data.expenses.filter((s) => s.paymentMode === "cash").reduce((a, s) => a + (s.amount || 0), 0);
+    - data.expenses.filter((s) => s.paymentMode === "cash").reduce((a, s) => a + (s.amount || 0), 0)
+    + data.payments.filter((p) => p.mode === "cash" && p.type === "in").reduce((a, p) => a + (p.amount || 0), 0)
+    - data.payments.filter((p) => p.mode === "cash" && p.type === "out").reduce((a, p) => a + (p.amount || 0), 0);
   const bankBalance = data.banks.reduce((a, b) => a + (b.balance || b.openingBalance || 0), 0);
 
   const lowStock = data.items.filter((i) => i.minStock && i.stock <= i.minStock);

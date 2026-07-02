@@ -8,7 +8,7 @@ import {
 import type { Return, LineItem, Party, Item } from "@/types";
 import { fmtMoney, today } from "@/lib/format";
 import { toast } from "sonner";
-import { Trash2, UserPlus, Save, X, CornerDownLeft } from "lucide-react";
+import { Trash2, UserPlus, Save, X, CornerDownLeft, CornerUpLeft } from "lucide-react";
 import { genId } from "@/repositories/base";
 
 interface Props {
@@ -155,8 +155,8 @@ export function ReturnForm({ mode }: Props) {
     <div className="flex flex-col h-full">
       <div className="px-5 py-3 border-b bg-card flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3">
-          <div className={`h-10 w-10 rounded-md flex items-center justify-center ${isSaleReturn ? "bg-warning-soft text-warning" : "bg-info-soft text-info"}`}>
-            <CornerDownLeft className="h-5 w-5" />
+          <div className="h-10 w-10 rounded-md flex items-center justify-center bg-primary-soft text-primary">
+            {isSaleReturn ? <CornerDownLeft className="h-5 w-5" /> : <CornerUpLeft className="h-5 w-5" />}
           </div>
           <div>
             <h1 className="text-[17px] font-bold tracking-tight">

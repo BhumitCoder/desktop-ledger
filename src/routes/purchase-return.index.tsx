@@ -16,7 +16,8 @@ function PurchaseReturnPage() {
 
   const totalDebit = rows.reduce((s, r) => s + r.total, 0);
 
-  const handleDelete = (r: Return) => {
+  const handleDelete = (e: React.MouseEvent, r: Return) => {
+    e.stopPropagation();
     if (!confirm(`Delete return ${r.number}?`)) return;
     PurchaseReturnRepo.remove(r.id);
     refresh();
@@ -27,8 +28,8 @@ function PurchaseReturnPage() {
     <div className="flex flex-col h-full bg-[#f5f6fa]">
       <div className="bg-white border-b px-5 py-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-md bg-info-soft text-info flex items-center justify-center">
-            <CornerUpLeft className="h-4.5 w-4.5" />
+          <div className="h-9 w-9 rounded-md bg-primary-soft text-primary flex items-center justify-center">
+            <CornerUpLeft className="h-4 w-4" />
           </div>
           <div>
             <h1 className="text-[17px] font-bold text-gray-800">Purchase Returns</h1>
@@ -36,7 +37,7 @@ function PurchaseReturnPage() {
           </div>
         </div>
         <button onClick={() => navigate({ to: "/purchase-return/new" })}
-          className="inline-flex items-center gap-1.5 px-4 py-2 bg-info text-white rounded-md text-sm font-semibold hover:opacity-90 transition">
+          className="inline-flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-semibold hover:opacity-90 transition">
           <Plus className="h-4 w-4" /> New Purchase Return
         </button>
       </div>
@@ -58,16 +59,18 @@ function PurchaseReturnPage() {
                 <p className="text-xs mt-1">Click "New Purchase Return" to create a debit note</p>
               </td></tr>
             ) : rows.map((r) => (
-              <tr key={r.id} className="border-b border-gray-100 hover:bg-info/5 transition-colors group">
-                <td className="px-4 py-3 font-mono font-semibold text-info text-xs">{r.number}</td>
+              <tr key={r.id}
+                onClick={() => navigate({ to: "/purchase-return/$id", params: { id: r.id } })}
+                className="border-b border-gray-100 hover:bg-primary/5 transition-colors cursor-pointer group">
+                <td className="px-4 py-3 font-mono font-semibold text-blue-600 text-xs">{r.number}</td>
                 <td className="px-4 py-3 text-gray-600">{fmtDate(r.date)}</td>
                 <td className="px-4 py-3 font-mono text-xs text-gray-500">{r.originalRef || "—"}</td>
                 <td className="px-4 py-3 font-medium text-gray-800 max-w-[160px] truncate">{r.partyName}</td>
                 <td className="px-4 py-3 text-right text-gray-500">{r.lineItems.length}</td>
                 <td className="px-4 py-3 text-right text-gray-500 text-xs">{r.gstEnabled ? "Yes" : "No"}</td>
-                <td className="px-4 py-3 text-right font-semibold text-info tabular-nums">{fmtMoney(r.total)}</td>
+                <td className="px-4 py-3 text-right font-semibold text-gray-800 tabular-nums">{fmtMoney(r.total)}</td>
                 <td className="px-4 py-3 text-center">
-                  <button onClick={() => handleDelete(r)}
+                  <button onClick={(e) => handleDelete(e, r)}
                     className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition">
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -81,7 +84,7 @@ function PurchaseReturnPage() {
                 <td colSpan={6} className="px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">
                   Total ({rows.length} returns)
                 </td>
-                <td className="px-4 py-3 text-right font-bold text-info tabular-nums text-sm">{fmtMoney(totalDebit)}</td>
+                <td className="px-4 py-3 text-right font-bold text-gray-800 tabular-nums text-sm">{fmtMoney(totalDebit)}</td>
                 <td />
               </tr>
             </tfoot>
