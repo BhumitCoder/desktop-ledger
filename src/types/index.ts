@@ -43,6 +43,8 @@ export interface LineItem {
   discountPct: number;
   gstRate: number;
   amount: number;
+  /** Snapshot of the item's purchase price when the line was created — used for stock-based COGS in P&L */
+  costPrice?: number;
 }
 
 export type PaymentMode = "cash" | "bank" | "credit" | "upi" | "cheque";
@@ -59,6 +61,8 @@ export interface Invoice {
   subtotal: number;
   discount: number;
   taxAmount: number;
+  /** Rounding applied to reach a whole-rupee total (e.g. −0.37 or +0.45) */
+  roundOff?: number;
   total: number;
   paid: number;
   paymentMode: PaymentMode;
@@ -86,6 +90,28 @@ export interface BankAccount {
   createdAt: string;
 }
 
+/** Physical stock correction (damage, counting difference, samples…) */
+export interface StockAdjustment {
+  id: ID;
+  itemId: ID;
+  itemName: string;
+  date: string;
+  type: "add" | "reduce";
+  qty: number;
+  reason?: string;
+  createdAt: string;
+}
+
+/** Manual cash-in-hand correction (counter counting, owner drawings…) */
+export interface CashAdjustment {
+  id: ID;
+  date: string;
+  type: "add" | "reduce";
+  amount: number;
+  reason?: string;
+  createdAt: string;
+}
+
 export interface BankTxn {
   id: ID;
   bankId: ID;
@@ -94,6 +120,15 @@ export interface BankTxn {
   amount: number;
   notes?: string;
   createdAt: string;
+}
+
+/** How much of a payment was applied to which invoice — needed to reverse
+ * invoice.paid when the payment is deleted, and to avoid double counting
+ * in ledgers/cash reports. */
+export interface PaymentAllocation {
+  invoiceId: ID;
+  number: string;
+  amount: number;
 }
 
 export interface Payment {
@@ -105,6 +140,7 @@ export interface Payment {
   amount: number;
   mode: PaymentMode;
   ref?: string;
+  allocations?: PaymentAllocation[];
   createdAt: string;
 }
 
@@ -125,6 +161,8 @@ export interface Return {
   createdAt: string;
 }
 
+export type PrintFormat = "a4" | "thermal80" | "thermal58";
+
 export interface Company {
   name: string;
   gstin?: string;
@@ -135,4 +173,8 @@ export interface Company {
   invoicePrefix: string;
   purchasePrefix: string;
   enableGst?: boolean;
+  /** Round invoice totals to the nearest rupee (default on) */
+  enableRoundOff?: boolean;
+  /** Preferred print format, remembered from the invoice page */
+  printFormat?: PrintFormat;
 }

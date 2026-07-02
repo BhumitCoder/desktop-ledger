@@ -2,7 +2,16 @@ import { useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useWorkspace } from "@/store/workspace";
 
-const paths = ["/", "/parties", "/items", "/sales", "/purchase", "/expenses", "/reports", "/settings"];
+const paths = [
+  "/",
+  "/parties",
+  "/items",
+  "/sales",
+  "/purchase",
+  "/expenses",
+  "/reports",
+  "/settings",
+];
 
 export function useGlobalShortcuts() {
   const navigate = useNavigate();

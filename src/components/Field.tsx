@@ -42,7 +42,11 @@ export const Field = forwardRef<HTMLInputElement, Props>(function Field(
         }}
         {...rest}
       />
-      {error ? <span className="text-destructive">{error}</span> : hint && <span className="text-muted-foreground">{hint}</span>}
+      {error ? (
+        <span className="text-destructive">{error}</span>
+      ) : (
+        hint && <span className="text-muted-foreground">{hint}</span>
+      )}
     </label>
   );
 });

@@ -1,8 +1,11 @@
-import { Search, Plus, Building2, User, ChevronDown, Menu } from "lucide-react";
+import { Search, Plus, Building2, ChevronDown, Menu, LogOut } from "lucide-react";
 import { useWorkspace } from "@/store/workspace";
 import { useNavigate } from "@tanstack/react-router";
-import { CompanyRepo } from "@/repositories";
+import { CompanyRepo, stopRepos } from "@/repositories";
 import { useEffect, useState } from "react";
+import { signOut } from "firebase/auth";
+import { auth, isBrowser } from "@/lib/firebase";
+import { toast } from "sonner";
 
 export function Topbar() {
   const { setGlobalSearch, toggleSidebar } = useWorkspace();
@@ -13,7 +16,10 @@ export function Topbar() {
     return () => clearInterval(t);
   }, []);
   const today = new Date().toLocaleDateString("en-IN", {
-    weekday: "short", day: "2-digit", month: "short", year: "numeric",
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
   });
 
   return (
@@ -33,7 +39,9 @@ export function Topbar() {
       >
         <Search className="h-4 w-4" />
         <span className="flex-1 text-left text-sm truncate">Search customer, item, invoice…</span>
-        <kbd className="hidden sm:inline-flex text-[10px] font-mono bg-white/20 border-white/20 text-white">Ctrl+F</kbd>
+        <kbd className="hidden sm:inline-flex text-[10px] font-mono bg-white/20 border-white/20 text-white">
+          Ctrl+F
+        </kbd>
       </button>
 
       <div className="flex-1" />
@@ -44,14 +52,18 @@ export function Topbar() {
         className="h-9 px-3 md:px-4 rounded-md bg-white text-primary hover:bg-white/95 font-semibold text-sm flex items-center gap-1.5 shadow-card transition"
       >
         <Plus className="h-4 w-4" /> <span className="hidden sm:inline">Add </span>Sale
-        <kbd className="hidden md:inline-flex text-[10px] font-mono ml-1 opacity-70 bg-primary/10 border-primary/20">Ctrl+N</kbd>
+        <kbd className="hidden md:inline-flex text-[10px] font-mono ml-1 opacity-70 bg-primary/10 border-primary/20">
+          Ctrl+N
+        </kbd>
       </button>
       <button
         onClick={() => navigate({ to: "/purchase/new" })}
         className="h-9 px-3 md:px-4 rounded-md bg-white/15 hover:bg-white/25 text-white font-semibold text-sm flex items-center gap-1.5 ring-1 ring-white/20 transition"
       >
         <Plus className="h-4 w-4" /> <span className="hidden sm:inline">Add </span>Purchase
-        <kbd className="hidden md:inline-flex text-[10px] font-mono ml-1 opacity-80 bg-white/20 border-white/20 text-white">Ctrl+P</kbd>
+        <kbd className="hidden md:inline-flex text-[10px] font-mono ml-1 opacity-80 bg-white/20 border-white/20 text-white">
+          Ctrl+P
+        </kbd>
       </button>
 
       <div className="hidden lg:block h-6 w-px bg-white/20 mx-1" />
@@ -73,11 +85,19 @@ export function Topbar() {
       </button>
 
       <button
-        onClick={() => navigate({ to: "/settings" })}
+        onClick={async () => {
+          if (!confirm("Logout from BizDesk?")) return;
+          try {
+            stopRepos();
+            await signOut(auth);
+          } catch {
+            toast.error("Logout failed — check your connection");
+          }
+        }}
         className="h-9 w-9 rounded-full bg-white/15 hover:bg-white/25 ring-1 ring-white/20 flex items-center justify-center transition"
-        title="Profile"
+        title={`Logout${isBrowser && auth.currentUser?.email ? ` (${auth.currentUser.email})` : ""}`}
       >
-        <User className="h-4 w-4" />
+        <LogOut className="h-4 w-4" />
       </button>
     </header>
   );

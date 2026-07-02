@@ -8,8 +8,12 @@ import {
   ExpenseRepo,
   BankRepo,
   PaymentRepo,
+  SaleReturnRepo,
+  PurchaseReturnRepo,
+  CashAdjustmentRepo,
 } from "@/repositories";
-import { fmtMoney } from "@/lib/format";
+import { fmtMoney, ymd } from "@/lib/format";
+import { partyBalances, cashFlows, netFlow, computeCogs, bankFlows } from "@/lib/ledger";
 import {
   AreaChart,
   Area,
@@ -37,42 +41,42 @@ export const Route = createFileRoute("/")({ component: Dashboard });
 
 type Period = "this_month" | "last_month" | "this_year";
 
-function getPeriodRange(period: Period): { start: Date; end: Date; label: string } {
+// Local-timezone string ranges — comparing YYYY-MM-DD strings avoids the
+// UTC shift that drops last-day/first-day transactions in Indian time
+function getPeriodRange(period: Period): { start: string; end: string; label: string } {
   const now = new Date();
   if (period === "this_month") {
     return {
-      start: new Date(now.getFullYear(), now.getMonth(), 1),
-      end: new Date(now.getFullYear(), now.getMonth() + 1, 0),
+      start: ymd(new Date(now.getFullYear(), now.getMonth(), 1)),
+      end: ymd(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
       label: "This Month",
     };
   }
   if (period === "last_month") {
     return {
-      start: new Date(now.getFullYear(), now.getMonth() - 1, 1),
-      end: new Date(now.getFullYear(), now.getMonth(), 0),
+      start: ymd(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+      end: ymd(new Date(now.getFullYear(), now.getMonth(), 0)),
       label: "Last Month",
     };
   }
   return {
-    start: new Date(now.getFullYear(), 0, 1),
-    end: new Date(now.getFullYear(), 11, 31),
+    start: ymd(new Date(now.getFullYear(), 0, 1)),
+    end: ymd(new Date(now.getFullYear(), 11, 31)),
     label: "This Year",
   };
 }
 
-function inRange(dateStr: string, start: Date, end: Date) {
-  const d = new Date(dateStr);
-  return d >= start && d <= end;
+function inRange(dateStr: string, start: string, end: string) {
+  return dateStr >= start && dateStr <= end;
 }
 
-function buildChartData(sales: any[], start: Date, end: Date) {
+function buildChartData(sales: any[], start: string, end: string) {
   const days: { date: string; amount: number }[] = [];
-  const cur = new Date(start);
-  while (cur <= end) {
-    const key = cur.toISOString().slice(0, 10);
-    const amt = sales
-      .filter((s) => s.date === key)
-      .reduce((acc, s) => acc + (s.total || 0), 0);
+  const [y, m, d] = start.split("-").map(Number);
+  const cur = new Date(y, m - 1, d);
+  while (ymd(cur) <= end) {
+    const key = ymd(cur);
+    const amt = sales.filter((s) => s.date === key).reduce((acc, s) => acc + (s.total || 0), 0);
     days.push({ date: key, amount: amt });
     cur.setDate(cur.getDate() + 1);
   }
@@ -95,6 +99,9 @@ function Dashboard() {
     expenses: [] as any[],
     banks: [] as any[],
     payments: [] as any[],
+    saleReturns: [] as any[],
+    purchaseReturns: [] as any[],
+    cashAdjustments: [] as any[],
   });
 
   useEffect(() => {
@@ -106,6 +113,9 @@ function Dashboard() {
       expenses: ExpenseRepo.all(),
       banks: BankRepo.all(),
       payments: PaymentRepo.all(),
+      saleReturns: SaleReturnRepo.all(),
+      purchaseReturns: PurchaseReturnRepo.all(),
+      cashAdjustments: CashAdjustmentRepo.all(),
     });
   }, []);
 
@@ -120,30 +130,42 @@ function Dashboard() {
   const totalPurchase = periodPurchases.reduce((a, s) => a + (s.total || 0), 0);
   const totalExpense = periodExpenses.reduce((a, s) => a + (s.amount || 0), 0);
 
-  const receivable = data.sales.reduce((a, s) => a + Math.max(0, (s.total || 0) - (s.paid || 0)), 0);
-  const payable = data.purchases.reduce((a, s) => a + Math.max(0, (s.total || 0) - (s.paid || 0)), 0);
+  const periodSaleReturns = data.saleReturns.filter((r) => inRange(r.date, start, end));
+  const totalSaleReturn = periodSaleReturns.reduce((a, r) => a + (r.total || 0), 0);
 
-  const receivableParties = new Set(
-    data.sales.filter((s) => (s.total || 0) - (s.paid || 0) > 0).map((s) => s.partyId)
-  ).size;
-  const payableParties = new Set(
-    data.purchases.filter((s) => (s.total || 0) - (s.paid || 0) > 0).map((s) => s.partyId)
-  ).size;
+  // Same per-party balance rules as the Customer/Supplier Ledger reports,
+  // so the dashboard and reports always agree (returns and advances included)
+  const customerBalances = partyBalances(
+    data.sales,
+    data.saleReturns,
+    data.payments.filter((p: any) => p.type === "in"),
+  );
+  const supplierBalances = partyBalances(
+    data.purchases,
+    data.purchaseReturns,
+    data.payments.filter((p: any) => p.type === "out"),
+  );
+  const receivable = customerBalances.reduce((a, b) => a + Math.max(0, b.balance), 0);
+  const payable = supplierBalances.reduce((a, b) => a + Math.max(0, b.balance), 0);
+  const receivableParties = customerBalances.filter((b) => b.balance > 0.01).length;
+  const payableParties = supplierBalances.filter((b) => b.balance > 0.01).length;
 
   const stockValue = data.items.reduce((a, i) => a + (i.stock || 0) * (i.purchasePrice || 0), 0);
-  const cashInHand = data.sales.filter((s) => s.paymentMode === "cash").reduce((a, s) => a + (s.paid || 0), 0)
-    - data.purchases.filter((s) => s.paymentMode === "cash").reduce((a, s) => a + (s.paid || 0), 0)
-    - data.expenses.filter((s) => s.paymentMode === "cash").reduce((a, s) => a + (s.amount || 0), 0)
-    + data.payments.filter((p) => p.mode === "cash" && p.type === "in").reduce((a, p) => a + (p.amount || 0), 0)
-    - data.payments.filter((p) => p.mode === "cash" && p.type === "out").reduce((a, p) => a + (p.amount || 0), 0);
-  const bankBalance = data.banks.reduce((a, b) => a + (b.balance || b.openingBalance || 0), 0);
+  const cashInHand = netFlow(
+    cashFlows(data.sales, data.purchases, data.expenses, data.payments, data.cashAdjustments),
+  );
+  // Stored account balances + all bank/UPI/cheque activity (sales, purchases, expenses, payments)
+  const bankBalance =
+    data.banks.reduce((a, b) => a + (b.balance || b.openingBalance || 0), 0) +
+    netFlow(bankFlows(data.sales, data.purchases, data.expenses, data.payments));
+
+  // Profit like the P&L report: net revenue − cost of goods sold − expenses
+  const periodCogs = computeCogs(periodSales, periodSaleReturns, data.items);
+  const netProfit = totalSale - totalSaleReturn - periodCogs - totalExpense;
 
   const lowStock = data.items.filter((i) => i.minStock && i.stock <= i.minStock);
 
-  const chartData = useMemo(
-    () => buildChartData(data.sales, start, end),
-    [data.sales, start, end]
-  );
+  const chartData = useMemo(() => buildChartData(data.sales, start, end), [data.sales, start, end]);
 
   const chartXLabels = useMemo(() => {
     const total = chartData.length;
@@ -162,10 +184,18 @@ function Dashboard() {
   ];
 
   const reports = [
-    { label: "Sale Report", icon: FileText, path: "/sales" },
-    { label: "All Transactions", icon: LayoutList, path: "/sales" },
-    { label: "Daybook Report", icon: BookOpen, path: "/sales" },
-    { label: "Party Statement", icon: Users, path: "/parties" },
+    {
+      label: "Sale Report",
+      icon: FileText,
+      go: () => navigate({ to: "/reports", search: { r: "sales" } }),
+    },
+    { label: "Daybook", icon: BookOpen, go: () => navigate({ to: "/daybook" }) },
+    {
+      label: "Profit & Loss",
+      icon: LayoutList,
+      go: () => navigate({ to: "/reports", search: { r: "pl" } }),
+    },
+    { label: "Party Statement", icon: Users, go: () => navigate({ to: "/parties" }) },
   ];
 
   return (
@@ -178,9 +208,15 @@ function Dashboard() {
           <div className="flex-1 p-5 border-r border-gray-200">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-1">Total Receivable</p>
-                <p className="text-[28px] font-bold text-gray-800 leading-tight">₹ {fmt(receivable)}</p>
-                <p className="text-xs text-gray-400 mt-1">From {receivableParties} {receivableParties === 1 ? "Party" : "Parties"}</p>
+                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-1">
+                  Total Receivable
+                </p>
+                <p className="text-[28px] font-bold text-gray-800 leading-tight">
+                  ₹ {fmt(receivable)}
+                </p>
+                <p className="text-xs text-gray-400 mt-1">
+                  From {receivableParties} {receivableParties === 1 ? "Party" : "Parties"}
+                </p>
               </div>
               <div className="h-10 w-10 rounded-full bg-emerald-50 border-2 border-emerald-200 flex items-center justify-center mt-1">
                 <ArrowDownLeft className="h-5 w-5 text-emerald-500" />
@@ -192,9 +228,15 @@ function Dashboard() {
           <div className="flex-1 p-5">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-1">Total Payable</p>
-                <p className="text-[28px] font-bold text-gray-800 leading-tight">₹ {fmt(payable)}</p>
-                <p className="text-xs text-gray-400 mt-1">From {payableParties} {payableParties === 1 ? "Party" : "Parties"}</p>
+                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-1">
+                  Total Payable
+                </p>
+                <p className="text-[28px] font-bold text-gray-800 leading-tight">
+                  ₹ {fmt(payable)}
+                </p>
+                <p className="text-xs text-gray-400 mt-1">
+                  From {payableParties} {payableParties === 1 ? "Party" : "Parties"}
+                </p>
               </div>
               <div className="h-10 w-10 rounded-full bg-rose-50 border-2 border-rose-200 flex items-center justify-center mt-1">
                 <ArrowUpRight className="h-5 w-5 text-rose-500" />
@@ -207,7 +249,9 @@ function Dashboard() {
         <div className="bg-white border-b border-gray-200 px-5 pt-4 pb-2">
           <div className="flex items-center justify-between mb-1">
             <div>
-              <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Total Sale</p>
+              <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">
+                Total Sale
+              </p>
               <p className="text-[22px] font-bold text-gray-800 leading-tight">
                 ₹ {fmt(totalSale)}
                 {totalSale === 0 && (
@@ -230,7 +274,10 @@ function Dashboard() {
                   {PERIODS.map((p) => (
                     <button
                       key={p.value}
-                      onClick={() => { setPeriod(p.value); setShowPeriodMenu(false); }}
+                      onClick={() => {
+                        setPeriod(p.value);
+                        setShowPeriodMenu(false);
+                      }}
                       className={`w-full text-left px-3 py-2 text-xs hover:bg-blue-50 hover:text-blue-600 transition ${period === p.value ? "text-blue-600 font-semibold bg-blue-50" : "text-gray-700"}`}
                     >
                       {p.label}
@@ -263,10 +310,15 @@ function Dashboard() {
                   tickLine={false}
                   axisLine={false}
                   tick={{ fontSize: 10, fill: "#9ca3af" }}
-                  tickFormatter={(v) => v === 0 ? "0" : `${(v / 1000).toFixed(0)}k`}
+                  tickFormatter={(v) => (v === 0 ? "0" : `${(v / 1000).toFixed(0)}k`)}
                 />
                 <Tooltip
-                  contentStyle={{ fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 6, padding: "6px 10px" }}
+                  contentStyle={{
+                    fontSize: 12,
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 6,
+                    padding: "6px 10px",
+                  }}
                   labelFormatter={(label) => {
                     const d = new Date(label);
                     return `${d.getDate()} ${d.toLocaleString("en", { month: "short", year: "numeric" })}`;
@@ -292,7 +344,7 @@ function Dashboard() {
           <div className="flex items-center justify-between mb-3">
             <span className="text-sm font-semibold text-gray-700">Most Used Reports</span>
             <button
-              onClick={() => navigate({ to: "/sales" })}
+              onClick={() => navigate({ to: "/reports" })}
               className="text-xs text-blue-600 hover:underline font-medium"
             >
               View All
@@ -302,7 +354,7 @@ function Dashboard() {
             {reports.map((r) => (
               <button
                 key={r.label}
-                onClick={() => navigate({ to: r.path as any })}
+                onClick={r.go}
                 className="flex items-center justify-between bg-white border border-gray-200 rounded-lg px-4 py-3 hover:border-blue-300 hover:bg-blue-50/40 transition group"
               >
                 <div className="flex items-center gap-2.5">
@@ -348,13 +400,17 @@ function Dashboard() {
             <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-3">
               <div className="flex items-center gap-2 mb-2">
                 <Package className="h-3.5 w-3.5 text-amber-600" />
-                <span className="text-xs font-semibold text-amber-700">Low Stock Alerts ({lowStock.length})</span>
+                <span className="text-xs font-semibold text-amber-700">
+                  Low Stock Alerts ({lowStock.length})
+                </span>
               </div>
               <div className="space-y-1">
                 {lowStock.slice(0, 4).map((i: any) => (
                   <div key={i.id} className="flex justify-between text-xs text-amber-700">
                     <span className="truncate flex-1">{i.name}</span>
-                    <span className="font-semibold ml-2">Stock: {i.stock} / Min: {i.minStock}</span>
+                    <span className="font-semibold ml-2">
+                      Stock: {i.stock} / Min: {i.minStock}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -365,36 +421,20 @@ function Dashboard() {
 
       {/* Right Stats Panel */}
       <div className="w-[240px] flex-shrink-0 bg-white border-l border-gray-200 flex flex-col overflow-auto">
-        <StatRow
-          label="Purchases"
-          badge={periodLabel}
-          value={`₹ ${fmt(totalPurchase)}`}
-        />
-        <StatRow
-          label="Expenses"
-          badge={periodLabel}
-          value={`₹ ${fmt(totalExpense)}`}
-        />
-        <StatRow
-          label="Stock Value"
-          badge="As of Now"
-          value={`₹ ${fmt(stockValue)}`}
-        />
+        <StatRow label="Purchases" badge={periodLabel} value={`₹ ${fmt(totalPurchase)}`} />
+        <StatRow label="Expenses" badge={periodLabel} value={`₹ ${fmt(totalExpense)}`} />
+        <StatRow label="Stock Value" badge="As of Now" value={`₹ ${fmt(stockValue)}`} />
         <StatRow
           label="Cash In Hand"
           badge="As of Now"
           value={`₹ ${fmt(Math.max(0, cashInHand))}`}
         />
-        <StatRow
-          label="Total Bank Balance"
-          badge="As of Now"
-          value={`₹ ${fmt(bankBalance)}`}
-        />
+        <StatRow label="Total Bank Balance" badge="As of Now" value={`₹ ${fmt(bankBalance)}`} />
         <StatRow
           label="Net Profit"
           badge={periodLabel}
-          value={`₹ ${fmt(totalSale - totalPurchase - totalExpense)}`}
-          valueClass={totalSale - totalPurchase - totalExpense >= 0 ? "text-emerald-600" : "text-rose-600"}
+          value={`₹ ${fmt(netProfit)}`}
+          valueClass={netProfit >= 0 ? "text-emerald-600" : "text-rose-600"}
         />
 
         <div className="border-t border-gray-200 p-4">
@@ -403,7 +443,8 @@ function Dashboard() {
             <span className="text-xs font-semibold text-gray-700">Business Summary</span>
           </div>
           <p className="text-[11px] text-gray-400 leading-relaxed">
-            Track your receivables, payables and profit at a glance. Add transactions to see live insights.
+            Track your receivables, payables and profit at a glance. Add transactions to see live
+            insights.
           </p>
         </div>
 

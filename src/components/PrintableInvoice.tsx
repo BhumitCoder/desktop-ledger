@@ -9,16 +9,51 @@ interface Props {
 
 // Number to words (Indian) - simple version
 function numToWords(n: number): string {
-  const a = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
-    "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+  const a = [
+    "",
+    "One",
+    "Two",
+    "Three",
+    "Four",
+    "Five",
+    "Six",
+    "Seven",
+    "Eight",
+    "Nine",
+    "Ten",
+    "Eleven",
+    "Twelve",
+    "Thirteen",
+    "Fourteen",
+    "Fifteen",
+    "Sixteen",
+    "Seventeen",
+    "Eighteen",
+    "Nineteen",
+  ];
   const b = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
   const inWords = (num: number): string => {
     if (num < 20) return a[num];
     if (num < 100) return b[Math.floor(num / 10)] + (num % 10 ? " " + a[num % 10] : "");
-    if (num < 1000) return a[Math.floor(num / 100)] + " Hundred" + (num % 100 ? " " + inWords(num % 100) : "");
-    if (num < 100000) return inWords(Math.floor(num / 1000)) + " Thousand" + (num % 1000 ? " " + inWords(num % 1000) : "");
-    if (num < 10000000) return inWords(Math.floor(num / 100000)) + " Lakh" + (num % 100000 ? " " + inWords(num % 100000) : "");
-    return inWords(Math.floor(num / 10000000)) + " Crore" + (num % 10000000 ? " " + inWords(num % 10000000) : "");
+    if (num < 1000)
+      return a[Math.floor(num / 100)] + " Hundred" + (num % 100 ? " " + inWords(num % 100) : "");
+    if (num < 100000)
+      return (
+        inWords(Math.floor(num / 1000)) +
+        " Thousand" +
+        (num % 1000 ? " " + inWords(num % 1000) : "")
+      );
+    if (num < 10000000)
+      return (
+        inWords(Math.floor(num / 100000)) +
+        " Lakh" +
+        (num % 100000 ? " " + inWords(num % 100000) : "")
+      );
+    return (
+      inWords(Math.floor(num / 10000000)) +
+      " Crore" +
+      (num % 10000000 ? " " + inWords(num % 10000000) : "")
+    );
   };
   const rupees = Math.floor(n);
   const paise = Math.round((n - rupees) * 100);
@@ -30,7 +65,7 @@ function numToWords(n: number): string {
 export function PrintableInvoice({ inv, company, mode }: Props) {
   const gstOn = inv.gstEnabled !== false;
   const isSale = mode === "sale";
-  const title = gstOn ? "TAX INVOICE" : (isSale ? "INVOICE / BILL OF SUPPLY" : "PURCHASE BILL");
+  const title = gstOn ? "TAX INVOICE" : isSale ? "INVOICE / BILL OF SUPPLY" : "PURCHASE BILL";
 
   // Aggregate GST by rate for summary
   const gstBuckets: Record<string, { taxable: number; tax: number }> = {};
@@ -48,22 +83,42 @@ export function PrintableInvoice({ inv, company, mode }: Props) {
 
   const totalQty = inv.lineItems.reduce((s, l) => s + l.qty, 0);
 
-  const cellStyle: React.CSSProperties = { border: "1px solid #000", padding: "6px 8px", fontSize: 11 };
-  const th: React.CSSProperties = { ...cellStyle, background: "#f0f0f0", fontWeight: 700, textAlign: "left" };
+  const cellStyle: React.CSSProperties = {
+    border: "1px solid #000",
+    padding: "6px 8px",
+    fontSize: 11,
+  };
+  const th: React.CSSProperties = {
+    ...cellStyle,
+    background: "#f0f0f0",
+    fontWeight: 700,
+    textAlign: "left",
+  };
 
   return (
     <div className="print-area" style={{ fontFamily: "Arial, sans-serif", color: "#000" }}>
       {/* Header */}
-      <div style={{ textAlign: "center", borderBottom: "2px solid #000", paddingBottom: 8, marginBottom: 8 }}>
+      <div
+        style={{
+          textAlign: "center",
+          borderBottom: "2px solid #000",
+          paddingBottom: 8,
+          marginBottom: 8,
+        }}
+      >
         <div style={{ fontSize: 10, fontWeight: 600 }}>{title}</div>
-        <div style={{ fontSize: 20, fontWeight: 800, marginTop: 2 }}>{company.name || "Your Company"}</div>
+        <div style={{ fontSize: 20, fontWeight: 800, marginTop: 2 }}>
+          {company.name || "Your Company"}
+        </div>
         {company.address && <div style={{ fontSize: 11 }}>{company.address}</div>}
         <div style={{ fontSize: 11 }}>
           {company.phone && <>Phone: {company.phone}</>}
           {company.phone && company.email && " · "}
           {company.email && <>Email: {company.email}</>}
         </div>
-        {gstOn && company.gstin && <div style={{ fontSize: 11, fontWeight: 600 }}>GSTIN: {company.gstin}</div>}
+        {gstOn && company.gstin && (
+          <div style={{ fontSize: 11, fontWeight: 600 }}>GSTIN: {company.gstin}</div>
+        )}
       </div>
 
       {/* Party + Invoice meta */}
@@ -80,9 +135,18 @@ export function PrintableInvoice({ inv, company, mode }: Props) {
             <td style={{ ...cellStyle, verticalAlign: "top" }}>
               <table style={{ width: "100%", fontSize: 11 }}>
                 <tbody>
-                  <tr><td style={{ fontWeight: 600, paddingRight: 6 }}>Invoice #:</td><td>{inv.number}</td></tr>
-                  <tr><td style={{ fontWeight: 600 }}>Date:</td><td>{fmtDate(inv.date)}</td></tr>
-                  <tr><td style={{ fontWeight: 600 }}>Payment:</td><td style={{ textTransform: "capitalize" }}>{inv.paymentMode}</td></tr>
+                  <tr>
+                    <td style={{ fontWeight: 600, paddingRight: 6 }}>Invoice #:</td>
+                    <td>{inv.number}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ fontWeight: 600 }}>Date:</td>
+                    <td>{fmtDate(inv.date)}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ fontWeight: 600 }}>Payment:</td>
+                    <td style={{ textTransform: "capitalize" }}>{inv.paymentMode}</td>
+                  </tr>
                 </tbody>
               </table>
             </td>
@@ -119,30 +183,41 @@ export function PrintableInvoice({ inv, company, mode }: Props) {
                 <td style={{ ...cellStyle, textAlign: "right" }}>{l.discountPct}%</td>
                 {gstOn && <td style={{ ...cellStyle, textAlign: "right" }}>{l.gstRate}%</td>}
                 {gstOn && <td style={{ ...cellStyle, textAlign: "right" }}>{fmtMoney(gstAmt)}</td>}
-                <td style={{ ...cellStyle, textAlign: "right", fontWeight: 600 }}>{fmtMoney(taxable + gstAmt)}</td>
+                <td style={{ ...cellStyle, textAlign: "right", fontWeight: 600 }}>
+                  {fmtMoney(taxable + gstAmt)}
+                </td>
               </tr>
             );
           })}
           {/* filler */}
-          {inv.lineItems.length < 6 && Array.from({ length: 6 - inv.lineItems.length }).map((_, i) => (
-            <tr key={"e" + i}>
-              <td style={{ ...cellStyle, height: 20 }}>&nbsp;</td>
-              <td style={cellStyle}></td>
-              <td style={cellStyle}></td>
-              <td style={cellStyle}></td>
-              <td style={cellStyle}></td>
-              <td style={cellStyle}></td>
-              {gstOn && <td style={cellStyle}></td>}
-              {gstOn && <td style={cellStyle}></td>}
-              <td style={cellStyle}></td>
-            </tr>
-          ))}
+          {inv.lineItems.length < 6 &&
+            Array.from({ length: 6 - inv.lineItems.length }).map((_, i) => (
+              <tr key={"e" + i}>
+                <td style={{ ...cellStyle, height: 20 }}>&nbsp;</td>
+                <td style={cellStyle}></td>
+                <td style={cellStyle}></td>
+                <td style={cellStyle}></td>
+                <td style={cellStyle}></td>
+                <td style={cellStyle}></td>
+                {gstOn && <td style={cellStyle}></td>}
+                {gstOn && <td style={cellStyle}></td>}
+                <td style={cellStyle}></td>
+              </tr>
+            ))}
           <tr>
-            <td style={{ ...cellStyle, fontWeight: 700 }} colSpan={2}>Total</td>
+            <td style={{ ...cellStyle, fontWeight: 700 }} colSpan={2}>
+              Total
+            </td>
             <td style={{ ...cellStyle, textAlign: "right", fontWeight: 700 }}>{totalQty}</td>
             <td style={cellStyle} colSpan={gstOn ? 4 : 2}></td>
-            {gstOn && <td style={{ ...cellStyle, textAlign: "right", fontWeight: 700 }}>{fmtMoney(inv.taxAmount)}</td>}
-            <td style={{ ...cellStyle, textAlign: "right", fontWeight: 700 }}>{fmtMoney(inv.subtotal + inv.taxAmount)}</td>
+            {gstOn && (
+              <td style={{ ...cellStyle, textAlign: "right", fontWeight: 700 }}>
+                {fmtMoney(inv.taxAmount)}
+              </td>
+            )}
+            <td style={{ ...cellStyle, textAlign: "right", fontWeight: 700 }}>
+              {fmtMoney(inv.subtotal + inv.taxAmount)}
+            </td>
           </tr>
         </tbody>
       </table>
@@ -156,7 +231,9 @@ export function PrintableInvoice({ inv, company, mode }: Props) {
               <div style={{ fontSize: 11, fontStyle: "italic" }}>{numToWords(inv.total)}</div>
               {inv.notes && (
                 <>
-                  <div style={{ fontSize: 10, fontWeight: 700, marginTop: 8, marginBottom: 3 }}>Notes</div>
+                  <div style={{ fontSize: 10, fontWeight: 700, marginTop: 8, marginBottom: 3 }}>
+                    Notes
+                  </div>
                   <div style={{ fontSize: 11 }}>{inv.notes}</div>
                 </>
               )}
@@ -177,9 +254,15 @@ export function PrintableInvoice({ inv, company, mode }: Props) {
                       {Object.entries(gstBuckets).map(([rate, v]) => (
                         <tr key={rate}>
                           <td style={cellStyle}>{rate}%</td>
-                          <td style={{ ...cellStyle, textAlign: "right" }}>{fmtMoney(v.taxable)}</td>
-                          <td style={{ ...cellStyle, textAlign: "right" }}>{fmtMoney(v.tax / 2)}</td>
-                          <td style={{ ...cellStyle, textAlign: "right" }}>{fmtMoney(v.tax / 2)}</td>
+                          <td style={{ ...cellStyle, textAlign: "right" }}>
+                            {fmtMoney(v.taxable)}
+                          </td>
+                          <td style={{ ...cellStyle, textAlign: "right" }}>
+                            {fmtMoney(v.tax / 2)}
+                          </td>
+                          <td style={{ ...cellStyle, textAlign: "right" }}>
+                            {fmtMoney(v.tax / 2)}
+                          </td>
                           <td style={{ ...cellStyle, textAlign: "right" }}>{fmtMoney(v.tax)}</td>
                         </tr>
                       ))}
@@ -193,23 +276,39 @@ export function PrintableInvoice({ inv, company, mode }: Props) {
                 <tbody>
                   <tr>
                     <td style={{ padding: "5px 8px" }}>Subtotal</td>
-                    <td style={{ padding: "5px 8px", textAlign: "right" }}>{fmtMoney(taxableTotal)}</td>
+                    <td style={{ padding: "5px 8px", textAlign: "right" }}>
+                      {fmtMoney(taxableTotal)}
+                    </td>
                   </tr>
                   {inv.discount > 0 && (
                     <tr>
                       <td style={{ padding: "5px 8px" }}>Discount</td>
-                      <td style={{ padding: "5px 8px", textAlign: "right" }}>- {fmtMoney(inv.discount)}</td>
+                      <td style={{ padding: "5px 8px", textAlign: "right" }}>
+                        - {fmtMoney(inv.discount)}
+                      </td>
                     </tr>
                   )}
                   {gstOn && (
                     <tr>
                       <td style={{ padding: "5px 8px" }}>Total GST</td>
-                      <td style={{ padding: "5px 8px", textAlign: "right" }}>{fmtMoney(inv.taxAmount)}</td>
+                      <td style={{ padding: "5px 8px", textAlign: "right" }}>
+                        {fmtMoney(inv.taxAmount)}
+                      </td>
+                    </tr>
+                  )}
+                  {!!inv.roundOff && Math.abs(inv.roundOff) > 0.001 && (
+                    <tr>
+                      <td style={{ padding: "5px 8px" }}>Round Off</td>
+                      <td style={{ padding: "5px 8px", textAlign: "right" }}>
+                        {inv.roundOff > 0 ? "+" : "−"} {fmtMoney(Math.abs(inv.roundOff))}
+                      </td>
                     </tr>
                   )}
                   <tr style={{ background: "#f0f0f0", fontWeight: 800, fontSize: 14 }}>
                     <td style={{ padding: "8px", borderTop: "2px solid #000" }}>Grand Total</td>
-                    <td style={{ padding: "8px", textAlign: "right", borderTop: "2px solid #000" }}>{fmtMoney(inv.total)}</td>
+                    <td style={{ padding: "8px", textAlign: "right", borderTop: "2px solid #000" }}>
+                      {fmtMoney(inv.total)}
+                    </td>
                   </tr>
                   <tr>
                     <td style={{ padding: "5px 8px" }}>Paid</td>
@@ -219,7 +318,13 @@ export function PrintableInvoice({ inv, company, mode }: Props) {
                     <td style={{ padding: "5px 8px", borderTop: "1px solid #000" }}>
                       Balance {inv.total - inv.paid > 0 ? "Due" : "Paid"}
                     </td>
-                    <td style={{ padding: "5px 8px", textAlign: "right", borderTop: "1px solid #000" }}>
+                    <td
+                      style={{
+                        padding: "5px 8px",
+                        textAlign: "right",
+                        borderTop: "1px solid #000",
+                      }}
+                    >
                       {fmtMoney(Math.abs(inv.total - inv.paid))}
                     </td>
                   </tr>
@@ -240,9 +345,21 @@ export function PrintableInvoice({ inv, company, mode }: Props) {
               <div>2. Interest @18% p.a. will be charged on delayed payments.</div>
               <div>3. Subject to local jurisdiction.</div>
             </td>
-            <td style={{ width: "50%", textAlign: "right", verticalAlign: "bottom", paddingTop: 40 }}>
-              <div style={{ borderTop: "1px solid #000", display: "inline-block", paddingTop: 4, minWidth: 200, fontSize: 11, fontWeight: 600 }}>
-                For {company.name || "Company"}<br />
+            <td
+              style={{ width: "50%", textAlign: "right", verticalAlign: "bottom", paddingTop: 40 }}
+            >
+              <div
+                style={{
+                  borderTop: "1px solid #000",
+                  display: "inline-block",
+                  paddingTop: 4,
+                  minWidth: 200,
+                  fontSize: 11,
+                  fontWeight: 600,
+                }}
+              >
+                For {company.name || "Company"}
+                <br />
                 <span style={{ fontWeight: 400, fontSize: 10 }}>Authorised Signatory</span>
               </div>
             </td>

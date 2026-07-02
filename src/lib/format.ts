@@ -22,4 +22,9 @@ export const fmtDate = (iso: string) => {
   }
 };
 
-export const today = () => new Date().toISOString().slice(0, 10);
+/** Local-timezone YYYY-MM-DD (toISOString is UTC and gives yesterday's date
+ * before 5:30 AM in India — never use it for business dates). */
+export const ymd = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+export const today = () => ymd(new Date());

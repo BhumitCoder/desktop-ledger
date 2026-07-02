@@ -1,19 +1,18 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { PurchaseRepo, PartyRepo } from "@/repositories";
+import { PurchaseRepo, PartyRepo, ItemRepo, PaymentRepo } from "@/repositories";
 import type { Invoice } from "@/types";
-import { fmtMoney, fmtDate } from "@/lib/format";
-import { Plus, Search, X, ChevronDown, ShoppingCart, Trash2 } from "lucide-react";
+import { fmtMoney, fmtDate, ymd, today } from "@/lib/format";
+import { Plus, Search, X, ChevronDown, ShoppingCart, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
+import { usePagination, PaginationBar } from "@/components/Pagination";
 
 export const Route = createFileRoute("/purchase/")({ component: PurchasePage });
 
 type Status = "all" | "paid" | "partial" | "unpaid";
 
-const THIS_MONTH_START = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-  .toISOString()
-  .slice(0, 10);
-const TODAY = new Date().toISOString().slice(0, 10);
+const THIS_MONTH_START = ymd(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+const TODAY = today();
 
 function PurchasePage() {
   const navigate = useNavigate();
@@ -45,16 +44,14 @@ function PurchasePage() {
       }
       if (search) {
         const q = search.toLowerCase();
-        if (
-          !r.number.toLowerCase().includes(q) &&
-          !r.partyName.toLowerCase().includes(q)
-        )
+        if (!r.number.toLowerCase().includes(q) && !r.partyName.toLowerCase().includes(q))
           return false;
       }
       return true;
     });
   }, [rows, dateFrom, dateTo, partyId, status, search]);
 
+  const pg = usePagination(filtered);
   const totalAmount = filtered.reduce((a, r) => a + r.total, 0);
   const totalPaid = filtered.reduce((a, r) => a + r.paid, 0);
   const totalPayable = filtered.reduce((a, r) => a + Math.max(0, r.total - r.paid), 0);
@@ -73,10 +70,28 @@ function PurchasePage() {
   };
 
   const handleDelete = (r: Invoice) => {
-    if (!confirm(`Delete bill ${r.number}?`)) return;
+    if (
+      !confirm(
+        `Delete bill ${r.number}? Purchased quantities will be removed from stock, and any payments applied to it will become advance payments.`,
+      )
+    )
+      return;
+    // Reverse the stock addition this purchase made
+    for (const l of r.lineItems) {
+      const it = ItemRepo.get(l.itemId);
+      if (it) ItemRepo.adjustField(it.id, "stock", -l.qty);
+    }
+    // Payments applied to this bill: unlink them so the money stays
+    // counted as an advance instead of silently disappearing
+    for (const p of PaymentRepo.all()) {
+      if (p.allocations?.some((a) => a.invoiceId === r.id)) {
+        const remaining = p.allocations.filter((a) => a.invoiceId !== r.id);
+        PaymentRepo.update(p.id, { allocations: remaining.length ? remaining : undefined });
+      }
+    }
     PurchaseRepo.remove(r.id);
     refresh();
-    toast.success("Bill deleted");
+    toast.success("Bill deleted — stock adjusted");
   };
 
   const STATUSES: { value: Status; label: string }[] = [
@@ -145,15 +160,17 @@ function PurchasePage() {
                   className="w-full text-xs px-2 py-1.5 border border-gray-200 rounded focus:outline-none"
                   onChange={(e) => {
                     const q = e.target.value.toLowerCase();
-                    const items = PartyRepo.all().filter((p) =>
-                      p.name.toLowerCase().includes(q)
-                    );
+                    const items = PartyRepo.all().filter((p) => p.name.toLowerCase().includes(q));
                     setParties(items.map((p) => ({ id: p.id, name: p.name })));
                   }}
                 />
               </div>
               <button
-                onClick={() => { setPartyId("all"); setShowPartyDrop(false); setParties(PartyRepo.all().map((p) => ({ id: p.id, name: p.name }))); }}
+                onClick={() => {
+                  setPartyId("all");
+                  setShowPartyDrop(false);
+                  setParties(PartyRepo.all().map((p) => ({ id: p.id, name: p.name })));
+                }}
                 className={`w-full text-left px-3 py-2 text-xs hover:bg-blue-50 ${partyId === "all" ? "text-blue-600 font-semibold bg-blue-50" : "text-gray-700"}`}
               >
                 All Suppliers
@@ -161,13 +178,19 @@ function PurchasePage() {
               {parties.map((p) => (
                 <button
                   key={p.id}
-                  onClick={() => { setPartyId(p.id); setShowPartyDrop(false); setParties(PartyRepo.all().map((x) => ({ id: x.id, name: x.name }))); }}
+                  onClick={() => {
+                    setPartyId(p.id);
+                    setShowPartyDrop(false);
+                    setParties(PartyRepo.all().map((x) => ({ id: x.id, name: x.name })));
+                  }}
                   className={`w-full text-left px-3 py-2 text-xs hover:bg-blue-50 truncate ${partyId === p.id ? "text-blue-600 font-semibold bg-blue-50" : "text-gray-700"}`}
                 >
                   {p.name}
                 </button>
               ))}
-              {parties.length === 0 && <p className="text-xs text-gray-400 text-center py-3">No suppliers found</p>}
+              {parties.length === 0 && (
+                <p className="text-xs text-gray-400 text-center py-3">No suppliers found</p>
+              )}
             </div>
           )}
         </div>
@@ -230,7 +253,7 @@ function PurchasePage() {
                 </td>
               </tr>
             ) : (
-              filtered.map((r) => {
+              pg.paged.map((r) => {
                 const balance = Math.round((r.total - r.paid) * 100) / 100;
                 const isPaid = balance <= 0;
                 const isUnpaid = r.paid === 0 && r.total > 0;
@@ -241,14 +264,24 @@ function PurchasePage() {
                     onClick={() => navigate({ to: "/purchase/$id", params: { id: r.id } })}
                     className="border-b border-gray-100 hover:bg-primary/5 transition-colors cursor-pointer group"
                   >
-                    <td className="px-4 py-3 font-mono font-semibold text-blue-600 text-xs">{r.number}</td>
+                    <td className="px-4 py-3 font-mono font-semibold text-blue-600 text-xs">
+                      {r.number}
+                    </td>
                     <td className="px-4 py-3 text-gray-600">{fmtDate(r.date)}</td>
-                    <td className="px-4 py-3 font-medium text-gray-800 max-w-[160px] truncate">{r.partyName}</td>
+                    <td className="px-4 py-3 font-medium text-gray-800 max-w-[160px] truncate">
+                      {r.partyName}
+                    </td>
                     <td className="px-4 py-3 text-right text-gray-500">{r.lineItems.length}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-gray-800 tabular-nums">{fmtMoney(r.total)}</td>
-                    <td className="px-4 py-3 text-right text-emerald-600 font-medium tabular-nums">{fmtMoney(r.paid)}</td>
+                    <td className="px-4 py-3 text-right font-semibold text-gray-800 tabular-nums">
+                      {fmtMoney(r.total)}
+                    </td>
+                    <td className="px-4 py-3 text-right text-emerald-600 font-medium tabular-nums">
+                      {fmtMoney(r.paid)}
+                    </td>
                     <td className="px-4 py-3 text-right tabular-nums">
-                      <span className={balance > 0 ? "text-rose-600 font-semibold" : "text-gray-400"}>
+                      <span
+                        className={balance > 0 ? "text-rose-600 font-semibold" : "text-gray-400"}
+                      >
                         {fmtMoney(Math.max(0, balance))}
                       </span>
                     </td>
@@ -256,10 +289,24 @@ function PurchasePage() {
                       <StatusBadge paid={isPaid} partial={isPartial} unpaid={isUnpaid} />
                     </td>
                     <td className="px-4 py-3 text-gray-500 capitalize text-xs">{r.paymentMode}</td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-4 py-3 text-center whitespace-nowrap">
                       <button
-                        onClick={(e) => { e.stopPropagation(); handleDelete(r); }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate({ to: "/purchase/edit/$id", params: { id: r.id } });
+                        }}
+                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+                        title="Edit bill"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(r);
+                        }}
                         className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"
+                        title="Delete bill"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -272,25 +319,50 @@ function PurchasePage() {
           {filtered.length > 0 && (
             <tfoot className="sticky bottom-0 bg-gray-50 border-t-2 border-gray-200">
               <tr>
-                <td colSpan={4} className="px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">
+                <td
+                  colSpan={4}
+                  className="px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide"
+                >
                   Total ({filtered.length} bills)
                 </td>
-                <td className="px-4 py-3 text-right font-bold text-gray-800 tabular-nums text-sm">{fmtMoney(totalAmount)}</td>
-                <td className="px-4 py-3 text-right font-bold text-emerald-600 tabular-nums text-sm">{fmtMoney(totalPaid)}</td>
-                <td className="px-4 py-3 text-right font-bold text-rose-600 tabular-nums text-sm">{fmtMoney(totalPayable)}</td>
+                <td className="px-4 py-3 text-right font-bold text-gray-800 tabular-nums text-sm">
+                  {fmtMoney(totalAmount)}
+                </td>
+                <td className="px-4 py-3 text-right font-bold text-emerald-600 tabular-nums text-sm">
+                  {fmtMoney(totalPaid)}
+                </td>
+                <td className="px-4 py-3 text-right font-bold text-rose-600 tabular-nums text-sm">
+                  {fmtMoney(totalPayable)}
+                </td>
                 <td colSpan={3} />
               </tr>
             </tfoot>
           )}
         </table>
       </div>
+      <PaginationBar
+        page={pg.page}
+        totalPages={pg.totalPages}
+        pageSize={pg.pageSize}
+        total={pg.total}
+        onPage={pg.setPage}
+        onPageSize={pg.setPageSize}
+      />
     </div>
   );
 }
 
 function SummaryCard({
-  label, value, color, border,
-}: { label: string; value: number; color: string; border?: boolean }) {
+  label,
+  value,
+  color,
+  border,
+}: {
+  label: string;
+  value: number;
+  color: string;
+  border?: boolean;
+}) {
   return (
     <div className={`px-5 py-3.5 ${border ? "border-r border-gray-100" : ""}`}>
       <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-1">{label}</p>
@@ -299,16 +371,48 @@ function SummaryCard({
   );
 }
 
-function StatusBadge({ paid, partial, unpaid }: { paid: boolean; partial: boolean; unpaid: boolean }) {
-  if (paid) return <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200">Paid</span>;
-  if (partial) return <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">Partial</span>;
-  if (unpaid) return <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-600 border border-rose-200">Unpaid</span>;
+function StatusBadge({
+  paid,
+  partial,
+  unpaid,
+}: {
+  paid: boolean;
+  partial: boolean;
+  unpaid: boolean;
+}) {
+  if (paid)
+    return (
+      <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200">
+        Paid
+      </span>
+    );
+  if (partial)
+    return (
+      <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">
+        Partial
+      </span>
+    );
+  if (unpaid)
+    return (
+      <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-600 border border-rose-200">
+        Unpaid
+      </span>
+    );
   return null;
 }
 
-function Th({ children, align }: { children: React.ReactNode; align?: "left" | "right" | "center" }) {
+function Th({
+  children,
+  align,
+}: {
+  children: React.ReactNode;
+  align?: "left" | "right" | "center";
+}) {
   return (
-    <th className="px-4 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-100 whitespace-nowrap bg-white" style={{ textAlign: align ?? "left" }}>
+    <th
+      className="px-4 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-100 whitespace-nowrap bg-white"
+      style={{ textAlign: align ?? "left" }}
+    >
       {children}
     </th>
   );

@@ -24,7 +24,11 @@ interface WorkspaceState {
 const SIDEBAR_KEY = "bz.sidebarCollapsed";
 const initialCollapsed = (() => {
   if (typeof window === "undefined") return false;
-  try { return localStorage.getItem(SIDEBAR_KEY) === "1"; } catch { return false; }
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) === "1";
+  } catch {
+    return false;
+  }
 })();
 
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
@@ -43,8 +47,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
   closeTab: (id) => {
     const tabs = get().tabs.filter((t) => t.id !== id);
-    const activeId =
-      get().activeId === id ? (tabs[tabs.length - 1]?.id ?? null) : get().activeId;
+    const activeId = get().activeId === id ? (tabs[tabs.length - 1]?.id ?? null) : get().activeId;
     set({ tabs, activeId });
   },
   setActive: (id) => set({ activeId: id }),
@@ -53,10 +56,14 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   toggleSidebar: () => {
     const v = !get().sidebarCollapsed;
     set({ sidebarCollapsed: v });
-    try { localStorage.setItem(SIDEBAR_KEY, v ? "1" : "0"); } catch {}
+    try {
+      localStorage.setItem(SIDEBAR_KEY, v ? "1" : "0");
+    } catch {}
   },
   setSidebarCollapsed: (v) => {
     set({ sidebarCollapsed: v });
-    try { localStorage.setItem(SIDEBAR_KEY, v ? "1" : "0"); } catch {}
+    try {
+      localStorage.setItem(SIDEBAR_KEY, v ? "1" : "0");
+    } catch {}
   },
 }));
