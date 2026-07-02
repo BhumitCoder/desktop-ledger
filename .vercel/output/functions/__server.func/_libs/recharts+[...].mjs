@@ -1073,8 +1073,19 @@ var Layer = /*#__PURE__*/ import_react.forwardRef(function(props, ref) {
 });
 //#endregion
 //#region node_modules/recharts/es6/util/LogUtils.js
+var isDev = false;
 var warn = function warn(condition, format) {
 	for (var _len = arguments.length, args = new Array(_len > 2 ? _len - 2 : 0), _key = 2; _key < _len; _key++) args[_key - 2] = arguments[_key];
+	if (isDev && typeof console !== "undefined" && console.warn) {
+		if (format === void 0) console.warn("LogUtils requires an error message argument");
+		if (!condition) if (format === void 0) console.warn("Minified exception occurred; use the non-minified dev environment for the full error message and additional helpful warnings.");
+		else {
+			var argIndex = 0;
+			console.warn(format.replace(/%s/g, function() {
+				return args[argIndex++];
+			}));
+		}
+	}
 };
 //#endregion
 //#region node_modules/recharts/es6/shape/Symbols.js
@@ -3713,10 +3724,14 @@ var getNiceTickValues = memoize$1(getNiceTickValuesFn);
 var getTickValuesFixedDomain = memoize$1(getTickValuesFixedDomainFn);
 //#endregion
 //#region node_modules/tiny-invariant/dist/esm/tiny-invariant.js
+var isProduction = true;
 var prefix = "Invariant failed";
 function invariant(condition, message) {
 	if (condition) return;
-	throw new Error(prefix);
+	if (isProduction) throw new Error(prefix);
+	var provided = typeof message === "function" ? message() : message;
+	var value = provided ? "".concat(prefix, ": ").concat(provided) : prefix;
+	throw new Error(value);
 }
 //#endregion
 //#region node_modules/recharts/es6/cartesian/ErrorBar.js

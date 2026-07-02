@@ -585,8 +585,7 @@ function infiniteQueryBehavior(pages) {
 					addSignalProperty(queryFnContext2);
 					return queryFnContext2;
 				};
-				const queryFnContext = createQueryFnContext();
-				const page = await queryFn(queryFnContext);
+				const page = await queryFn(createQueryFnContext());
 				const { maxPages } = context.options;
 				const addTo = previous ? addToStart : addToEnd;
 				return {

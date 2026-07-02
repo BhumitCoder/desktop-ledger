@@ -2022,7 +2022,7 @@ function uint8ArrayToBase64(bytes) {
 	return btoa(chunks.join(""));
 }
 function base64ToUint8Array(base64) {
-	if (base64.length === 0) return /* @__PURE__ */ new Uint8Array(0);
+	if (base64.length === 0) return new Uint8Array(0);
 	if (hasNodeBuffer) {
 		const buf = BufferCtor.from(base64, "base64");
 		return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);

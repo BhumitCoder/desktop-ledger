@@ -3116,6 +3116,16 @@ var require_make_client = /* @__PURE__ */ __commonJSMin(((exports) => {
 //#endregion
 //#region node_modules/lodash.camelcase/index.js
 var require_lodash_camelcase = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+	/**
+	* lodash (Custom Build) <https://lodash.com/>
+	* Build: `lodash modularize exports="npm" -o ./`
+	* Copyright jQuery Foundation and other contributors <https://jquery.org/>
+	* Released under MIT license <https://lodash.com/license>
+	* Based on Underscore.js 1.8.3 <http://underscorejs.org/LICENSE>
+	* Copyright Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
+	*/
+	/** Used as references for various `Number` constants. */
+	var INFINITY = Infinity;
 	/** `Object#toString` result references. */
 	var symbolTag = "[object Symbol]";
 	/** Used to match words composed of alphanumeric characters. */
@@ -3522,7 +3532,7 @@ var require_lodash_camelcase = /* @__PURE__ */ __commonJSMin(((exports, module) 
 		if (typeof value == "string") return value;
 		if (isSymbol(value)) return symbolToString ? symbolToString.call(value) : "";
 		var result = value + "";
-		return result == "0" && 1 / value == -Infinity ? "-0" : result;
+		return result == "0" && 1 / value == -INFINITY ? "-0" : result;
 	}
 	/**
 	* Casts `array` to a slice if it's needed.
@@ -20730,7 +20740,7 @@ var RE2Flags = class RE2Flags {
 * Various constants and helper for unicode codepoints.
 */
 var Codepoint = class {
-	static CODES = (() => /* @__PURE__ */ new Map([
+	static CODES = (() => new Map([
 		["\x07", 7],
 		["\b", 8],
 		["	", 9],
@@ -20807,7 +20817,7 @@ var Codepoint = class {
 	}
 };
 var UnicodeTables = class UnicodeTables {
-	static CASE_ORBIT = (() => /* @__PURE__ */ new Map([
+	static CASE_ORBIT = (() => new Map([
 		[75, 107],
 		[107, 8490],
 		[8490, 75],
@@ -47740,7 +47750,7 @@ var UnicodeTables = class UnicodeTables {
 		72263,
 		1
 	]];
-	static CATEGORIES = (() => /* @__PURE__ */ new Map([
+	static CATEGORIES = (() => new Map([
 		["C", UnicodeTables.C],
 		["Cc", UnicodeTables.Cc],
 		["Cf", UnicodeTables.Cf],
@@ -47778,7 +47788,7 @@ var UnicodeTables = class UnicodeTables {
 		["Zp", UnicodeTables.Zp],
 		["Zs", UnicodeTables.Zs]
 	]))();
-	static SCRIPTS = (() => /* @__PURE__ */ new Map([
+	static SCRIPTS = (() => new Map([
 		["Adlam", UnicodeTables.Adlam],
 		["Ahom", UnicodeTables.Ahom],
 		["Anatolian_Hieroglyphs", UnicodeTables.Anatolian_Hieroglyphs],
@@ -47943,7 +47953,7 @@ var UnicodeTables = class UnicodeTables {
 		["Yi", UnicodeTables.Yi],
 		["Zanabazar_Square", UnicodeTables.Zanabazar_Square]
 	]))();
-	static FOLD_CATEGORIES = (() => /* @__PURE__ */ new Map([
+	static FOLD_CATEGORIES = (() => new Map([
 		["L", UnicodeTables.foldL],
 		["Ll", UnicodeTables.foldLl],
 		["Lt", UnicodeTables.foldLt],
@@ -47951,7 +47961,7 @@ var UnicodeTables = class UnicodeTables {
 		["M", UnicodeTables.foldM],
 		["Mn", UnicodeTables.foldMn]
 	]))();
-	static FOLD_SCRIPT = (() => /* @__PURE__ */ new Map([
+	static FOLD_SCRIPT = (() => new Map([
 		["Common", UnicodeTables.foldCommon],
 		["Greek", UnicodeTables.foldGreek],
 		["Inherited", UnicodeTables.foldInherited]
@@ -49576,7 +49586,7 @@ var code3 = [
 	97,
 	122
 ];
-var PERL_GROUPS = /* @__PURE__ */ new Map([
+var PERL_GROUPS = new Map([
 	["\\d", new CharGroup(1, code1)],
 	["\\D", new CharGroup(-1, code1)],
 	["\\s", new CharGroup(1, code2)],
@@ -49650,7 +49660,7 @@ var code17 = [
 	97,
 	102
 ];
-var POSIX_GROUPS = /* @__PURE__ */ new Map([
+var POSIX_GROUPS = new Map([
 	["[:alnum:]", new CharGroup(1, code4)],
 	["[:^alnum:]", new CharGroup(-1, code4)],
 	["[:alpha:]", new CharGroup(1, code5)],
@@ -52947,8 +52957,7 @@ var Timestamp = class Timestamp {
 	*/
 	static fromMillis(milliseconds) {
 		const seconds = Math.floor(milliseconds / 1e3);
-		const nanos = Math.floor((milliseconds - seconds * 1e3) * MS_TO_NANOS);
-		return new Timestamp(seconds, nanos);
+		return new Timestamp(seconds, Math.floor((milliseconds - seconds * 1e3) * MS_TO_NANOS));
 	}
 	/**
 	* Creates a new timestamp.
@@ -55141,12 +55150,10 @@ var ByteString = class ByteString {
 		this.binaryString = binaryString;
 	}
 	static fromBase64String(base64) {
-		const binaryString = decodeBase64(base64);
-		return new ByteString(binaryString);
+		return new ByteString(decodeBase64(base64));
 	}
 	static fromUint8Array(array) {
-		const binaryString = binaryStringFromUint8Array(array);
-		return new ByteString(binaryString);
+		return new ByteString(binaryStringFromUint8Array(array));
 	}
 	[Symbol.iterator]() {
 		let i = 0;
@@ -57996,8 +58003,7 @@ var BloomFilter = class BloomFilter {
 	/** Create bloom filter for testing purposes only. */
 	static create(bitCount, hashCount, contains) {
 		const padding = bitCount % 8 === 0 ? 0 : 8 - bitCount % 8;
-		const bitmap = new Uint8Array(Math.ceil(bitCount / 8));
-		const bloomFilter = new BloomFilter(bitmap, padding, hashCount);
+		const bloomFilter = new BloomFilter(new Uint8Array(Math.ceil(bitCount / 8)), padding, hashCount);
 		contains.forEach((item) => bloomFilter.insert(item));
 		return bloomFilter;
 	}
@@ -58739,7 +58745,7 @@ function fromBytes(serializer, value) {
 		return ByteString.fromBase64String(value ? value : "");
 	} else {
 		hardAssert(value === void 0 || value instanceof Buffer || value instanceof Uint8Array, 16193);
-		return ByteString.fromUint8Array(value ? value : /* @__PURE__ */ new Uint8Array());
+		return ByteString.fromUint8Array(value ? value : new Uint8Array());
 	}
 }
 function toVersion(serializer, version) {
@@ -59928,8 +59934,7 @@ var GrpcConnection = class {
 		grpcStream.on("error", (grpcError) => {
 			if (!closed) {
 				logWarn(LOG_TAG$f, `RPC '${rpcName}' stream ${streamId} error. Code:`, grpcError.code, "Message:", grpcError.message);
-				const code = mapCodeFromRpcCode(grpcError.code);
-				close(new FirestoreError(code, grpcError.message));
+				close(new FirestoreError(mapCodeFromRpcCode(grpcError.code), grpcError.message));
 			}
 		});
 		logDebug(LOG_TAG$f, `Opening RPC '${rpcName}' stream ${streamId} to ${this.databaseInfo.host}`);
@@ -70009,8 +70014,7 @@ var IndexedDbDocumentOverlayCache = class IndexedDbDocumentOverlayCache {
 		this.userId = userId;
 	}
 	static forUser(serializer, user) {
-		const userId = user.uid || "";
-		return new IndexedDbDocumentOverlayCache(serializer, userId);
+		return new IndexedDbDocumentOverlayCache(serializer, user.uid || "");
 	}
 	getOverlay(transaction, key) {
 		return documentOverlayStore(transaction).get(toDbDocumentOverlayKey(this.userId, key)).next((dbOverlay) => {
@@ -71104,7 +71108,7 @@ var MemoryCollectionParentIndex = class {
 * limitations under the License.
 */
 var LOG_TAG$a = "IndexedDbIndexManager";
-var EMPTY_VALUE = /* @__PURE__ */ new Uint8Array(0);
+var EMPTY_VALUE = new Uint8Array(0);
 /**
 * A persisted implementation of IndexManager.
 *
@@ -71646,8 +71650,7 @@ var IndexedDbMutationQueue = class IndexedDbMutationQueue {
 	*/
 	static forUser(user, serializer, indexManager, referenceDelegate) {
 		hardAssert(user.uid !== "", 64387);
-		const userId = user.isAuthenticated() ? user.uid : "";
-		return new IndexedDbMutationQueue(userId, serializer, indexManager, referenceDelegate);
+		return new IndexedDbMutationQueue(user.isAuthenticated() ? user.uid : "", serializer, indexManager, referenceDelegate);
 	}
 	checkEmpty(transaction) {
 		let empty = true;
@@ -74395,12 +74398,10 @@ var SchemaConverter = class {
 			}
 		};
 		return txn.store(DbRemoteDocumentStore$1).iterate({ keysOnly: true }, (pathSegments, _) => {
-			const path = new ResourcePath(pathSegments);
-			return addEntry(path.popLast());
+			return addEntry(new ResourcePath(pathSegments).popLast());
 		}).next(() => {
 			return txn.store(DbDocumentMutationStore).iterate({ keysOnly: true }, ([userID, encodedPath, batchId], _) => {
-				const path = decodeResourcePath(encodedPath);
-				return addEntry(path.popLast());
+				return addEntry(decodeResourcePath(encodedPath).popLast());
 			});
 		});
 	}
@@ -74446,8 +74447,7 @@ var SchemaConverter = class {
 				const user = new User(userId);
 				const documentOverlayCache = IndexedDbDocumentOverlayCache.forUser(this.serializer, user);
 				const indexManager = memoryPersistence.getIndexManager(user);
-				const mutationQueue = IndexedDbMutationQueue.forUser(user, this.serializer, indexManager, memoryPersistence.referenceDelegate);
-				return new LocalDocumentsView(remoteDocumentCache, mutationQueue, documentOverlayCache, indexManager).recalculateAndSaveOverlaysForDocumentKeys(new IndexedDbTransaction(transaction, ListenSequence.INVALID), allDocumentKeysForUser).next();
+				return new LocalDocumentsView(remoteDocumentCache, IndexedDbMutationQueue.forUser(user, this.serializer, indexManager, memoryPersistence.referenceDelegate), documentOverlayCache, indexManager).recalculateAndSaveOverlaysForDocumentKeys(new IndexedDbTransaction(transaction, ListenSequence.INVALID), allDocumentKeysForUser).next();
 			});
 		});
 	}
@@ -77174,8 +77174,7 @@ var DelayedOperation = class DelayedOperation {
 	*   the DelayedOperation class public.
 	*/
 	static createAndSchedule(asyncQueue, timerId, delayMs, op, removalCallback) {
-		const targetTime = Date.now() + delayMs;
-		const delayedOp = new DelayedOperation(asyncQueue, timerId, targetTime, op, removalCallback);
+		const delayedOp = new DelayedOperation(asyncQueue, timerId, Date.now() + delayMs, op, removalCallback);
 		delayedOp.start(delayMs);
 		return delayedOp;
 	}

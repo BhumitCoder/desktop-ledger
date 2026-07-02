@@ -1,4 +1,4 @@
-import { n as require_jsx_runtime } from "../_libs/radix-ui__react-context+react.mjs";
+import { r as require_jsx_runtime } from "../_libs/radix-ui__react-context+react.mjs";
 //#region node_modules/.nitro/vite/services/ssr/assets/PageHeader-B1sgTJFu.js
 var import_jsx_runtime = require_jsx_runtime();
 function PageHeader({ title, subtitle, actions }) {

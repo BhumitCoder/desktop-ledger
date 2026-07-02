@@ -33,7 +33,7 @@ function lazyInherit(target, source, sourceKey) {
 		if (modified) Object.defineProperty(target, key, desc);
 	}
 }
-var _needsNormRE = /(?:(?:^|\/)(?:\.|\.\.|%2e|%2e\.|\.%2e|%2e%2e)(?:\/|$))|[\\^#"<>{}`\x80-\uffff]/i;
+var _needsNormRE = /(?:(?:^|\/)(?:\.|\.\.|%2e|%2e\.|\.%2e|%2e%2e)(?:\/|$))|[\\^\x80-\uffff]/i;
 var FastURL = /* @__PURE__ */ (() => {
 	const NativeURL = globalThis.URL;
 	const FastURL = class URL {
@@ -46,11 +46,9 @@ var FastURL = /* @__PURE__ */ (() => {
 		#searchParams;
 		#pos;
 		constructor(url) {
-			if (typeof url === "string") {
-				const isOriginForm = url[0] === "/";
-				if (isOriginForm && !url.includes("#")) this.#href = url;
-				else this.#url = new NativeURL(isOriginForm ? `http://localhost${url}` : url);
-			} else if (_needsNormRE.test(url.pathname) || url.search?.includes("#")) this.#url = new NativeURL(`${url.protocol || "http:"}//${url.host || "localhost"}${url.pathname}${url.search || ""}`);
+			if (typeof url === "string") if (url[0] === "/") this.#href = url;
+			else this.#url = new NativeURL(url);
+			else if (_needsNormRE.test(url.pathname)) this.#url = new NativeURL(`${url.protocol || "http:"}//${url.host || "localhost"}${url.pathname}${url.search || ""}`);
 			else {
 				this.#protocol = url.protocol;
 				this.#host = url.host;
@@ -649,4 +647,4 @@ var H3Core = class {
 	}
 };
 //#endregion
-export { NodeResponse as a, toRequest as i, HTTPError as n, FastURL as o, defineLazyEventHandler as r, NullProtoObj as s, H3Core as t };
+export { NodeResponse as a, toRequest as i, HTTPError as n, NullProtoObj as o, defineLazyEventHandler as r, H3Core as t };

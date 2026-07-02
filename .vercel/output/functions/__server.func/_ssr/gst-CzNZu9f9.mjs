@@ -1,7 +1,7 @@
 import { o as __toESM } from "../_runtime.mjs";
 import { r as require_react } from "../_libs/@radix-ui/react-compose-refs+[...].mjs";
 import { l as PurchaseRepo, p as SalesRepo } from "./repositories-DM2yCNqC.mjs";
-import { n as require_jsx_runtime } from "../_libs/radix-ui__react-context+react.mjs";
+import { r as require_jsx_runtime } from "../_libs/radix-ui__react-context+react.mjs";
 import { t as PageHeader } from "./PageHeader-B1sgTJFu.mjs";
 import { n as fmtMoney } from "./format-uyyFg6A-.mjs";
 //#region node_modules/.nitro/vite/services/ssr/assets/gst-CzNZu9f9.js

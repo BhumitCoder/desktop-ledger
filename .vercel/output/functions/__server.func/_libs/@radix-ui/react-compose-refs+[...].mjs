@@ -356,7 +356,7 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.useTransition = function() {
 		return ReactSharedInternals.H.useTransition();
 	};
-	exports.version = "19.2.7";
+	exports.version = "19.2.5";
 }));
 //#endregion
 //#region node_modules/react/index.js
