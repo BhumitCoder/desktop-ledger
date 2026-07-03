@@ -17,6 +17,7 @@ import { fmtMoney, today } from "@/lib/format";
 import { toast } from "sonner";
 import { Trash2, UserPlus, Save, X, CornerDownLeft, CornerUpLeft, Loader2 } from "lucide-react";
 import { genId, newBatch, commitBatch } from "@/repositories/base";
+import { NumInput } from "@/components/NumInput";
 
 interface Props {
   mode: "sale-return" | "purchase-return";
@@ -501,12 +502,9 @@ export function ReturnForm({ mode }: Props) {
                     <td className="px-3 py-1.5 text-muted-foreground text-[11px]">{idx + 1}</td>
                     <td className="px-3 py-1.5 font-medium">{l.name}</td>
                     <td className="py-1.5">
-                      <input
-                        type="number"
+                      <NumInput
                         value={l.qty}
-                        min={0}
-                        onWheel={(e) => e.currentTarget.blur()}
-                        onChange={(e) => updateLine(l.id, { qty: parseFloat(e.target.value) || 0 })}
+                        onValue={(n) => updateLine(l.id, { qty: n })}
                         className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
                       />
                     </td>
@@ -518,40 +516,24 @@ export function ReturnForm({ mode }: Props) {
                       />
                     </td>
                     <td className="py-1.5">
-                      <input
-                        type="number"
+                      <NumInput
                         value={l.price}
-                        min={0}
-                        onWheel={(e) => e.currentTarget.blur()}
-                        onChange={(e) =>
-                          updateLine(l.id, { price: parseFloat(e.target.value) || 0 })
-                        }
+                        onValue={(n) => updateLine(l.id, { price: n })}
                         className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
                       />
                     </td>
                     <td className="py-1.5">
-                      <input
-                        type="number"
+                      <NumInput
                         value={l.discountPct}
-                        min={0}
-                        max={100}
-                        onWheel={(e) => e.currentTarget.blur()}
-                        onChange={(e) =>
-                          updateLine(l.id, { discountPct: parseFloat(e.target.value) || 0 })
-                        }
+                        onValue={(n) => updateLine(l.id, { discountPct: n })}
                         className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
                       />
                     </td>
                     {gstOn && (
                       <td className="py-1.5">
-                        <input
-                          type="number"
+                        <NumInput
                           value={l.gstRate}
-                          min={0}
-                          onWheel={(e) => e.currentTarget.blur()}
-                          onChange={(e) =>
-                            updateLine(l.id, { gstRate: parseFloat(e.target.value) || 0 })
-                          }
+                          onValue={(n) => updateLine(l.id, { gstRate: n })}
                           className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
                         />
                       </td>

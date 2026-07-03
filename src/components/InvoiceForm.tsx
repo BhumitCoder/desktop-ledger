@@ -30,6 +30,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { PrintableInvoice } from "@/components/PrintableInvoice";
+import { NumInput } from "@/components/NumInput";
 import { genId, newBatch, commitBatch } from "@/repositories/base";
 
 interface Props {
@@ -698,11 +699,9 @@ export function InvoiceForm({ mode, existing }: Props) {
                       <div className="font-medium">{l.name}</div>
                     </td>
                     <td className="py-1.5">
-                      <input
-                        type="number"
+                      <NumInput
                         value={l.qty}
-                        onWheel={(e) => e.currentTarget.blur()}
-                        onChange={(e) => updateLine(l.id, { qty: parseFloat(e.target.value) || 0 })}
+                        onValue={(n) => updateLine(l.id, { qty: n })}
                         className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
                       />
                     </td>
@@ -714,38 +713,26 @@ export function InvoiceForm({ mode, existing }: Props) {
                       />
                     </td>
                     <td className="py-1.5">
-                      <input
-                        type="number"
+                      <NumInput
                         value={l.price}
-                        onWheel={(e) => e.currentTarget.blur()}
-                        onChange={(e) =>
-                          updateLine(l.id, { price: parseFloat(e.target.value) || 0 })
-                        }
+                        onValue={(n) => updateLine(l.id, { price: n })}
                         className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
                       />
                     </td>
                     <td className="py-1.5">
-                      <input
-                        type="number"
+                      <NumInput
                         value={l.discountPct}
-                        onWheel={(e) => e.currentTarget.blur()}
-                        onChange={(e) =>
-                          updateLine(l.id, { discountPct: parseFloat(e.target.value) || 0 })
-                        }
+                        onValue={(n) => updateLine(l.id, { discountPct: n })}
                         className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
                       />
                     </td>
                     {gstOn && (
                       <td className="py-1.5">
-                        <input
-                          type="number"
-                          value={l.gstRate}
-                          onWheel={(e) => e.currentTarget.blur()}
-                          onChange={(e) =>
-                            updateLine(l.id, { gstRate: parseFloat(e.target.value) || 0 })
-                          }
-                          className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
-                        />
+                        <NumInput
+                        value={l.gstRate}
+                        onValue={(n) => updateLine(l.id, { gstRate: n })}
+                        className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
+                      />
                       </td>
                     )}
                     <td className="text-right px-3 py-1.5 font-semibold tabular-nums">
@@ -797,12 +784,9 @@ export function InvoiceForm({ mode, existing }: Props) {
             {gstOn && <Row label="Tax (GST)" value={fmtMoney(inv.taxAmount)} />}
             <div className="flex justify-between items-center gap-2">
               <span className="text-muted-foreground">Extra Discount</span>
-              <input
-                type="number"
-                value={inv.discount || ""}
-                onWheel={(e) => e.currentTarget.blur()}
-                onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)}
-                placeholder="0"
+              <NumInput
+                value={inv.discount}
+                onValue={(n) => setDiscount(n)}
                 className="w-28 h-8 px-2 text-right border rounded-md bg-background focus:border-primary outline-none tabular-nums"
               />
             </div>
@@ -849,13 +833,9 @@ export function InvoiceForm({ mode, existing }: Props) {
                   >
                     Full
                   </button>
-                  <input
-                    type="number"
-                    value={inv.paid || ""}
-                    min={0}
-                    onWheel={(e) => e.currentTarget.blur()}
-                    onChange={(e) => setInv({ ...inv, paid: parseFloat(e.target.value) || 0 })}
-                    placeholder="0"
+                  <NumInput
+                    value={inv.paid}
+                    onValue={(n) => setInv({ ...inv, paid: n })}
                     className="w-24 h-8 px-2 text-right border rounded-md bg-background focus:border-primary outline-none tabular-nums"
                   />
                 </div>
