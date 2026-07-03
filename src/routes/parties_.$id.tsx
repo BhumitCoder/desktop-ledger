@@ -32,6 +32,9 @@ interface LedgerRow {
   /** party owes less (payments received, sale returns, purchases from them) */
   credit: number;
   balance: number;
+  /** underlying document id — makes the row clickable to open the bill */
+  docId?: string;
+  docKind?: "sale" | "purchase" | "sale-return" | "purchase-return";
 }
 
 function PartyStatementPage() {
@@ -40,6 +43,8 @@ function PartyStatementPage() {
   const [party, setParty] = useState<Party | null | undefined>(undefined);
   const [editOpen, setEditOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   useEffect(() => {
     setParty(PartyRepo.get(id) ?? null);
@@ -60,6 +65,8 @@ function PartyStatementPage() {
         ref: s.number,
         debit: s.total,
         credit: 0,
+        docId: s.id,
+        docKind: "sale",
       });
       const atBilling = r2((s.paid || 0) - (applied.get(s.id) ?? 0));
       if (atBilling > 0) {
@@ -70,6 +77,8 @@ function PartyStatementPage() {
           ref: s.number,
           debit: 0,
           credit: atBilling,
+          docId: s.id,
+          docKind: "sale",
         });
       }
     }
@@ -81,6 +90,8 @@ function PartyStatementPage() {
         ref: ret.number,
         debit: 0,
         credit: ret.total,
+        docId: ret.id,
+        docKind: "sale-return",
       });
     }
     for (const p of PurchaseRepo.all().filter((x) => x.partyId === party.id)) {
@@ -91,6 +102,8 @@ function PartyStatementPage() {
         ref: p.number,
         debit: 0,
         credit: p.total,
+        docId: p.id,
+        docKind: "purchase",
       });
       const atBilling = r2((p.paid || 0) - (applied.get(p.id) ?? 0));
       if (atBilling > 0) {
@@ -101,6 +114,8 @@ function PartyStatementPage() {
           ref: p.number,
           debit: atBilling,
           credit: 0,
+          docId: p.id,
+          docKind: "purchase",
         });
       }
     }
@@ -112,6 +127,8 @@ function PartyStatementPage() {
         ref: ret.number,
         debit: ret.total,
         credit: 0,
+        docId: ret.id,
+        docKind: "purchase-return",
       });
     }
     for (const pay of allPayments.filter((x) => x.partyId === party.id)) {
@@ -143,7 +160,28 @@ function PartyStatementPage() {
 
     let running = party.openingBalance || 0;
     const out: LedgerRow[] = [];
-    if (party.openingBalance) {
+
+    // Date window: transactions before "From" collapse into one
+    // "Balance b/f" (brought forward) line, like a proper ledger
+    const before = dateFrom ? entries.filter((e) => e.date < dateFrom) : [];
+    const window = entries.filter(
+      (e) => (!dateFrom || e.date >= dateFrom) && (!dateTo || e.date <= dateTo),
+    );
+    for (const e of before) {
+      running = r2(running + e.debit - e.credit);
+    }
+
+    if (dateFrom) {
+      out.push({
+        date: "",
+        created: "",
+        type: "Balance b/f",
+        ref: "—",
+        debit: 0,
+        credit: 0,
+        balance: running,
+      });
+    } else if (party.openingBalance) {
       out.push({
         date: "",
         created: "",
@@ -154,12 +192,21 @@ function PartyStatementPage() {
         balance: running,
       });
     }
-    for (const e of entries) {
+    for (const e of window) {
       running = r2(running + e.debit - e.credit);
       out.push({ ...e, balance: running });
     }
     return out;
-  }, [party, refreshKey]);
+  }, [party, refreshKey, dateFrom, dateTo]);
+
+  const openRow = (e: LedgerRow) => {
+    if (!e.docId || !e.docKind) return;
+    if (e.docKind === "sale") navigate({ to: "/sales/$id", params: { id: e.docId } });
+    else if (e.docKind === "purchase") navigate({ to: "/purchase/$id", params: { id: e.docId } });
+    else if (e.docKind === "sale-return")
+      navigate({ to: "/sale-return/$id", params: { id: e.docId } });
+    else navigate({ to: "/purchase-return/$id", params: { id: e.docId } });
+  };
 
   if (party === undefined) return null;
   if (party === null) {
@@ -283,13 +330,42 @@ function PartyStatementPage() {
       {/* Statement (also the printable area) */}
       <div className="flex-1 overflow-auto p-5">
         <div className="print-visible bg-white border rounded-lg shadow-sm overflow-hidden max-w-4xl mx-auto print:p-6">
-          <div className="px-5 py-3 border-b">
+          <div className="px-5 py-3 border-b flex items-center justify-between gap-3 flex-wrap">
+            <div>
             <p className="text-sm font-bold text-gray-800">Party Statement — {party.name}</p>
             <p className="text-[11px] text-gray-400">
               {CompanyRepo.get().name} · Generated {fmtDate(new Date().toISOString())} · Balance:{" "}
               {fmtMoney(Math.abs(balance))}{" "}
               {balance > 0 ? "receivable" : balance < 0 ? "payable" : ""}
             </p>
+            </div>
+            <div className="no-print flex items-center gap-1.5 text-xs text-gray-500">
+              <span>From</span>
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="border border-gray-200 rounded-md text-xs px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+              />
+              <span>To</span>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="border border-gray-200 rounded-md text-xs px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+              />
+              {(dateFrom || dateTo) && (
+                <button
+                  onClick={() => {
+                    setDateFrom("");
+                    setDateTo("");
+                  }}
+                  className="text-gray-400 hover:text-gray-600 font-semibold px-1"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
           </div>
           <table className="w-full text-[12.5px] border-collapse">
             <thead>
@@ -313,7 +389,12 @@ function PartyStatementPage() {
                 </tr>
               ) : (
                 rows.map((e, i) => (
-                  <tr key={i} className="border-b border-gray-100 hover:bg-gray-50/60">
+                  <tr
+                    key={i}
+                    onClick={() => openRow(e)}
+                    title={e.docId ? "Open this bill" : undefined}
+                    className={`border-b border-gray-100 hover:bg-gray-50/60 ${e.docId ? "cursor-pointer" : ""}`}
+                  >
                     <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">
                       {e.date ? fmtDate(e.date) : "—"}
                     </td>
