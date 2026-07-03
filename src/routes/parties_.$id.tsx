@@ -50,8 +50,8 @@ function PartyStatementPage() {
     setParty(PartyRepo.get(id) ?? null);
   }, [id, refreshKey]);
 
-  const rows = useMemo<LedgerRow[]>(() => {
-    if (!party) return [];
+  const { rows, fullBalance } = useMemo(() => {
+    if (!party) return { rows: [] as LedgerRow[], fullBalance: 0 };
     const entries: Omit<LedgerRow, "balance">[] = [];
     const allPayments = PaymentRepo.all();
     const applied = paidViaPayments(allPayments);
@@ -158,6 +158,11 @@ function PartyStatementPage() {
       (a, b) => a.date.localeCompare(b.date) || (a.created ?? "").localeCompare(b.created ?? ""),
     );
 
+    // Current all-time balance, independent of any date filter
+    const fullBalance = r2(
+      entries.reduce((s, e) => s + e.debit - e.credit, party.openingBalance || 0),
+    );
+
     let running = party.openingBalance || 0;
     const out: LedgerRow[] = [];
 
@@ -196,7 +201,7 @@ function PartyStatementPage() {
       running = r2(running + e.debit - e.credit);
       out.push({ ...e, balance: running });
     }
-    return out;
+    return { rows: out, fullBalance };
   }, [party, refreshKey, dateFrom, dateTo]);
 
   const openRow = (e: LedgerRow) => {
@@ -229,11 +234,14 @@ function PartyStatementPage() {
   const totalCredit = rows.reduce((s, e) => s + e.credit, 0);
 
   const sendReminder = () => {
-    if (balance <= 0) {
+    // Reminder must always use the CURRENT full balance — never the balance
+    // as of a filtered older period the user happens to be viewing
+    const currentBalance = dateTo ? fullBalance : balance;
+    if (currentBalance <= 0) {
       toast.info("No pending balance — nothing to remind");
       return;
     }
-    const link = waLink(party.phone, reminderMessage(party.name, balance, CompanyRepo.get()));
+    const link = waLink(party.phone, reminderMessage(party.name, currentBalance, CompanyRepo.get()));
     if (!link) {
       toast.error("No phone number saved for this party");
       return;
