@@ -138,7 +138,7 @@ export function ReturnForm({ mode }: Props) {
       name: it.name,
       qty: 1,
       unit: it.unit,
-      price: isSaleReturn ? it.salePrice : it.purchasePrice,
+      price: isSaleReturn ? it.salePrice || it.purchasePrice : it.purchasePrice,
       discountPct: 0,
       gstRate: it.gstRate,
       amount: 0,
@@ -487,11 +487,11 @@ export function ReturnForm({ mode }: Props) {
                 <tr className="bg-muted/40">
                   <th className="text-left px-3 py-2 w-8">#</th>
                   <th className="text-left px-3 py-2">Item</th>
-                  <th className="text-right w-20 py-2">Qty</th>
-                  <th className="text-left w-16 py-2">Unit</th>
-                  <th className="text-right w-24 py-2">Price</th>
-                  <th className="text-right w-20 py-2">Disc%</th>
-                  {gstOn && <th className="text-right w-20 py-2">GST%</th>}
+                  <th className="text-right w-20 py-2 px-2">Qty</th>
+                  <th className="text-left w-16 py-2 px-2">Unit</th>
+                  <th className="text-right w-24 py-2 px-2">Price</th>
+                  <th className="text-right w-20 py-2 px-2">Disc%</th>
+                  {gstOn && <th className="text-right w-20 py-2 px-2">GST%</th>}
                   <th className="text-right w-28 py-2 pr-3">Amount</th>
                   <th className="w-8"></th>
                 </tr>
@@ -501,28 +501,28 @@ export function ReturnForm({ mode }: Props) {
                   <tr key={l.id} className="border-t hover:bg-accent/30">
                     <td className="px-3 py-1.5 text-muted-foreground text-[11px]">{idx + 1}</td>
                     <td className="px-3 py-1.5 font-medium">{l.name}</td>
-                    <td className="py-1.5">
+                    <td className="py-1.5 px-1">
                       <NumInput
                         value={l.qty}
                         onValue={(n) => updateLine(l.id, { qty: n })}
                         className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
                       />
                     </td>
-                    <td className="py-1.5">
+                    <td className="py-1.5 px-1">
                       <input
                         value={l.unit}
                         onChange={(e) => updateLine(l.id, { unit: e.target.value })}
                         className="w-full h-7 px-1.5 border rounded bg-background focus:border-primary outline-none"
                       />
                     </td>
-                    <td className="py-1.5">
+                    <td className="py-1.5 px-1">
                       <NumInput
                         value={l.price}
                         onValue={(n) => updateLine(l.id, { price: n })}
                         className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
                       />
                     </td>
-                    <td className="py-1.5">
+                    <td className="py-1.5 px-1">
                       <NumInput
                         value={l.discountPct}
                         onValue={(n) => updateLine(l.id, { discountPct: n })}
@@ -530,7 +530,7 @@ export function ReturnForm({ mode }: Props) {
                       />
                     </td>
                     {gstOn && (
-                      <td className="py-1.5">
+                      <td className="py-1.5 px-1">
                         <NumInput
                           value={l.gstRate}
                           onValue={(n) => updateLine(l.id, { gstRate: n })}
@@ -541,7 +541,7 @@ export function ReturnForm({ mode }: Props) {
                     <td className="text-right px-3 py-1.5 font-semibold tabular-nums">
                       {fmtMoney(l.amount)}
                     </td>
-                    <td className="py-1.5">
+                    <td className="py-1.5 px-1">
                       <button
                         type="button"
                         onClick={() => removeLine(l.id)}
