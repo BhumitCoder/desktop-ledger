@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
 
 /**
  * Billing-friendly numeric input:
@@ -12,12 +13,15 @@ export function NumInput({
   onValue,
   className,
   placeholder = "0",
+  allowNegative = false,
   ...rest
 }: {
   value: number;
   onValue: (n: number) => void;
   className?: string;
   placeholder?: string;
+  /** Allow a leading minus (e.g. opening balance "you owe them") */
+  allowNegative?: boolean;
 } & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type">) {
   const [text, setText] = useState(value === 0 ? "" : String(value));
   const lastNum = useRef(value);
@@ -43,7 +47,8 @@ export function NumInput({
       placeholder={placeholder}
       onChange={(e) => {
         const t = e.target.value;
-        if (!/^\d*\.?\d*$/.test(t)) return; // digits + at most one dot
+        const ok = allowNegative ? /^-?\d*\.?\d*$/.test(t) : /^\d*\.?\d*$/.test(t);
+        if (!ok) return; // digits + at most one dot (+ optional leading minus)
         setText(t);
         const n = parseFloat(t);
         lastNum.current = isNaN(n) ? 0 : n;
@@ -53,5 +58,38 @@ export function NumInput({
       className={className}
       {...rest}
     />
+  );
+}
+
+/** Labeled NumInput styled like the app's Field component — for dialog forms. */
+export function NumField({
+  label,
+  value,
+  onValue,
+  allowNegative,
+  placeholder,
+  className,
+}: {
+  label?: string;
+  value: number;
+  onValue: (n: number) => void;
+  allowNegative?: boolean;
+  placeholder?: string;
+  className?: string;
+}) {
+  return (
+    <label className="flex flex-col gap-1 text-[12px]">
+      {label && <span className="text-muted-foreground font-medium">{label}</span>}
+      <NumInput
+        value={value}
+        onValue={onValue}
+        allowNegative={allowNegative}
+        placeholder={placeholder}
+        className={cn(
+          "h-8 px-2 border rounded bg-background outline-none focus:border-primary focus:ring-1 focus:ring-primary",
+          className,
+        )}
+      />
+    </label>
   );
 }

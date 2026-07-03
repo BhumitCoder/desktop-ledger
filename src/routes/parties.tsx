@@ -14,6 +14,7 @@ import type { Party } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/Field";
+import { NumField } from "@/components/NumInput";
 import { fmtMoney } from "@/lib/format";
 import { Plus, Search, Pencil, FileText } from "lucide-react";
 import { toast } from "sonner";
@@ -245,11 +246,11 @@ export function PartyDialog({
             value={form.phone ?? ""}
             onChange={(e) => setForm({ ...form, phone: e.target.value })}
           />
-          <Field
+          <NumField
             label="Opening Balance (+ they owe you, − you owe them)"
-            type="number"
             value={form.openingBalance ?? 0}
-            onChange={(e) => setForm({ ...form, openingBalance: parseFloat(e.target.value) || 0 })}
+            onValue={(n) => setForm({ ...form, openingBalance: n })}
+            allowNegative
           />
           <Field
             label="Credit Limit"

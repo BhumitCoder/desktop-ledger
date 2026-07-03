@@ -7,6 +7,7 @@ import type { Expense } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/Field";
+import { NumField } from "@/components/NumInput";
 import { fmtMoney, fmtDate, today } from "@/lib/format";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -152,11 +153,10 @@ function ExpenseDialog({
             value={f.date ?? today()}
             onChange={(e) => setF({ ...f, date: e.target.value })}
           />
-          <Field
+          <NumField
             label="Amount *"
-            type="number"
             value={f.amount ?? 0}
-            onChange={(e) => setF({ ...f, amount: parseFloat(e.target.value) || 0 })}
+            onValue={(n) => setF({ ...f, amount: n })}
           />
           <label className="flex flex-col gap-1 text-[12px]">
             <span className="text-muted-foreground font-medium">Payment Mode</span>

@@ -16,6 +16,7 @@ import type { BankAccount } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/Field";
+import { NumField } from "@/components/NumInput";
 import { fmtMoney, today } from "@/lib/format";
 import { Plus, ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
 import { toast } from "sonner";
@@ -345,11 +346,10 @@ function BankDialog({
             value={f.ifsc ?? ""}
             onChange={(e) => setF({ ...f, ifsc: e.target.value.toUpperCase() })}
           />
-          <Field
+          <NumField
             label="Opening Balance"
-            type="number"
             value={f.openingBalance ?? 0}
-            onChange={(e) => setF({ ...f, openingBalance: parseFloat(e.target.value) || 0 })}
+            onValue={(n) => setF({ ...f, openingBalance: n })}
           />
           <div className="col-span-2 flex justify-end gap-2 mt-2">
             <Button

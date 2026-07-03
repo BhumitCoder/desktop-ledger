@@ -201,12 +201,18 @@ function PartyStatementPage() {
         <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={() => navigate({ to: "/parties" })}
-            className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-800 transition shrink-0"
+            className="h-9 w-9 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 flex items-center justify-center text-gray-600 transition shadow-sm"
+            title="Back to Parties"
           >
-            <ArrowLeft className="h-4 w-4" /> Parties
+            <ArrowLeft className="h-4 w-4" />
           </button>
+          <div className="h-10 w-10 shrink-0 rounded-full bg-primary-soft text-primary flex items-center justify-center font-bold text-[15px] uppercase">
+            {party.name.trim().charAt(0) || "?"}
+          </div>
           <div className="min-w-0">
-            <h1 className="text-[17px] font-bold text-gray-800 truncate">{party.name}</h1>
+            <h1 className="text-[17px] font-bold text-gray-800 truncate leading-tight">
+              {party.name}
+            </h1>
             <p className="text-[12px] text-gray-400 flex items-center gap-1">
               {party.phone ? (
                 <>
@@ -215,6 +221,8 @@ function PartyStatementPage() {
               ) : (
                 "No phone saved"
               )}
+              <span className="text-gray-300">·</span>
+              <span>Party Statement</span>
             </p>
           </div>
         </div>

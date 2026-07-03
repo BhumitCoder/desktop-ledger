@@ -7,6 +7,7 @@ import type { Item } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/Field";
+import { NumField } from "@/components/NumInput";
 import { fmtMoney, today } from "@/lib/format";
 import { Plus, Search, ArrowUpDown } from "lucide-react";
 import { toast } from "sonner";
@@ -396,38 +397,25 @@ function ItemDialog({
             value={f.category ?? ""}
             onChange={(e) => setF({ ...f, category: e.target.value })}
           />
-          <Field
+          <NumField
             label="Purchase Price"
-            type="number"
             value={f.purchasePrice ?? 0}
-            onChange={(e) =>
-              setF({ ...f, purchasePrice: Math.max(0, parseFloat(e.target.value) || 0) })
-            }
+            onValue={(n) => setF({ ...f, purchasePrice: n })}
           />
-          <Field
+          <NumField
             label="Sale Price *"
-            type="number"
             value={f.salePrice ?? 0}
-            onChange={(e) =>
-              setF({ ...f, salePrice: Math.max(0, parseFloat(e.target.value) || 0) })
-            }
+            onValue={(n) => setF({ ...f, salePrice: n })}
           />
-          <Field
+          <NumField
             label="Wholesale Price"
-            type="number"
-            value={f.wholesalePrice ?? ""}
-            onChange={(e) =>
-              setF({
-                ...f,
-                wholesalePrice: Math.max(0, parseFloat(e.target.value) || 0) || undefined,
-              })
-            }
+            value={f.wholesalePrice ?? 0}
+            onValue={(n) => setF({ ...f, wholesalePrice: n || undefined })}
           />
-          <Field
+          <NumField
             label="Opening Stock"
-            type="number"
             value={f.openingStock ?? 0}
-            onChange={(e) => setF({ ...f, openingStock: parseFloat(e.target.value) || 0 })}
+            onValue={(n) => setF({ ...f, openingStock: n })}
           />
           <Field
             label="Min Stock (low-stock alert)"
