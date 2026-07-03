@@ -659,15 +659,23 @@ export function InvoiceForm({ mode, existing }: Props) {
           </div>
         </div>
 
-        {/* Line items */}
-        <div className="border rounded-lg bg-card shadow-card overflow-hidden">
-          <div className="px-4 py-2.5 border-b bg-muted/50 flex items-center justify-between">
+        {/* Line items — search bar lives OUTSIDE the table's scroll container
+            so its suggestion dropdown can never be clipped/hidden by it */}
+        <div className="border rounded-lg bg-card shadow-card">
+          <div className="px-4 py-2.5 border-b bg-muted/50 flex items-center justify-between rounded-t-lg">
             <span className="text-[13px] font-semibold">Items ({inv.lineItems.length})</span>
             <span className="text-[11px] text-muted-foreground">
-              Type in search row to add items
+              Search below to add items
             </span>
           </div>
-          <div className="overflow-x-auto">
+          <ItemSearchBar
+            items={items}
+            onAdd={addLineItem}
+            onAddNew={addNewItemByName}
+            gstOn={gstOn}
+            isSale={isSale}
+          />
+          <div className="overflow-x-auto rounded-b-lg">
             <table className="w-full text-[13px] min-w-[720px]">
               <thead className="text-[11px] text-muted-foreground uppercase tracking-wider">
                 <tr className="bg-muted/40">
@@ -754,12 +762,16 @@ export function InvoiceForm({ mode, existing }: Props) {
                     </td>
                   </tr>
                 ))}
-                <ItemPickerRow
-                  items={items}
-                  onAdd={addLineItem}
-                  onAddNew={addNewItemByName}
-                  gstOn={gstOn}
-                />
+                {inv.lineItems.length === 0 && (
+                  <tr className="border-t">
+                    <td
+                      colSpan={gstOn ? 9 : 8}
+                      className="px-3 py-6 text-center text-muted-foreground text-[12px]"
+                    >
+                      No items yet — type in the search box above to add
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -874,16 +886,18 @@ function Row({ label, value, bold }: { label: string; value: string; bold?: bool
   );
 }
 
-function ItemPickerRow({
+function ItemSearchBar({
   items,
   onAdd,
   onAddNew,
   gstOn,
+  isSale,
 }: {
   items: Item[];
   onAdd: (i: Item) => void;
   onAddNew: (name: string) => void;
   gstOn: boolean;
+  isSale: boolean;
 }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
@@ -923,12 +937,9 @@ function ItemPickerRow({
     else if (showAddNew) pickNew();
   };
 
-  const colSpan = gstOn ? 9 : 8;
-
   return (
-    <tr className="border-t bg-primary-soft/40">
-      <td colSpan={colSpan} className="p-2 relative">
-        <input
+    <div className="p-2 relative bg-primary-soft/40 border-b">
+      <input
           ref={inputRef}
           value={q}
           onChange={(e) => {
@@ -953,8 +964,8 @@ function ItemPickerRow({
           placeholder="🔍  Type item name — pick from list or add as new item (Enter to add)"
           className="w-full h-9 px-3 border rounded-md bg-background focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none text-sm"
         />
-        {open && optionCount > 0 && (
-          <div className="absolute z-20 top-full left-2 right-2 mt-1 border rounded-md bg-popover shadow-elevated max-h-64 overflow-auto">
+      {open && optionCount > 0 && (
+          <div className="absolute z-30 top-full left-2 right-2 -mt-0.5 border rounded-md bg-popover shadow-elevated max-h-72 overflow-auto">
             {suggests.map((it, i) => (
               <div
                 key={it.id}
@@ -971,7 +982,9 @@ function ItemPickerRow({
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="font-semibold tabular-nums">{fmtMoney(it.salePrice)}</div>
+                  <div className="font-semibold tabular-nums">
+                    {fmtMoney(isSale ? it.salePrice : it.purchasePrice)}
+                  </div>
                   {gstOn && (
                     <div className="text-[11px] text-muted-foreground">GST {it.gstRate}%</div>
                   )}
@@ -997,7 +1010,6 @@ function ItemPickerRow({
             )}
           </div>
         )}
-      </td>
-    </tr>
+    </div>
   );
 }

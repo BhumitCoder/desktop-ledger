@@ -470,15 +470,17 @@ export function ReturnForm({ mode }: Props) {
           </div>
         </div>
 
-        {/* Items */}
-        <div className="border rounded-lg bg-card shadow-sm overflow-hidden">
-          <div className="px-4 py-2.5 border-b bg-muted/50 flex items-center justify-between">
+        {/* Items — search bar lives OUTSIDE the table's scroll container
+            so its suggestion dropdown can never be clipped/hidden by it */}
+        <div className="border rounded-lg bg-card shadow-sm">
+          <div className="px-4 py-2.5 border-b bg-muted/50 flex items-center justify-between rounded-t-lg">
             <span className="text-[13px] font-semibold">
               Returned Items ({ret.lineItems.length})
             </span>
-            <span className="text-[11px] text-muted-foreground">Type to search & add items</span>
+            <span className="text-[11px] text-muted-foreground">Search below to add items</span>
           </div>
-          <div className="overflow-x-auto">
+          <ReturnItemSearchBar items={items} onAdd={addLineItem} />
+          <div className="overflow-x-auto rounded-b-lg">
             <table className="w-full text-[13px] min-w-[640px]">
               <thead className="text-[11px] text-muted-foreground uppercase tracking-wider">
                 <tr className="bg-muted/40">
@@ -568,7 +570,16 @@ export function ReturnForm({ mode }: Props) {
                     </td>
                   </tr>
                 ))}
-                <ReturnItemPickerRow items={items} onAdd={addLineItem} gstOn={gstOn} />
+                {ret.lineItems.length === 0 && (
+                  <tr className="border-t">
+                    <td
+                      colSpan={gstOn ? 9 : 8}
+                      className="px-3 py-6 text-center text-muted-foreground text-[12px]"
+                    >
+                      No items yet — search above, or pick the original bill to auto-load
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -614,15 +625,7 @@ export function ReturnForm({ mode }: Props) {
   );
 }
 
-function ReturnItemPickerRow({
-  items,
-  onAdd,
-  gstOn,
-}: {
-  items: Item[];
-  onAdd: (i: Item) => void;
-  gstOn: boolean;
-}) {
+function ReturnItemSearchBar({ items, onAdd }: { items: Item[]; onAdd: (i: Item) => void }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [idx, setIdx] = useState(0);
@@ -642,12 +645,9 @@ function ReturnItemPickerRow({
     setOpen(false);
     setTimeout(() => inputRef.current?.focus(), 30);
   };
-  const colSpan = gstOn ? 9 : 8;
-
   return (
-    <tr className="border-t bg-primary-soft/30">
-      <td colSpan={colSpan} className="p-2 relative">
-        <input
+    <div className="p-2 relative bg-primary-soft/30 border-b">
+      <input
           ref={inputRef}
           value={q}
           onChange={(e) => {
@@ -670,7 +670,7 @@ function ReturnItemPickerRow({
             }
           }}
           placeholder="🔍  Search item to add for return…"
-          className="w-full h-8 px-3 bg-transparent outline-none text-[13px] placeholder:text-muted-foreground"
+          className="w-full h-9 px-3 border rounded-md bg-background focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none text-sm"
         />
         {open && suggests.length > 0 && (
           <div className="absolute z-30 top-full left-2 right-2 mt-1 border rounded-md bg-popover shadow-lg max-h-48 overflow-auto">
@@ -696,7 +696,6 @@ function ReturnItemPickerRow({
             ))}
           </div>
         )}
-      </td>
-    </tr>
+    </div>
   );
 }
