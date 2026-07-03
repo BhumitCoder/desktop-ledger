@@ -342,22 +342,6 @@ function ItemDialog({
       toast.error(`Item "${dup.name}" already exists — repeat items cannot be added`);
       return;
     }
-    const sku = f.sku?.trim();
-    const dupSku = sku
-      ? ItemRepo.all().find((x) => x.sku?.trim().toLowerCase() === sku.toLowerCase() && x.id !== item?.id)
-      : undefined;
-    if (dupSku) {
-      toast.error(`SKU "${sku}" is already used by "${dupSku.name}"`);
-      return;
-    }
-    const barcode = f.barcode?.trim();
-    const dupBarcode = barcode
-      ? ItemRepo.all().find((x) => x.barcode?.trim() === barcode && x.id !== item?.id)
-      : undefined;
-    if (dupBarcode) {
-      toast.error(`Barcode "${barcode}" is already used by "${dupBarcode.name}"`);
-      return;
-    }
     if ((f.purchasePrice ?? 0) < 0 || (f.salePrice ?? 0) < 0 || (f.wholesalePrice ?? 0) < 0) {
       toast.error("Prices cannot be negative");
       return;
@@ -413,26 +397,6 @@ function ItemDialog({
             onChange={(e) => setF({ ...f, category: e.target.value })}
           />
           <Field
-            label="Unit"
-            value={f.unit ?? "pcs"}
-            onChange={(e) => setF({ ...f, unit: e.target.value })}
-            placeholder="pcs, kg, box, ltr…"
-          />
-          <Field
-            label="GST Rate (%)"
-            type="number"
-            value={f.gstRate ?? 0}
-            onChange={(e) =>
-              setF({ ...f, gstRate: Math.max(0, parseFloat(e.target.value) || 0) })
-            }
-          />
-          <Field
-            label="HSN/SAC Code"
-            value={f.hsn ?? ""}
-            onChange={(e) => setF({ ...f, hsn: e.target.value })}
-            placeholder="e.g. 8471"
-          />
-          <Field
             label="Purchase Price"
             type="number"
             value={f.purchasePrice ?? 0}
@@ -476,16 +440,6 @@ function ItemDialog({
               const v = e.target.value;
               setF({ ...f, minStock: v === "" ? undefined : Math.max(0, parseFloat(v) || 0) });
             }}
-          />
-          <Field
-            label="SKU"
-            value={f.sku ?? ""}
-            onChange={(e) => setF({ ...f, sku: e.target.value })}
-          />
-          <Field
-            label="Barcode"
-            value={f.barcode ?? ""}
-            onChange={(e) => setF({ ...f, barcode: e.target.value })}
           />
           <div className="col-span-3 flex justify-end gap-2 mt-2">
             <Button
