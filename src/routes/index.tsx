@@ -140,12 +140,14 @@ function Dashboard() {
     data.saleReturns,
     data.payments.filter((p: any) => p.type === "in"),
     data.parties.filter((p: any) => p.type !== "supplier"),
+    "customer",
   );
   const supplierBalances = partyBalances(
     data.purchases,
     data.purchaseReturns,
     data.payments.filter((p: any) => p.type === "out"),
     data.parties.filter((p: any) => p.type !== "customer"),
+    "supplier",
   );
   const receivable = customerBalances.reduce((a, b) => a + Math.max(0, b.balance), 0);
   const payable = supplierBalances.reduce((a, b) => a + Math.max(0, b.balance), 0);

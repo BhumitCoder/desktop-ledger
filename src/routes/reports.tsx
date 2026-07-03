@@ -467,6 +467,7 @@ function ReportView({
       SaleReturnRepo.all(),
       PaymentRepo.all().filter((p) => p.type === "in"),
       parties.filter((p) => p.type !== "supplier"),
+      "customer",
     )
       .filter((r) => Math.abs(r.balance) > 0.01)
       .sort((a, b) => b.balance - a.balance);
@@ -498,6 +499,7 @@ function ReportView({
       PurchaseReturnRepo.all(),
       PaymentRepo.all().filter((p) => p.type === "out"),
       parties.filter((p) => p.type !== "customer"),
+      "supplier",
     )
       .filter((r) => Math.abs(r.balance) > 0.01)
       .sort((a, b) => b.balance - a.balance);

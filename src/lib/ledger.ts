@@ -55,16 +55,22 @@ export interface PartyBalance {
  * so only the advance portion of each payment is subtracted separately —
  * this is what keeps the dashboard and ledger reports in agreement.
  *
- * Pass the relevant parties (filtered to type "customer"/"both" or
- * "supplier"/"both" by the caller) so a party's openingBalance is folded
- * into the result — without this, a migrated party with a non-zero opening
- * balance but no transactions yet would be invisible here even though their
- * own statement page (parties_.$id.tsx) correctly shows what they owe. */
+ * Pass the relevant parties so a party's openingBalance is folded into the
+ * result — without this, a migrated party with a non-zero opening balance
+ * but no transactions yet would be invisible here even though their own
+ * statement page (parties_.$id.tsx) correctly shows what they owe.
+ *
+ * `side` prevents double counting: parties are type "both", so one opening
+ * balance must not appear in BOTH the receivable and payable totals. Sign
+ * convention: positive opening = the party owes us (counts on the customer
+ * side only), negative = we owe them (counts on the supplier side only).
+ * Omit `side` (statement page) to use the signed value as-is. */
 export function partyBalances(
   invoices: Invoice[],
   returns: Return[],
   payments: Payment[],
   parties: { id: string; name: string; openingBalance?: number }[] = [],
+  side?: "customer" | "supplier",
 ): PartyBalance[] {
   const numbers = new Set(invoices.map((i) => i.number));
   const map = new Map<string, PartyBalance>();
@@ -94,7 +100,9 @@ export function partyBalances(
   }
   const openingById = new Map(parties.map((p) => [p.id, p.openingBalance ?? 0]));
   for (const e of map.values()) {
-    const opening = openingById.get(e.partyId) ?? 0;
+    const raw = openingById.get(e.partyId) ?? 0;
+    const opening =
+      side === "customer" ? Math.max(0, raw) : side === "supplier" ? Math.max(0, -raw) : raw;
     e.balance = r2(opening + e.invoiced - e.returned - e.settled - e.advances);
   }
   return Array.from(map.values());

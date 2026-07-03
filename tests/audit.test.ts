@@ -489,6 +489,24 @@ for (let t = 0; t < 300; t++) {
 
 console.log(`\n══════════════════════════════════════`);
 
+/* ═══ TEST 9: opening balance sign convention — never double counted ═══ */
+{
+  const partiesOB = [
+    { id: "pA", name: "A", openingBalance: 5000 },  // they owe us
+    { id: "pB", name: "B", openingBalance: -3000 }, // we owe them
+  ];
+  const cust = partyBalances([], [], [], partiesOB, "customer");
+  const supp = partyBalances([], [], [], partiesOB, "supplier");
+  const get = (list: ReturnType<typeof partyBalances>, id: string) =>
+    list.find((b) => b.partyId === id)!.balance;
+  assert(get(cust, "pA") === 5000, "T9: +opening must be receivable");
+  assert(get(supp, "pA") === 0, "T9: +opening must NOT be payable");
+  assert(get(cust, "pB") === 0, "T9: -opening must NOT be receivable");
+  assert(get(supp, "pB") === 3000, "T9: -opening must be payable");
+  const stmt = partyBalances([], [], [], partiesOB); // statement: signed as-is
+  assert(get(stmt, "pA") === 5000 && get(stmt, "pB") === -3000, "T9: statement uses signed value");
+}
+
 /* ═══ TEST 8: Repository — empty-string draft IDs must be replaced ═══ */
 {
   const repo = new Repository<{ id: string; total: number }>("test-collection");

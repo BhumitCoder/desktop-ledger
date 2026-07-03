@@ -246,7 +246,7 @@ export function PartyDialog({
             onChange={(e) => setForm({ ...form, phone: e.target.value })}
           />
           <Field
-            label="Opening Balance"
+            label="Opening Balance (+ they owe you, − you owe them)"
             type="number"
             value={form.openingBalance ?? 0}
             onChange={(e) => setForm({ ...form, openingBalance: parseFloat(e.target.value) || 0 })}

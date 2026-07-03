@@ -93,6 +93,7 @@ export function InvoiceForm({ mode, existing }: Props) {
       isSale ? SaleReturnRepo.all() : PurchaseReturnRepo.all(),
       PaymentRepo.all().filter((p) => p.type === (isSale ? "in" : "out")),
       allParties.filter((p) => (isSale ? p.type !== "supplier" : p.type !== "customer")),
+      isSale ? "customer" : "supplier",
     );
     return list.find((b) => b.partyId === inv.partyId)?.balance ?? 0;
   }, [inv.partyId, isSale]);
