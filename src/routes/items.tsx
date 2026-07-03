@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
@@ -9,12 +9,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Field } from "@/components/Field";
 import { NumField } from "@/components/NumInput";
 import { fmtMoney, today } from "@/lib/format";
-import { Plus, Search, ArrowUpDown } from "lucide-react";
+import { Plus, Search, ArrowUpDown, Pencil, History } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/items")({ component: ItemsPage });
 
 function ItemsPage() {
+  const navigate = useNavigate();
   const [rows, setRows] = useState<Item[]>([]);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
@@ -91,19 +92,42 @@ function ItemsPage() {
     {
       key: "adjust",
       label: "",
-      width: "60px",
+      width: "110px",
       align: "center",
       render: (r) => (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setAdjustItem(r);
-          }}
-          className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
-          title="Adjust stock (damage, counting correction…)"
-        >
-          <ArrowUpDown className="h-3.5 w-3.5" />
-        </button>
+        <span className="inline-flex gap-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate({ to: "/items/$id", params: { id: r.id } });
+            }}
+            className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+            title="View details & history"
+          >
+            <History className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setEdit(r);
+              setOpen(true);
+            }}
+            className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+            title="Edit item"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setAdjustItem(r);
+            }}
+            className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+            title="Adjust stock (damage, counting correction…)"
+          >
+            <ArrowUpDown className="h-3.5 w-3.5" />
+          </button>
+        </span>
       ),
     },
   ];
@@ -142,10 +166,7 @@ function ItemsPage() {
           columns={columns}
           rows={filtered}
           rowKey={(r) => r.id}
-          onRowActivate={(r) => {
-            setEdit(r);
-            setOpen(true);
-          }}
+          onRowActivate={(r) => navigate({ to: "/items/$id", params: { id: r.id } })}
           onDelete={(r) => {
             if (confirm(`Delete ${r.name}?`)) {
               ItemRepo.remove(r.id);
@@ -167,7 +188,7 @@ function ItemsPage() {
   );
 }
 
-function StockAdjustDialog({
+export function StockAdjustDialog({
   item,
   onOpenChange,
   onSaved,
@@ -296,7 +317,7 @@ function StockAdjustDialog({
   );
 }
 
-function ItemDialog({
+export function ItemDialog({
   open,
   onOpenChange,
   item,
