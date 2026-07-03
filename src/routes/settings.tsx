@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { today } from "@/lib/format";
+import { APP_VERSION } from "@/lib/version";
 import { auth, isBrowser } from "@/lib/firebase";
 import type { Company } from "@/types";
 
@@ -191,7 +192,7 @@ function SettingsPage() {
           {userEmail && (
             <p className="text-xs text-muted-foreground mb-3">
               Signed in as <span className="font-semibold text-foreground">{userEmail}</span> · Data
-              is stored securely in the cloud (Firebase) and works offline too.
+              is stored securely in the cloud (Firebase) and works offline too. · App version: {APP_VERSION}
             </p>
           )}
           <div className="flex gap-2 flex-wrap">

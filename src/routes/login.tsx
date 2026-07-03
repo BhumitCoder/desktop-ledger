@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
 import { auth } from "@/lib/firebase";
+import { APP_VERSION } from "@/lib/version";
 import { toast } from "sonner";
 import {
   Sparkles,
@@ -228,6 +229,9 @@ export function LoginPage() {
 
           <p className="mt-8 text-center text-[12px] text-muted-foreground">
             Access is by invitation only. Contact your administrator for an account.
+          </p>
+          <p className="mt-2 text-center text-[10px] text-muted-foreground/60 tabular-nums">
+            Version {APP_VERSION}
           </p>
         </div>
       </div>
