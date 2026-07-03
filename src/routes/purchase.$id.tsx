@@ -4,6 +4,7 @@ import { PurchaseRepo, CompanyRepo } from "@/repositories";
 import type { Invoice, Company } from "@/types";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { printWithName } from "@/lib/print";
+import { fmtMode } from "@/components/ModePills";
 import { ArrowLeft, Printer, Check, AlertCircle, Pencil } from "lucide-react";
 
 export const Route = createFileRoute("/purchase/$id")({
@@ -145,7 +146,7 @@ function BillDetailPage() {
                 </p>
                 <p>
                   <span className="text-gray-400">Payment: </span>
-                  <span className="capitalize font-medium">{inv.paymentMode}</span>
+                  <span className="font-medium">{fmtMode(inv.paymentMode)}</span>
                 </p>
               </div>
               {isPaid ? (

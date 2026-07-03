@@ -1,5 +1,6 @@
 import type { Invoice, Company } from "@/types";
 import { fmtMoney, fmtDate } from "@/lib/format";
+import { fmtMode } from "@/components/ModePills";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -98,7 +99,7 @@ export function ThermalReceipt({
       </div>
       {row("Paid", fmtMoney(inv.paid))}
       {balance > 0.009 && row("Balance Due", fmtMoney(balance), true)}
-      {row("Mode", inv.paymentMode.toUpperCase())}
+      {row("Mode", fmtMode(inv.paymentMode))}
 
       <div style={dashed} />
       <div style={{ textAlign: "center" }}>

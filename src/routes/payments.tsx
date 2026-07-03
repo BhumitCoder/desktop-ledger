@@ -22,6 +22,7 @@ import { genId } from "@/repositories/base";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { usePagination, PaginationBar } from "@/components/Pagination";
+import { ModePills, fmtMode } from "@/components/ModePills";
 
 export const Route = createFileRoute("/payments")({ component: PaymentsPage });
 
@@ -258,7 +259,7 @@ function PaymentsPage() {
                       <span className="text-gray-400">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-gray-500 capitalize text-xs">{r.mode}</td>
+                  <td className="px-4 py-3 text-gray-500 text-xs">{fmtMode(r.mode)}</td>
                   <td className="px-4 py-3 font-mono text-xs text-gray-400">
                     {r.ref && (r.allocations?.length || !r.ref.match(/^(INV|PUR)-/)) ? r.ref : "—"}
                   </td>
@@ -830,16 +831,9 @@ function ReceivePaymentDialog({
             </div>
             <div className="flex flex-col gap-1 text-[12px]">
               <label className="font-semibold text-gray-600">Payment Mode</label>
-              <select
-                value={mode}
-                onChange={(e) => setMode(e.target.value as PaymentMode)}
-                className="h-8 px-2 border rounded bg-white focus:border-primary outline-none text-sm"
-              >
-                <option value="cash">Cash</option>
-                <option value="upi">UPI</option>
-                <option value="bank">Bank Transfer</option>
-                <option value="cheque">Cheque</option>
-              </select>
+              <div className="flex items-center h-8">
+                <ModePills value={mode} onChange={setMode} modes={["cash", "upi", "bank", "cheque"]} />
+              </div>
             </div>
             <div className="flex flex-col gap-1 text-[12px]">
               <label className="font-semibold text-gray-600">Reference / Note</label>

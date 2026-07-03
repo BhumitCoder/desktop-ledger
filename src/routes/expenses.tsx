@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/Field";
 import { NumField } from "@/components/NumInput";
+import { ModePills, fmtMode } from "@/components/ModePills";
 import { fmtMoney, fmtDate, today } from "@/lib/format";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -37,7 +38,7 @@ function ExpensesPage() {
       key: "mode",
       label: "Mode",
       width: "80px",
-      render: (r) => <span className="capitalize text-xs">{r.paymentMode}</span>,
+      render: (r) => <span className="text-xs">{fmtMode(r.paymentMode)}</span>,
     },
     {
       key: "amount",
@@ -160,16 +161,13 @@ function ExpenseDialog({
           />
           <label className="flex flex-col gap-1 text-[12px]">
             <span className="text-muted-foreground font-medium">Payment Mode</span>
-            <select
-              value={f.paymentMode ?? "cash"}
-              onChange={(e) => setF({ ...f, paymentMode: e.target.value as any })}
-              className="h-8 px-2 border rounded bg-background focus:border-primary outline-none"
-            >
-              <option value="cash">Cash</option>
-              <option value="bank">Bank</option>
-              <option value="upi">UPI</option>
-              <option value="cheque">Cheque</option>
-            </select>
+            <div className="flex items-center h-8">
+              <ModePills
+                value={f.paymentMode ?? "cash"}
+                onChange={(m) => setF({ ...f, paymentMode: m })}
+                modes={["cash", "upi", "bank", "cheque"]}
+              />
+            </div>
           </label>
           <div className="col-span-2">
             <Field

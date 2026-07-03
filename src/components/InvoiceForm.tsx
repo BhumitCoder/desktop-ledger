@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { PrintableInvoice } from "@/components/PrintableInvoice";
 import { NumInput } from "@/components/NumInput";
+import { ModePills } from "@/components/ModePills";
 import { genId, newBatch, commitBatch } from "@/repositories/base";
 
 interface Props {
@@ -813,22 +814,15 @@ export function InvoiceForm({ mode, existing }: Props) {
               <span>Total</span>
               <span className="tabular-nums text-primary">{fmtMoney(inv.total)}</span>
             </div>
-            <div className="flex justify-between items-center gap-2 pt-2 mt-1 border-t">
+            <div className="flex flex-col gap-1.5 pt-2 mt-1 border-t">
               <span className="text-muted-foreground">Payment Mode</span>
-              <select
+              <ModePills
                 value={inv.paymentMode}
-                onChange={(e) => {
-                  const mode = e.target.value as PaymentMode;
-                  setInv({ ...inv, paymentMode: mode, paid: mode === "credit" ? 0 : inv.paid });
-                }}
-                className="w-28 h-8 px-2 border rounded-md bg-background focus:border-primary outline-none text-[13px]"
-              >
-                <option value="cash">Cash</option>
-                <option value="upi">UPI</option>
-                <option value="bank">Bank</option>
-                <option value="cheque">Cheque</option>
-                <option value="credit">Credit</option>
-              </select>
+                onChange={(mode: PaymentMode) =>
+                  setInv({ ...inv, paymentMode: mode, paid: mode === "credit" ? 0 : inv.paid })
+                }
+                modes={["cash", "upi", "bank", "cheque", "credit"]}
+              />
             </div>
             <div className="flex justify-between items-center gap-2">
               <span className="text-muted-foreground">Paid Amount</span>

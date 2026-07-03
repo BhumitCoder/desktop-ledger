@@ -1,5 +1,6 @@
 import type { Invoice, Company } from "@/types";
 import { fmtMoney, fmtDate } from "@/lib/format";
+import { fmtMode } from "@/components/ModePills";
 
 interface Props {
   inv: Invoice;
@@ -151,7 +152,7 @@ export function PrintableInvoice({ inv, company, mode }: Props) {
                   </tr>
                   <tr>
                     <td style={{ fontWeight: 600 }}>Payment:</td>
-                    <td style={{ textTransform: "capitalize" }}>{inv.paymentMode}</td>
+                    <td>{fmtMode(inv.paymentMode)}</td>
                   </tr>
                 </tbody>
               </table>

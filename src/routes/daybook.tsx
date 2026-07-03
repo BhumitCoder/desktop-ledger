@@ -11,6 +11,7 @@ import {
 } from "@/repositories";
 import { fmtMoney, fmtDate, today, ymd } from "@/lib/format";
 import { printWithName } from "@/lib/print";
+import { fmtMode } from "@/components/ModePills";
 import { BookOpen, Printer, ChevronLeft, ChevronRight } from "lucide-react";
 
 export const Route = createFileRoute("/daybook")({ component: DaybookPage });
@@ -215,7 +216,7 @@ function DaybookPage() {
                     </td>
                     <td className="px-4 py-2.5 font-mono text-xs text-blue-600">{r.ref}</td>
                     <td className="px-4 py-2.5 font-medium text-gray-800">{r.party}</td>
-                    <td className="px-4 py-2.5 text-gray-500 capitalize text-xs">{r.mode}</td>
+                    <td className="px-4 py-2.5 text-gray-500 text-xs">{fmtMode(r.mode)}</td>
                     <td
                       className={`px-4 py-2.5 text-right font-bold tabular-nums ${r.amount >= 0 ? "text-emerald-600" : "text-rose-600"}`}
                     >

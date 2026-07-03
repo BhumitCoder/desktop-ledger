@@ -13,6 +13,7 @@ import {
 import { fmtMoney, fmtDate, today, ymd } from "@/lib/format";
 import { printWithName } from "@/lib/print";
 import { partyBalances, computeCogs } from "@/lib/ledger";
+import { fmtMode } from "@/components/ModePills";
 import {
   FileText,
   BarChart3,
@@ -281,7 +282,7 @@ function ReportView({
               s.number,
               fmtDate(s.date),
               s.partyName,
-              s.paymentMode,
+              fmtMode(s.paymentMode),
               fmtMoney(s.total),
               fmtMoney(s.paid),
               fmtMoney(bal),
@@ -313,7 +314,7 @@ function ReportView({
               s.number,
               fmtDate(s.date),
               s.partyName,
-              s.paymentMode,
+              fmtMode(s.paymentMode),
               fmtMoney(s.total),
               fmtMoney(s.paid),
               fmtMoney(bal),
@@ -384,7 +385,7 @@ function ReportView({
             fmtDate(p.date),
             p.type === "in" ? "In" : "Out",
             p.partyName,
-            p.mode,
+            fmtMode(p.mode),
             p.ref || "—",
             `${p.type === "in" ? "+" : "−"}${fmtMoney(p.amount)}`,
           ])}

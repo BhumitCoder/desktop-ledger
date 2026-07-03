@@ -7,6 +7,7 @@ import { fmtMoney, fmtDate, ymd, today } from "@/lib/format";
 import { Plus, Search, X, ChevronDown, ShoppingCart, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { usePagination, PaginationBar } from "@/components/Pagination";
+import { fmtMode } from "@/components/ModePills";
 
 export const Route = createFileRoute("/purchase/")({ component: PurchasePage });
 
@@ -315,7 +316,7 @@ function PurchasePage() {
                     <td className="px-4 py-3">
                       <StatusBadge paid={isPaid} partial={isPartial} unpaid={isUnpaid} />
                     </td>
-                    <td className="px-4 py-3 text-gray-500 capitalize text-xs">{r.paymentMode}</td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">{fmtMode(r.paymentMode)}</td>
                     <td className="px-4 py-3 text-center whitespace-nowrap">
                       <button
                         onClick={(e) => {

@@ -5,6 +5,7 @@ import type { Invoice, Company, PrintFormat } from "@/types";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { waLink, billMessage } from "@/lib/whatsapp";
 import { printWithName } from "@/lib/print";
+import { fmtMode } from "@/components/ModePills";
 import { ThermalReceipt } from "@/components/ThermalReceipt";
 import { toast } from "sonner";
 import { ArrowLeft, Printer, Check, AlertCircle, Pencil, MessageCircle } from "lucide-react";
@@ -202,7 +203,7 @@ function InvoiceDetailPage() {
                   </p>
                   <p>
                     <span className="text-gray-400">Payment: </span>
-                    <span className="capitalize font-medium">{inv.paymentMode}</span>
+                    <span className="font-medium">{fmtMode(inv.paymentMode)}</span>
                   </p>
                 </div>
                 {isPaid ? (
