@@ -185,7 +185,7 @@ function SaleReturnDetailPage() {
             <div className="w-72 space-y-1.5 text-sm">
               <div className="flex justify-between">
                 <span className="text-gray-500">Subtotal</span>
-                <span className="tabular-nums">{fmtMoney(ret.subtotal)}</span>
+                <span className="tabular-nums">{fmtMoney(r2(ret.lineItems.reduce((s, l) => s + l.qty * l.price * (1 - l.discountPct / 100), 0)))}</span>
               </div>
               {ret.gstEnabled && gstBreakdown.size > 0 && (
                 <>

@@ -227,7 +227,7 @@ export function InvoiceForm({ mode, existing }: Props) {
     const newGst = !gstOn;
     const lines = inv.lineItems.map((l) => {
       const gstMult = newGst ? 1 + l.gstRate / 100 : 1;
-      return { ...l, amount: l.qty * l.price * (1 - l.discountPct / 100) * gstMult };
+      return { ...l, amount: r2(r2(l.qty * l.price * (1 - l.discountPct / 100)) * gstMult) };
     });
     setInv({
       ...inv,
@@ -275,30 +275,6 @@ export function InvoiceForm({ mode, existing }: Props) {
     // fire-and-forget calls that could partially fail and desync stock/money.
     const batch = newBatch();
 
-    // If editing dropped the settled amount (bill total reduced, or paid
-    // lowered manually), any Payment allocations tied to this invoice can now
-    // exceed what's actually owed. Trim them so the freed money surfaces as
-    // an advance for the party instead of silently vanishing from every
-    // ledger report (same invariant the delete flow already protects).
-    if (existing?.id && paid < existing.paid) {
-      let excess = r2(existing.paid - paid);
-      for (const p of PaymentRepo.all()) {
-        if (excess <= 0) break;
-        const alloc = p.allocations?.find((a) => a.invoiceId === existing.id);
-        if (!alloc) continue;
-        const reduceBy = Math.min(alloc.amount, excess);
-        const remaining = p
-          .allocations!.map((a) =>
-            a.invoiceId === existing.id ? { ...a, amount: r2(a.amount - reduceBy) } : a,
-          )
-          .filter((a) => a.amount > 0);
-        PaymentRepo.updateBatched(batch, p.id, {
-          allocations: remaining.length ? remaining : undefined,
-        });
-        excess = r2(excess - reduceBy);
-      }
-    }
-
     // Resolve or auto-create party
     let partyId = inv.partyId;
     let partyName = inv.partyName || partyQ.trim();
@@ -342,6 +318,43 @@ export function InvoiceForm({ mode, existing }: Props) {
     setSaving(true);
 
     const finalInv: Invoice = { ...inv, number, paid, partyId, partyName, partyPhone: phone };
+
+    // If editing dropped the settled amount (bill total reduced, or paid
+    // lowered manually), Payment allocations tied to this invoice can now
+    // exceed what's actually owed. Trim them so the freed money surfaces as
+    // an advance instead of silently vanishing from ledger reports.
+    // IMPORTANT: this runs AFTER every validation early-return (cache writes
+    // land immediately), and the excess is recomputed from the LIVE
+    // allocations — never from existing.paid — so a failed attempt or a
+    // retry can never trim the same money twice.
+    if (existing?.id) {
+      const liveAllocated = r2(
+        PaymentRepo.all().reduce(
+          (s, p) =>
+            s +
+            (p.allocations ?? [])
+              .filter((a) => a.invoiceId === existing.id)
+              .reduce((x, a) => x + a.amount, 0),
+          0,
+        ),
+      );
+      let excess = r2(liveAllocated - paid);
+      for (const p of PaymentRepo.all()) {
+        if (excess <= 0) break;
+        const alloc = p.allocations?.find((a) => a.invoiceId === existing.id);
+        if (!alloc) continue;
+        const reduceBy = Math.min(alloc.amount, excess);
+        const remaining = p
+          .allocations!.map((a) =>
+            a.invoiceId === existing.id ? { ...a, amount: r2(a.amount - reduceBy) } : a,
+          )
+          .filter((a) => a.amount > 0);
+        PaymentRepo.updateBatched(batch, p.id, {
+          allocations: remaining.length ? remaining : undefined,
+        });
+        excess = r2(excess - reduceBy);
+      }
+    }
 
     if (existing?.id) {
       // Reverse original stock before applying new quantities (atomic increments)
@@ -883,14 +896,18 @@ function ItemSearchBar({
   const [open, setOpen] = useState(false);
   const [idx, setIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const suggests = items
-    .filter(
-      (i) =>
-        i.name.toLowerCase().includes(q.toLowerCase()) ||
-        i.sku?.toLowerCase().includes(q.toLowerCase()) ||
-        i.barcode?.includes(q),
-    )
-    .slice(0, 8);
+  // Empty query = NO suggestions — otherwise Enter/ArrowDown on the empty box
+  // would act on an invisible list of all items and add a phantom line
+  const suggests = q.trim()
+    ? items
+        .filter(
+          (i) =>
+            i.name.toLowerCase().includes(q.toLowerCase()) ||
+            i.sku?.toLowerCase().includes(q.toLowerCase()) ||
+            i.barcode?.includes(q),
+        )
+        .slice(0, 8)
+    : [];
 
   // Offer "add as new item" whenever the typed name doesn't exactly match an existing one
   const trimmed = q.trim();
@@ -901,6 +918,7 @@ function ItemSearchBar({
   const reset = () => {
     setQ("");
     setOpen(false);
+    setIdx(0);
     setTimeout(() => inputRef.current?.focus(), 30);
   };
 

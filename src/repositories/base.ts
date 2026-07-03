@@ -188,10 +188,13 @@ export class Repository<T extends { id: string }> {
     } as T;
     this.cache[idx] = merged;
     if (isBrowser) {
-      updateDoc(doc(db, this.name, id), {
-        [field]: increment(Math.round(delta * 100) / 100),
-        ...stripUndefined(extra ?? {}),
-      } as never).catch(writeError("update"));
+      // set+merge, NOT update: update() fails on a missing doc, and inside a
+      // batch that failure would void the whole invoice write
+      setDoc(
+        doc(db, this.name, id),
+        { [field]: increment(Math.round(delta * 100) / 100), ...stripUndefined(extra ?? {}) },
+        { merge: true },
+      ).catch(writeError("update"));
     }
     return merged;
   }
@@ -214,10 +217,11 @@ export class Repository<T extends { id: string }> {
     } as T;
     this.cache[idx] = merged;
     if (isBrowser && batch) {
-      batch.update(doc(db, this.name, id), {
-        ...stripUndefined(extra ?? {}),
-        [field]: increment(Math.round(delta * 100) / 100),
-      } as never);
+      batch.set(
+        doc(db, this.name, id),
+        { ...stripUndefined(extra ?? {}), [field]: increment(Math.round(delta * 100) / 100) },
+        { merge: true },
+      );
     }
     return merged;
   }

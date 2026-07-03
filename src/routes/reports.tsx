@@ -51,7 +51,7 @@ export const Route = createFileRoute("/reports")({
   }),
 });
 
-const THIS_MONTH_START = ymd(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+const monthStart = () => ymd(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
 
 const REPORTS = [
   { key: "pl", label: "Profit & Loss", icon: BarChart3, desc: "Revenue, costs, net profit" },
@@ -80,8 +80,8 @@ const REPORTS = [
 function ReportsPage() {
   const { r } = Route.useSearch();
   const [active, setActive] = useState(REPORTS.some((x) => x.key === r) ? (r as string) : "pl");
-  const [dateFrom, setDateFrom] = useState(THIS_MONTH_START);
-  const [dateTo, setDateTo] = useState(today());
+  const [dateFrom, setDateFrom] = useState(monthStart);
+  const [dateTo, setDateTo] = useState(today);
 
   const current = REPORTS.find((r) => r.key === active);
 

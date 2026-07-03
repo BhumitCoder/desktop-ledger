@@ -12,15 +12,16 @@ export const Route = createFileRoute("/purchase/")({ component: PurchasePage });
 
 type Status = "all" | "paid" | "partial" | "unpaid";
 
-const THIS_MONTH_START = ymd(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
-const TODAY = today();
+// Computed per mount (NOT module constants) — a tab left open overnight
+// would otherwise keep filtering on yesterday's date and hide new bills
+const monthStart = () => ymd(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
 
 function PurchasePage() {
   const navigate = useNavigate();
   const [rows, setRows] = useState<Invoice[]>([]);
   const [parties, setParties] = useState<{ id: string; name: string }[]>([]);
-  const [dateFrom, setDateFrom] = useState(THIS_MONTH_START);
-  const [dateTo, setDateTo] = useState(TODAY);
+  const [dateFrom, setDateFrom] = useState(monthStart);
+  const [dateTo, setDateTo] = useState(today);
   const [partyId, setPartyId] = useState("all");
   const [status, setStatus] = useState<Status>("all");
   const [search, setSearch] = useState("");
@@ -72,8 +73,8 @@ function PurchasePage() {
   }, [parties, partyDropQ]);
 
   const clearFilters = () => {
-    setDateFrom(THIS_MONTH_START);
-    setDateTo(TODAY);
+    setDateFrom(monthStart());
+    setDateTo(today());
     setPartyId("all");
     setStatus("all");
     setSearch("");

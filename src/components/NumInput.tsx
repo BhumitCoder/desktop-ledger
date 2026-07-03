@@ -22,14 +22,18 @@ export function NumInput({
   const [text, setText] = useState(value === 0 ? "" : String(value));
   const lastNum = useRef(value);
 
-  // Re-sync display when the value changes from OUTSIDE (new line added,
-  // "Full" button, clamping…) — but never while it matches what's being typed
+  // Re-sync display when the value differs from what was last typed (new
+  // line added, "Full" button, clamping…). Runs on EVERY render — a clamp
+  // that lands back on the previous prop value (e.g. Disc% typed 1000,
+  // clamped to 100 which it already was) doesn't change the prop, so a
+  // [value]-keyed effect would never fire and the box would keep showing
+  // the unclamped text.
   useEffect(() => {
     if (value !== lastNum.current) {
       setText(value === 0 ? "" : String(value));
       lastNum.current = value;
     }
-  }, [value]);
+  });
 
   return (
     <input

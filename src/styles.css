@@ -274,6 +274,13 @@
     box-shadow: none !important;
     overflow: visible !important;
   }
+  /* Long reports: inner scroll wrappers (max-height/overflow) must not clip
+     the printout to one screenful */
+  .print-visible *,
+  .print-area * {
+    max-height: none !important;
+    overflow: visible !important;
+  }
   .no-print {
     display: none !important;
   }

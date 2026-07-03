@@ -132,6 +132,13 @@ export function ReturnForm({ mode }: Props) {
   };
 
   const addLineItem = (it: Item) => {
+    // Same item twice = one line with higher qty (keeps the over-return cap honest)
+    const existingLine = ret.lineItems.find((l) => l.itemId === it.id);
+    if (existingLine) {
+      updateLine(existingLine.id, { qty: existingLine.qty + 1 });
+      toast.info(`${it.name} — quantity increased to ${existingLine.qty + 1}`);
+      return;
+    }
     const line: LineItem = {
       id: genId(),
       itemId: it.id,
@@ -217,11 +224,16 @@ export function ReturnForm({ mode }: Props) {
             alreadyReturned.set(l.itemId, (alreadyReturned.get(l.itemId) ?? 0) + l.qty);
           }
         }
+        const thisReturnQty = new Map<string, number>();
+        for (const l of ret.lineItems) {
+          thisReturnQty.set(l.itemId, r2((thisReturnQty.get(l.itemId) ?? 0) + l.qty));
+        }
         for (const l of ret.lineItems) {
           const bought = originalQty.get(l.itemId) ?? 0;
           const already = alreadyReturned.get(l.itemId) ?? 0;
           const remaining = r2(bought - already);
-          if (l.qty > remaining + 0.0001) {
+          const returningNow = thisReturnQty.get(l.itemId) ?? l.qty;
+          if (returningNow > remaining + 0.0001) {
             toast.error(
               remaining > 0
                 ? `"${l.name}" — only ${remaining} ${l.unit} left to return from ${ref} (already returned ${already})`
@@ -612,19 +624,24 @@ function ReturnItemSearchBar({ items, onAdd }: { items: Item[]; onAdd: (i: Item)
   const [open, setOpen] = useState(false);
   const [idx, setIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const suggests = items
-    .filter(
-      (i) =>
-        i.name.toLowerCase().includes(q.toLowerCase()) ||
-        i.sku?.toLowerCase().includes(q.toLowerCase()) ||
-        i.barcode?.includes(q),
-    )
-    .slice(0, 8);
+  // Empty query = NO suggestions — otherwise Enter/ArrowDown on the empty box
+  // would act on an invisible list of all items and add a phantom line
+  const suggests = q.trim()
+    ? items
+        .filter(
+          (i) =>
+            i.name.toLowerCase().includes(q.toLowerCase()) ||
+            i.sku?.toLowerCase().includes(q.toLowerCase()) ||
+            i.barcode?.includes(q),
+        )
+        .slice(0, 8)
+    : [];
 
   const pick = (it: Item) => {
     onAdd(it);
     setQ("");
     setOpen(false);
+    setIdx(0);
     setTimeout(() => inputRef.current?.focus(), 30);
   };
   return (
