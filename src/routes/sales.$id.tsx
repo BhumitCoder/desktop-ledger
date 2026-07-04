@@ -285,6 +285,9 @@ function InvoiceDetailPage() {
                       <TRow label={`SGST @ ${rate / 2}%`} value={fmtMoney(v.sgst)} />
                     </div>
                   ))}
+                {!!inv.shippingCharge && inv.shippingCharge > 0 && (
+                  <TRow label="Shipping Charge" value={fmtMoney(inv.shippingCharge)} />
+                )}
                 {!!inv.roundOff && Math.abs(inv.roundOff) > 0.001 && (
                   <TRow
                     label="Round Off"

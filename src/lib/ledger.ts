@@ -130,6 +130,9 @@ export function modeFlows(
   const list: FlowEntry[] = [];
   for (const s of sales) {
     if (s.paymentMode !== mode) continue;
+    // Already moved directly onto that specific bank account's balance (see
+    // InvoiceForm.tsx) — counting it again here would double it on the Bank page.
+    if (s.bankId) continue;
     const direct = Math.max(0, r2((s.paid || 0) - (applied.get(s.id) ?? 0)));
     if (direct > 0)
       list.push({
@@ -142,6 +145,7 @@ export function modeFlows(
   }
   for (const s of purchases) {
     if (s.paymentMode !== mode) continue;
+    if (s.bankId) continue;
     const direct = Math.max(0, r2((s.paid || 0) - (applied.get(s.id) ?? 0)));
     if (direct > 0)
       list.push({
@@ -158,6 +162,10 @@ export function modeFlows(
   }
   for (const p of payments) {
     if (p.mode !== mode) continue;
+    // A payment tied to a specific bank account already moved money on that
+    // account's own `balance` field directly (see payments.tsx) — counting
+    // it again here would double its effect on the Bank page's total.
+    if (p.bankId) continue;
     list.push({
       date: p.date,
       type: p.type === "in" ? "Payment In" : "Payment Out",
@@ -205,6 +213,195 @@ export function bankFlows(
   const list = modes.flatMap((m) => modeFlows(m, sales, purchases, expenses, payments));
   list.sort((a, b) => b.date.localeCompare(a.date));
   return list;
+}
+
+export interface PartyLedgerRow {
+  date: string;
+  created: string;
+  type: string;
+  ref: string;
+  /** party owes more (sales, purchase returns, payments made to them) */
+  debit: number;
+  /** party owes less (payments received, sale returns, purchases from them) */
+  credit: number;
+  balance: number;
+  /** underlying document id — makes the row clickable to open the bill */
+  docId?: string;
+  docKind?: "sale" | "purchase" | "sale-return" | "purchase-return";
+}
+
+/**
+ * Full chronological ledger for one party — every sale, purchase, return and
+ * payment that touches them, with a running balance (positive = party owes
+ * us / receivable, negative = we owe them / payable). Pass the FULL,
+ * unfiltered `payments` array (not just this party's) so `paidViaPayments`
+ * can resolve invoice-linked allocations correctly.
+ *
+ * Shared by the per-party Statement page and the all-parties Ledger report
+ * so both always agree on the numbers.
+ */
+export function buildPartyLedger(
+  party: { id: string; openingBalance?: number },
+  data: {
+    sales: Invoice[];
+    purchases: Invoice[];
+    saleReturns: Return[];
+    purchaseReturns: Return[];
+    payments: Payment[];
+  },
+  dateFrom = "",
+  dateTo = "",
+): { rows: PartyLedgerRow[]; fullBalance: number; totalDebit: number; totalCredit: number } {
+  const entries: Omit<PartyLedgerRow, "balance">[] = [];
+  const applied = paidViaPayments(data.payments);
+
+  for (const s of data.sales.filter((x) => x.partyId === party.id)) {
+    entries.push({
+      date: s.date,
+      created: s.createdAt,
+      type: "Sale",
+      ref: s.number,
+      debit: s.total,
+      credit: 0,
+      docId: s.id,
+      docKind: "sale",
+    });
+    const atBilling = r2((s.paid || 0) - (applied.get(s.id) ?? 0));
+    if (atBilling > 0) {
+      entries.push({
+        date: s.date,
+        created: s.createdAt,
+        type: "Received with bill",
+        ref: s.number,
+        debit: 0,
+        credit: atBilling,
+        docId: s.id,
+        docKind: "sale",
+      });
+    }
+  }
+  for (const ret of data.saleReturns.filter((x) => x.partyId === party.id)) {
+    entries.push({
+      date: ret.date,
+      created: ret.createdAt,
+      type: "Sale Return",
+      ref: ret.number,
+      debit: 0,
+      credit: ret.total,
+      docId: ret.id,
+      docKind: "sale-return",
+    });
+  }
+  for (const p of data.purchases.filter((x) => x.partyId === party.id)) {
+    entries.push({
+      date: p.date,
+      created: p.createdAt,
+      type: "Purchase",
+      ref: p.number,
+      debit: 0,
+      credit: p.total,
+      docId: p.id,
+      docKind: "purchase",
+    });
+    const atBilling = r2((p.paid || 0) - (applied.get(p.id) ?? 0));
+    if (atBilling > 0) {
+      entries.push({
+        date: p.date,
+        created: p.createdAt,
+        type: "Paid with bill",
+        ref: p.number,
+        debit: atBilling,
+        credit: 0,
+        docId: p.id,
+        docKind: "purchase",
+      });
+    }
+  }
+  for (const ret of data.purchaseReturns.filter((x) => x.partyId === party.id)) {
+    entries.push({
+      date: ret.date,
+      created: ret.createdAt,
+      type: "Purchase Return",
+      ref: ret.number,
+      debit: ret.total,
+      credit: 0,
+      docId: ret.id,
+      docKind: "purchase-return",
+    });
+  }
+  for (const pay of data.payments.filter((x) => x.partyId === party.id)) {
+    const linked = pay.allocations?.map((a) => a.number).join(", ") ?? pay.ref ?? "";
+    if (pay.type === "in") {
+      entries.push({
+        date: pay.date,
+        created: pay.createdAt,
+        type: "Payment Received",
+        ref: linked || "—",
+        debit: 0,
+        credit: pay.amount,
+      });
+    } else {
+      entries.push({
+        date: pay.date,
+        created: pay.createdAt,
+        type: "Payment Made",
+        ref: linked || "—",
+        debit: pay.amount,
+        credit: 0,
+      });
+    }
+  }
+
+  entries.sort(
+    (a, b) => a.date.localeCompare(b.date) || (a.created ?? "").localeCompare(b.created ?? ""),
+  );
+
+  // Current all-time balance, independent of any date filter
+  const fullBalance = r2(
+    entries.reduce((s, e) => s + e.debit - e.credit, party.openingBalance || 0),
+  );
+
+  let running = party.openingBalance || 0;
+  const out: PartyLedgerRow[] = [];
+
+  // Date window: transactions before "From" collapse into one
+  // "Balance b/f" (brought forward) line, like a proper ledger
+  const before = dateFrom ? entries.filter((e) => e.date < dateFrom) : [];
+  const window = entries.filter(
+    (e) => (!dateFrom || e.date >= dateFrom) && (!dateTo || e.date <= dateTo),
+  );
+  for (const e of before) {
+    running = r2(running + e.debit - e.credit);
+  }
+
+  if (dateFrom) {
+    out.push({
+      date: "",
+      created: "",
+      type: "Balance b/f",
+      ref: "—",
+      debit: 0,
+      credit: 0,
+      balance: running,
+    });
+  } else if (party.openingBalance) {
+    out.push({
+      date: "",
+      created: "",
+      type: "Opening Balance",
+      ref: "—",
+      debit: party.openingBalance > 0 ? party.openingBalance : 0,
+      credit: party.openingBalance < 0 ? -party.openingBalance : 0,
+      balance: running,
+    });
+  }
+  for (const e of window) {
+    running = r2(running + e.debit - e.credit);
+    out.push({ ...e, balance: running });
+  }
+  const totalDebit = r2(out.reduce((s, e) => s + e.debit, 0));
+  const totalCredit = r2(out.reduce((s, e) => s + e.credit, 0));
+  return { rows: out, fullBalance, totalDebit, totalCredit };
 }
 
 /** Cost of goods sold from per-line cost snapshots, falling back to the

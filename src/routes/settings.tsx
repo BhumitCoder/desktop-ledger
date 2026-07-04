@@ -49,15 +49,15 @@ function SettingsPage() {
     records.map((r) =>
       Array.isArray(r?.lineItems)
         ? {
-            ...r,
-            lineItems: r.lineItems.map((l: any) => ({
-              ...l,
-              qty: Number(l?.qty) || 0,
-              price: Number(l?.price) || 0,
-              discountPct: Number(l?.discountPct) || 0,
-              gstRate: Number(l?.gstRate) || 0,
-            })),
-          }
+          ...r,
+          lineItems: r.lineItems.map((l: any) => ({
+            ...l,
+            qty: Number(l?.qty) || 0,
+            price: Number(l?.price) || 0,
+            discountPct: Number(l?.discountPct) || 0,
+            gstRate: Number(l?.gstRate) || 0,
+          })),
+        }
         : r,
     );
 
@@ -178,6 +178,18 @@ function SettingsPage() {
               />
               <span className="font-medium">Round off invoice totals to nearest rupee</span>
               <span className="text-xs text-muted-foreground">(e.g. ₹487.37 → ₹487)</span>
+            </label>
+            <label className="col-span-2 flex items-center gap-2 text-[13px] cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={c.allowNegativeStock !== false}
+                onChange={(e) => setC({ ...c, allowNegativeStock: e.target.checked })}
+                className="accent-primary"
+              />
+              <span className="font-medium">Allow selling below available stock</span>
+              <span className="text-xs text-muted-foreground">
+                ( turn off to block sales/returns that would take stock negative)
+              </span>
             </label>
           </div>
           <div className="mt-3 flex justify-end">

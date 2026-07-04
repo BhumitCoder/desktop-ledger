@@ -9,33 +9,27 @@ import {
   PaymentRepo,
   CompanyRepo,
 } from "@/repositories";
-import { paidViaPayments } from "@/lib/ledger";
+import { buildPartyLedger, type PartyLedgerRow } from "@/lib/ledger";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { waLink, reminderMessage } from "@/lib/whatsapp";
 import { printWithName } from "@/lib/print";
+import { downloadCsv } from "@/lib/csv";
 import { PartyDialog } from "./parties";
 import type { Party } from "@/types";
 import { toast } from "sonner";
-import { ArrowLeft, Pencil, Printer, MessageCircle, AlertCircle, Phone } from "lucide-react";
+import {
+  ArrowLeft,
+  Pencil,
+  Printer,
+  MessageCircle,
+  AlertCircle,
+  Phone,
+  Download,
+} from "lucide-react";
 
 export const Route = createFileRoute("/parties_/$id")({ component: PartyStatementPage });
 
-const r2 = (n: number) => Math.round(n * 100) / 100;
-
-interface LedgerRow {
-  date: string;
-  created: string;
-  type: string;
-  ref: string;
-  /** party owes more (sales, purchase returns, payments made to them) */
-  debit: number;
-  /** party owes less (payments received, sale returns, purchases from them) */
-  credit: number;
-  balance: number;
-  /** underlying document id — makes the row clickable to open the bill */
-  docId?: string;
-  docKind?: "sale" | "purchase" | "sale-return" | "purchase-return";
-}
+type LedgerRow = PartyLedgerRow;
 
 function PartyStatementPage() {
   const { id } = Route.useParams();
@@ -52,156 +46,18 @@ function PartyStatementPage() {
 
   const { rows, fullBalance } = useMemo(() => {
     if (!party) return { rows: [] as LedgerRow[], fullBalance: 0 };
-    const entries: Omit<LedgerRow, "balance">[] = [];
-    const allPayments = PaymentRepo.all();
-    const applied = paidViaPayments(allPayments);
-
-    // Balance convention: positive = party owes us (receivable)
-    for (const s of SalesRepo.all().filter((x) => x.partyId === party.id)) {
-      entries.push({
-        date: s.date,
-        created: s.createdAt,
-        type: "Sale",
-        ref: s.number,
-        debit: s.total,
-        credit: 0,
-        docId: s.id,
-        docKind: "sale",
-      });
-      const atBilling = r2((s.paid || 0) - (applied.get(s.id) ?? 0));
-      if (atBilling > 0) {
-        entries.push({
-          date: s.date,
-          created: s.createdAt,
-          type: "Received with bill",
-          ref: s.number,
-          debit: 0,
-          credit: atBilling,
-          docId: s.id,
-          docKind: "sale",
-        });
-      }
-    }
-    for (const ret of SaleReturnRepo.all().filter((x) => x.partyId === party.id)) {
-      entries.push({
-        date: ret.date,
-        created: ret.createdAt,
-        type: "Sale Return",
-        ref: ret.number,
-        debit: 0,
-        credit: ret.total,
-        docId: ret.id,
-        docKind: "sale-return",
-      });
-    }
-    for (const p of PurchaseRepo.all().filter((x) => x.partyId === party.id)) {
-      entries.push({
-        date: p.date,
-        created: p.createdAt,
-        type: "Purchase",
-        ref: p.number,
-        debit: 0,
-        credit: p.total,
-        docId: p.id,
-        docKind: "purchase",
-      });
-      const atBilling = r2((p.paid || 0) - (applied.get(p.id) ?? 0));
-      if (atBilling > 0) {
-        entries.push({
-          date: p.date,
-          created: p.createdAt,
-          type: "Paid with bill",
-          ref: p.number,
-          debit: atBilling,
-          credit: 0,
-          docId: p.id,
-          docKind: "purchase",
-        });
-      }
-    }
-    for (const ret of PurchaseReturnRepo.all().filter((x) => x.partyId === party.id)) {
-      entries.push({
-        date: ret.date,
-        created: ret.createdAt,
-        type: "Purchase Return",
-        ref: ret.number,
-        debit: ret.total,
-        credit: 0,
-        docId: ret.id,
-        docKind: "purchase-return",
-      });
-    }
-    for (const pay of allPayments.filter((x) => x.partyId === party.id)) {
-      const linked = pay.allocations?.map((a) => a.number).join(", ") ?? pay.ref ?? "";
-      if (pay.type === "in") {
-        entries.push({
-          date: pay.date,
-          created: pay.createdAt,
-          type: "Payment Received",
-          ref: linked || "—",
-          debit: 0,
-          credit: pay.amount,
-        });
-      } else {
-        entries.push({
-          date: pay.date,
-          created: pay.createdAt,
-          type: "Payment Made",
-          ref: linked || "—",
-          debit: pay.amount,
-          credit: 0,
-        });
-      }
-    }
-
-    entries.sort(
-      (a, b) => a.date.localeCompare(b.date) || (a.created ?? "").localeCompare(b.created ?? ""),
+    return buildPartyLedger(
+      party,
+      {
+        sales: SalesRepo.all(),
+        purchases: PurchaseRepo.all(),
+        saleReturns: SaleReturnRepo.all(),
+        purchaseReturns: PurchaseReturnRepo.all(),
+        payments: PaymentRepo.all(),
+      },
+      dateFrom,
+      dateTo,
     );
-
-    // Current all-time balance, independent of any date filter
-    const fullBalance = r2(
-      entries.reduce((s, e) => s + e.debit - e.credit, party.openingBalance || 0),
-    );
-
-    let running = party.openingBalance || 0;
-    const out: LedgerRow[] = [];
-
-    // Date window: transactions before "From" collapse into one
-    // "Balance b/f" (brought forward) line, like a proper ledger
-    const before = dateFrom ? entries.filter((e) => e.date < dateFrom) : [];
-    const window = entries.filter(
-      (e) => (!dateFrom || e.date >= dateFrom) && (!dateTo || e.date <= dateTo),
-    );
-    for (const e of before) {
-      running = r2(running + e.debit - e.credit);
-    }
-
-    if (dateFrom) {
-      out.push({
-        date: "",
-        created: "",
-        type: "Balance b/f",
-        ref: "—",
-        debit: 0,
-        credit: 0,
-        balance: running,
-      });
-    } else if (party.openingBalance) {
-      out.push({
-        date: "",
-        created: "",
-        type: "Opening Balance",
-        ref: "—",
-        debit: party.openingBalance > 0 ? party.openingBalance : 0,
-        credit: party.openingBalance < 0 ? -party.openingBalance : 0,
-        balance: running,
-      });
-    }
-    for (const e of window) {
-      running = r2(running + e.debit - e.credit);
-      out.push({ ...e, balance: running });
-    }
-    return { rows: out, fullBalance };
   }, [party, refreshKey, dateFrom, dateTo]);
 
   const openRow = (e: LedgerRow) => {
@@ -247,6 +103,38 @@ function PartyStatementPage() {
       return;
     }
     window.open(link, "_blank");
+  };
+
+  // Professional, Vyapar-style ledger export — company/party header info,
+  // then the full transaction table with running balance, then a closing
+  // balance line. Reuses the exact rows already shown on screen so the
+  // download always matches what's visible.
+  const downloadExcel = () => {
+    const company = CompanyRepo.get();
+    const fmtBal = (n: number) => `${fmtMoney(Math.abs(n))}${n > 0 ? " Dr" : n < 0 ? " Cr" : ""}`;
+    const meta: string[][] = [
+      ["Party Statement"],
+      [`Company: ${company.name}`],
+      [`Party: ${party.name}`],
+      [`Phone: ${party.phone || "—"}`],
+      [`GSTIN: ${party.gstin || "—"}`],
+      [`Period: ${dateFrom ? fmtDate(dateFrom) : "Beginning"} to ${dateTo ? fmtDate(dateTo) : "Today"}`],
+      [`Generated: ${fmtDate(new Date().toISOString())}`],
+      [],
+    ];
+    const header = ["Date", "Type", "Ref #", "Debit", "Credit", "Balance"];
+    const body = rows.map((e) => [
+      e.date ? fmtDate(e.date) : "—",
+      e.type,
+      e.ref,
+      e.debit ? fmtMoney(e.debit) : "",
+      e.credit ? fmtMoney(e.credit) : "",
+      fmtBal(e.balance),
+    ]);
+    const closing = ["", "", "Closing Balance", fmtMoney(totalDebit), fmtMoney(totalCredit), fmtBal(balance)];
+    const allRows = [...meta, header, ...body, [], closing];
+    downloadCsv(`Statement-${party.name}`, allRows[0], allRows.slice(1));
+    toast.success("Statement downloaded");
   };
 
   return (
@@ -296,6 +184,13 @@ function PartyStatementPage() {
             }
           >
             <MessageCircle className="h-4 w-4" /> Remind on WhatsApp
+          </button>
+          <button
+            onClick={downloadExcel}
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-md text-sm font-semibold hover:bg-gray-50 transition"
+            title="Download full ledger as Excel/CSV"
+          >
+            <Download className="h-4 w-4" /> Download Ledger
           </button>
           <button
             onClick={() => printWithName(`Statement-${party.name.replace(/\s+/g, "-")}`)}

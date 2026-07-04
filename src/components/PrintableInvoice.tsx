@@ -303,6 +303,14 @@ export function PrintableInvoice({ inv, company, mode }: Props) {
                       </td>
                     </tr>
                   )}
+                  {!!inv.shippingCharge && inv.shippingCharge > 0 && (
+                    <tr>
+                      <td style={{ padding: "5px 8px" }}>Shipping Charge</td>
+                      <td style={{ padding: "5px 8px", textAlign: "right" }}>
+                        {fmtMoney(inv.shippingCharge)}
+                      </td>
+                    </tr>
+                  )}
                   {!!inv.roundOff && Math.abs(inv.roundOff) > 0.001 && (
                     <tr>
                       <td style={{ padding: "5px 8px" }}>Round Off</td>

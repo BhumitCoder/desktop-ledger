@@ -1,11 +1,20 @@
 import { useWorkspace } from "@/store/workspace";
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { X } from "lucide-react";
 import { useEffect } from "react";
 import { cn } from "@/lib/utils";
+import {
+  PartyRepo,
+  ItemRepo,
+  SalesRepo,
+  PurchaseRepo,
+  SaleReturnRepo,
+  PurchaseReturnRepo,
+} from "@/repositories";
 
 export function WorkspaceTabs() {
   const { tabs, closeTab, openTab } = useWorkspace();
+  const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const routeTitle = titleFromPath(pathname);
 
@@ -15,6 +24,20 @@ export function WorkspaceTabs() {
   }, [pathname, routeTitle, openTab]);
 
   if (!tabs.length) return null;
+
+  // Closing the tab you're currently looking at needs to actually move you
+  // somewhere — otherwise the tab strip changes but the page underneath
+  // doesn't. Land on the last remaining tab, or the Dashboard once none are
+  // left (which then re-opens its own tab via the effect above).
+  const handleClose = (tabId: string, tabPath: string) => {
+    const wasActive = tabPath === pathname;
+    closeTab(tabId);
+    if (wasActive) {
+      const remaining = tabs.filter((t) => t.id !== tabId);
+      const next = remaining[remaining.length - 1];
+      navigate({ to: next ? next.path : "/" });
+    }
+  };
 
   return (
     <div className="h-10 border-b bg-muted/50 flex items-end px-2 gap-0.5 overflow-x-auto shrink-0">
@@ -36,7 +59,7 @@ export function WorkspaceTabs() {
             <button
               onClick={(e) => {
                 e.preventDefault();
-                closeTab(tab.id);
+                handleClose(tab.id, tab.path);
               }}
               className="opacity-40 hover:opacity-100 hover:bg-accent rounded p-0.5"
             >
@@ -48,6 +71,18 @@ export function WorkspaceTabs() {
     </div>
   );
 }
+
+// Detail pages (open from a list row, or from another detail page like item
+// history) get their own tab too, titled with the actual record — not just
+// left to silently reuse whatever tab happened to be active.
+const DETAIL_ROUTES: { re: RegExp; title: (id: string) => string | null }[] = [
+  { re: /^\/sales\/([^/]+)$/, title: (id) => SalesRepo.get(id)?.number ?? null },
+  { re: /^\/purchase\/([^/]+)$/, title: (id) => PurchaseRepo.get(id)?.number ?? null },
+  { re: /^\/sale-return\/([^/]+)$/, title: (id) => SaleReturnRepo.get(id)?.number ?? null },
+  { re: /^\/purchase-return\/([^/]+)$/, title: (id) => PurchaseReturnRepo.get(id)?.number ?? null },
+  { re: /^\/parties\/([^/]+)$/, title: (id) => PartyRepo.get(id)?.name ?? null },
+  { re: /^\/items\/([^/]+)$/, title: (id) => ItemRepo.get(id)?.name ?? null },
+];
 
 function titleFromPath(path: string): string | null {
   if (path === "/") return "Dashboard";
@@ -67,5 +102,10 @@ function titleFromPath(path: string): string | null {
     "/gst": "GST",
     "/settings": "Settings",
   };
-  return map[path] ?? null;
+  if (map[path]) return map[path];
+  for (const d of DETAIL_ROUTES) {
+    const m = path.match(d.re);
+    if (m) return d.title(m[1]);
+  }
+  return null;
 }

@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { SalesRepo, PartyRepo, ItemRepo, PaymentRepo } from "@/repositories";
+import { SalesRepo, PartyRepo, ItemRepo, PaymentRepo, BankRepo } from "@/repositories";
 import { newBatch, commitBatch } from "@/repositories/base";
 import type { Invoice } from "@/types";
 import { fmtMoney, fmtDate, ymd, today } from "@/lib/format";
@@ -105,6 +105,11 @@ function SalesPage() {
           allocations: remaining.length ? remaining : undefined,
         });
       }
+    }
+    // Undo whatever this sale moved on a specific bank account at billing
+    // time, or that account's balance stays permanently wrong after delete.
+    if (r.paymentMode === "bank" && r.bankId && (r.bankPaidAmount ?? 0) > 0) {
+      BankRepo.adjustFieldBatched(batch, r.bankId, "balance", -r.bankPaidAmount!);
     }
     SalesRepo.removeBatched(batch, r.id);
     commitBatch(batch, "delete sale");

@@ -61,17 +61,18 @@ const groups: NavGroup[] = [
       { path: "/expenses", label: "Expenses", icon: Receipt, key: "6" },
     ],
   },
-  {
-    title: "Payments",
-    collapsible: true,
-    defaultOpen: false,
-    items: [{ path: "/payments", label: "Payments", icon: Wallet }],
-  },
+  // {
+  //   title: "Payments",
+  //   collapsible: true,
+  //   defaultOpen: false,
+  //   items: [],
+  // },
   {
     title: "Cash & Bank",
     items: [
       { path: "/bank", label: "Bank Accounts", icon: Landmark },
       { path: "/cash", label: "Cash in Hand", icon: Banknote },
+      { path: "/payments", label: "Payments", icon: Wallet }
     ],
   },
   {
@@ -170,7 +171,7 @@ export function Sidebar() {
                         collapsed ? "px-3 justify-center" : "px-4",
                         "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                         itemActive &&
-                          "bg-sidebar-accent text-sidebar-accent-foreground border-primary font-semibold",
+                        "bg-sidebar-accent text-sidebar-accent-foreground border-primary font-semibold",
                       )}
                     >
                       <Icon

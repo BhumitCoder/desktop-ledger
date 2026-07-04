@@ -1,8 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { PaymentRepo, PartyRepo, SalesRepo, PurchaseRepo } from "@/repositories";
-import type { Payment, PaymentAllocation, PaymentMode, Invoice } from "@/types";
+import {
+  PaymentRepo,
+  PartyRepo,
+  SalesRepo,
+  PurchaseRepo,
+  SaleReturnRepo,
+  PurchaseReturnRepo,
+  BankRepo,
+} from "@/repositories";
+import { newBatch, commitBatch } from "@/repositories/base";
+import type { Payment, PaymentAllocation, PaymentMode, Invoice, BankAccount } from "@/types";
 import { fmtMoney, fmtDate, today } from "@/lib/format";
+import { partyBalances } from "@/lib/ledger";
 import {
   ArrowDownCircle,
   ArrowUpCircle,
@@ -69,9 +79,12 @@ function PaymentsPage() {
     if (!confirm("Delete this payment record? Amounts applied to invoices/bills will be reversed."))
       return;
     const repo = r.type === "in" ? SalesRepo : PurchaseRepo;
+    // Invoice-paid reversal, bank-balance reversal, and the payment removal
+    // itself must all land together — a shared batch commits them atomically.
+    const batch = newBatch();
     if (r.allocations?.length) {
       for (const a of r.allocations) {
-        if (repo.get(a.invoiceId)) repo.adjustField(a.invoiceId, "paid", -a.amount);
+        if (repo.get(a.invoiceId)) repo.adjustFieldBatched(batch, a.invoiceId, "paid", -a.amount);
       }
     } else if (r.ref) {
       // Legacy payment (predates per-invoice allocations): only a lump amount
@@ -95,11 +108,18 @@ function PaymentsPage() {
       if (totalReverse > 0) {
         for (const inv of invoices) {
           const take = Math.min(inv.paid, r2((inv.paid / totalPaid) * totalReverse));
-          if (take > 0) repo.update(inv.id, { paid: r2(inv.paid - take) });
+          if (take > 0) repo.updateBatched(batch, inv.id, { paid: r2(inv.paid - take) });
         }
       }
     }
-    PaymentRepo.remove(r.id);
+    // Money that was moved onto a specific bank account when this payment
+    // was recorded must be moved back off it, or the account balance stays
+    // permanently wrong after the payment is deleted.
+    if (r.mode === "bank" && r.bankId && BankRepo.get(r.bankId)) {
+      BankRepo.adjustFieldBatched(batch, r.bankId, "balance", r.type === "in" ? -r.amount : r.amount);
+    }
+    PaymentRepo.removeBatched(batch, r.id);
+    commitBatch(batch, "delete payment");
     refresh();
     toast.success("Payment deleted");
   };
@@ -366,7 +386,8 @@ function ReceivePaymentDialog({
 
   const [date, setDate] = useState(today());
   const [mode, setMode] = useState<PaymentMode>("cash");
-  const [ref, setRef] = useState("");
+  const [banks, setBanks] = useState<BankAccount[]>([]);
+  const [bankId, setBankId] = useState("");
   const [applyRows, setApplyRows] = useState<ApplyRow[]>([]);
   const [manualAmount, setManualAmount] = useState("");
   const [saving, setSaving] = useState(false);
@@ -380,19 +401,20 @@ function ReceivePaymentDialog({
   useEffect(() => {
     if (open) {
       setAllParties(PartyRepo.all());
+      setBanks(BankRepo.all());
       if (editing) {
         setPartyQ(editing.partyName);
         setSelectedParty({ id: editing.partyId, name: editing.partyName });
         setDate(editing.date);
         setMode(editing.mode);
-        setRef(editing.ref ?? "");
+        setBankId(editing.bankId ?? "");
         setManualAmount(editing.allocations?.length ? "" : String(editing.amount));
       } else {
         setPartyQ("");
         setSelectedParty(null);
         setDate(today());
         setMode("cash");
-        setRef("");
+        setBankId("");
         setManualAmount("");
         setTimeout(() => partyRef.current?.focus(), 60);
       }
@@ -439,6 +461,27 @@ function ReceivePaymentDialog({
   };
 
   const totalOutstanding = applyRows.reduce((s, r) => s + r.due, 0);
+  // The invoice-level "due" total above misses debt that isn't tied to any
+  // invoice at all — most commonly a party's opening balance carried over
+  // from before this system was used. Without this, a party who owes only
+  // an opening balance (no unpaid invoices) would show "₹0.00 outstanding /
+  // no invoices" here even though the Dashboard and their own statement
+  // correctly show they owe money.
+  const partyTrueBalance = (() => {
+    if (!selectedParty) return 0;
+    const repo = isIn ? SalesRepo : PurchaseRepo;
+    const returnRepo = isIn ? SaleReturnRepo : PurchaseReturnRepo;
+    const list = partyBalances(
+      repo.all(),
+      returnRepo.all(),
+      PaymentRepo.all().filter((p) => p.type === (isIn ? "in" : "out")),
+      PartyRepo.all().filter((p) => (isIn ? p.type !== "supplier" : p.type !== "customer")),
+    );
+    return list.find((b) => b.partyId === selectedParty.id)?.balance ?? 0;
+  })();
+  // Portion of the true balance not already represented by an open invoice
+  // row above (e.g. opening balance, or a manual ledger correction).
+  const unlinkedBalance = Math.max(0, r2(partyTrueBalance - totalOutstanding));
   const totalApplied = r2(applyRows.reduce((s, r) => s + r.apply, 0));
   // Advance / general payment whenever nothing is actually applied to an
   // invoice — not just when there are no open invoices at all. Without this,
@@ -490,6 +533,10 @@ function ReceivePaymentDialog({
       toast.error("Enter or select an amount to pay");
       return;
     }
+    if (mode === "bank" && !bankId) {
+      toast.error("Select which bank account this goes to");
+      return;
+    }
     savingRef.current = true;
     setSaving(true);
 
@@ -498,13 +545,20 @@ function ReceivePaymentDialog({
     // leave the Confirm button permanently stuck disabled/spinning — saving
     // state is only otherwise reset by the dialog's open effect.
     try {
+      // Party creation, invoice-paid changes, bank-balance changes, and the
+      // Payment record itself must all land together — a shared batch
+      // commits them atomically instead of independent writes that could
+      // partially fail (e.g. money moves on the bank account but the
+      // invoice never shows as paid).
+      const batch = newBatch();
+
       let partyId = selectedParty?.id ?? "";
       const partyName = selectedParty?.name ?? partyQ.trim();
       if (!partyId) {
         const match = allParties.find((p) => p.name.toLowerCase() === partyName.toLowerCase());
         partyId = match?.id ?? genId();
         if (!match)
-          PartyRepo.add({ id: partyId, name: partyName, type: "both", openingBalance: 0 });
+          PartyRepo.addBatched(batch, { id: partyId, name: partyName, type: "both", openingBalance: 0 });
       }
 
       const repo = isIn ? SalesRepo : PurchaseRepo;
@@ -512,8 +566,19 @@ function ReceivePaymentDialog({
       // Editing: first reverse this payment's previous applications (atomic)
       if (editing?.allocations?.length) {
         for (const a of editing.allocations) {
-          if (repo.get(a.invoiceId)) repo.adjustField(a.invoiceId, "paid", -a.amount);
+          if (repo.get(a.invoiceId)) repo.adjustFieldBatched(batch, a.invoiceId, "paid", -a.amount);
         }
+      }
+      // Editing: reverse the old bank-account effect too, before applying
+      // the new one below — handles both "same account, new amount" and
+      // "switched to a different account" correctly.
+      if (editing?.mode === "bank" && editing.bankId && BankRepo.get(editing.bankId)) {
+        BankRepo.adjustFieldBatched(
+          batch,
+          editing.bankId,
+          "balance",
+          editing.type === "in" ? -editing.amount : editing.amount,
+        );
       }
 
       // Apply to invoices — atomic increments so simultaneous cashiers both count.
@@ -533,7 +598,7 @@ function ReceivePaymentDialog({
           const amt = Math.min(r2(row.apply), liveDue);
           if (amt <= 0) continue;
           if (amt < r2(row.apply)) clamped = true;
-          repo.adjustField(cur.id, "paid", amt);
+          repo.adjustFieldBatched(batch, cur.id, "paid", amt);
           allocations.push({ invoiceId: cur.id, number: cur.number, amount: amt });
         }
       }
@@ -543,16 +608,21 @@ function ReceivePaymentDialog({
         );
       }
 
+      // Move money on the selected bank account for this (new) payment.
+      if (mode === "bank" && bankId) {
+        BankRepo.adjustFieldBatched(batch, bankId, "balance", isIn ? amount : -amount);
+      }
+
       // Record payment
       if (editing) {
-        PaymentRepo.update(editing.id, {
+        PaymentRepo.updateBatched(batch, editing.id, {
           date,
           partyId,
           partyName,
           type,
           amount: r2(amount),
           mode,
-          ref: ref.trim() || undefined,
+          bankId: mode === "bank" ? bankId : undefined,
           allocations: allocations.length ? allocations : undefined,
         });
       } else {
@@ -564,12 +634,14 @@ function ReceivePaymentDialog({
           type,
           amount: r2(amount),
           mode,
-          ref: ref.trim() || undefined,
+          bankId: mode === "bank" ? bankId : undefined,
           allocations: allocations.length ? allocations : undefined,
           createdAt: new Date().toISOString(),
         };
-        PaymentRepo.add(payment);
+        PaymentRepo.addBatched(batch, payment);
       }
+
+      commitBatch(batch, "save payment");
 
       const invWord = isIn ? "invoice" : "bill";
       if (editing) {
@@ -678,7 +750,7 @@ function ReceivePaymentDialog({
                   <p
                     className={`text-[22px] font-bold tabular-nums mt-0.5 ${isIn ? "text-emerald-700" : "text-rose-700"}`}
                   >
-                    {fmtMoney(totalOutstanding)}
+                    {fmtMoney(totalOutstanding + unlinkedBalance)}
                   </p>
                 </div>
                 {applyRows.length > 0 && (
@@ -702,8 +774,9 @@ function ReceivePaymentDialog({
               {applyRows.length === 0 ? (
                 <div className="flex items-center gap-2 text-xs text-gray-500 bg-white/60 rounded-md px-3 py-2">
                   <AlertCircle className="h-4 w-4 text-gray-400" />
-                  No outstanding {isIn ? "invoices" : "bills"} — this will be recorded as an advance
-                  payment
+                  {unlinkedBalance > 0.01
+                    ? `No open ${isIn ? "invoices" : "bills"}, but this party carries a balance of ${fmtMoney(unlinkedBalance)} (e.g. opening balance) — payment will be recorded as an advance against it`
+                    : `No outstanding ${isIn ? "invoices" : "bills"} — this will be recorded as an advance payment`}
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -819,7 +892,7 @@ function ReceivePaymentDialog({
           )}
 
           {/* Payment details */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1 text-[12px]">
               <label className="font-semibold text-gray-600">Date</label>
               <input
@@ -832,19 +905,41 @@ function ReceivePaymentDialog({
             <div className="flex flex-col gap-1 text-[12px]">
               <label className="font-semibold text-gray-600">Payment Mode</label>
               <div className="flex items-center h-8">
-                <ModePills value={mode} onChange={setMode} modes={["cash", "upi", "bank", "cheque"]} />
+                <ModePills
+                  value={mode}
+                  onChange={(m) => {
+                    setMode(m);
+                    if (m !== "bank") setBankId("");
+                  }}
+                  modes={["cash", "bank"]}
+                />
               </div>
             </div>
-            <div className="flex flex-col gap-1 text-[12px]">
-              <label className="font-semibold text-gray-600">Reference / Note</label>
-              <input
-                value={ref}
-                onChange={(e) => setRef(e.target.value)}
-                placeholder="UPI ref, cheque #…"
-                className="h-8 px-2 border rounded bg-white focus:border-primary outline-none text-sm"
-              />
-            </div>
           </div>
+
+          {mode === "bank" && (
+            <div className="flex flex-col gap-1 text-[12px]">
+              <label className="font-semibold text-gray-600">Bank Account *</label>
+              <select
+                value={bankId}
+                onChange={(e) => setBankId(e.target.value)}
+                className="h-9 px-2 border rounded-md bg-white focus:border-primary outline-none text-sm"
+              >
+                <option value="">Select bank account…</option>
+                {banks.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                    {b.accountNumber ? ` — ${b.accountNumber}` : ""} ({fmtMoney(b.balance)})
+                  </option>
+                ))}
+              </select>
+              {banks.length === 0 && (
+                <p className="text-[11px] text-amber-600">
+                  No bank accounts set up yet — add one from Bank Accounts first.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Total + Actions */}
           <div

@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   SalesRepo,
@@ -9,10 +9,13 @@ import {
   SaleReturnRepo,
   PurchaseReturnRepo,
   PaymentRepo,
+  CompanyRepo,
 } from "@/repositories";
 import { fmtMoney, fmtDate, today, ymd } from "@/lib/format";
 import { printWithName } from "@/lib/print";
-import { partyBalances, computeCogs } from "@/lib/ledger";
+import { computeCogs, buildPartyLedger } from "@/lib/ledger";
+import { downloadCsv } from "@/lib/csv";
+import { downloadXlsx } from "@/lib/xlsx";
 import { fmtMode } from "@/components/ModePills";
 import {
   FileText,
@@ -24,26 +27,6 @@ import {
   Printer,
   Download,
 } from "lucide-react";
-
-/** Download rows as Excel-friendly CSV — money cells become plain numbers */
-function downloadCsv(name: string, cols: string[], rows: string[][]) {
-  const clean = (s: string) => {
-    const t = String(s)
-      .replace(/[\u00A0\u202F]/g, " ")
-      .trim();
-    const m = t.match(/^([+\-−]?)\s*₹\s?([\d,]+(?:\.\d+)?)$/);
-    const v = m ? `${m[1] === "−" || m[1] === "-" ? "-" : ""}${m[2].replace(/,/g, "")}` : t;
-    return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
-  };
-  const csv = "\uFEFF" + [cols, ...rows].map((r) => r.map(clean).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${name.toLowerCase().replace(/\s+/g, "-")}-${today()}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 export const Route = createFileRoute("/reports")({
   component: ReportsPage,
@@ -68,12 +51,11 @@ const REPORTS = [
   { key: "payments", label: "Payments Ledger", icon: Wallet, desc: "All payment in/out" },
   { key: "gst", label: "GST Summary", icon: BarChart3, desc: "Output vs input tax" },
   {
-    key: "customer-ledger",
-    label: "Customer Ledger",
+    key: "party-ledger",
+    label: "Party Ledger",
     icon: Users,
-    desc: "Receivable per customer",
+    desc: "Full statement per party — sales, purchases, returns & payments",
   },
-  { key: "supplier-ledger", label: "Supplier Ledger", icon: Users, desc: "Payable per supplier" },
   { key: "stock", label: "Stock Report", icon: Package, desc: "Item-wise stock & value" },
   { key: "daily", label: "Today's Summary", icon: BarChart3, desc: "Today's activity" },
 ];
@@ -168,6 +150,7 @@ function ReportView({
   dateTo: string;
 }) {
   const label = REPORTS.find((r) => r.key === which)?.label ?? which;
+  const navigate = useNavigate();
 
   const sales = useMemo(
     () => SalesRepo.all().filter((s) => inRange(s.date, dateFrom, dateTo)),
@@ -462,67 +445,204 @@ function ReportView({
     );
   }
 
-  if (which === "customer-ledger") {
-    const rows = partyBalances(
-      SalesRepo.all(),
-      SaleReturnRepo.all(),
-      PaymentRepo.all().filter((p) => p.type === "in"),
-      parties.filter((p) => p.type !== "supplier"),
-      "customer",
-    )
-      .filter((r) => Math.abs(r.balance) > 0.01)
-      .sort((a, b) => b.balance - a.balance);
-    const totalReceivable = rows.reduce((a, r) => a + Math.max(0, r.balance), 0);
-    const totalAdvances = rows.reduce((a, r) => a + Math.max(0, -r.balance), 0);
+  if (which === "party-ledger") {
+    // Every party is both customer & supplier now — one combined ledger
+    // (sales, purchases, returns, payments, running balance) per party,
+    // instead of splitting by a customer/supplier field that no longer means
+    // anything. Always built from FULL history — dateFrom/dateTo only
+    // control the visible window inside buildPartyLedger (via a proper
+    // "Balance b/f" line), same as the per-party Statement page.
+    const data = {
+      sales: SalesRepo.all(),
+      purchases: PurchaseRepo.all(),
+      saleReturns: SaleReturnRepo.all(),
+      purchaseReturns: PurchaseReturnRepo.all(),
+      payments: PaymentRepo.all(),
+    };
+    const perParty = parties
+      .map((p) => ({ party: p, ledger: buildPartyLedger(p, data, dateFrom, dateTo) }))
+      .filter(({ ledger }) => ledger.rows.length > 0)
+      .sort((a, b) => a.party.name.localeCompare(b.party.name));
 
-    return (
-      <TableReport
-        label={`Customer Ledger`}
-        totalRows={[
-          ["Total Receivable", fmtMoney(totalReceivable)],
-          ["Customer Advances", fmtMoney(totalAdvances)],
-        ]}
-        cols={["Customer", "Total Sales", "Returns", "Collected", "Balance"]}
-        rows={rows.map((r) => [
-          r.name,
-          fmtMoney(r.invoiced),
-          fmtMoney(r.returned),
-          fmtMoney(r.settled + r.advances),
-          fmtMoney(r.balance),
-        ])}
-      />
+    const closingOf = (rows: { balance: number }[]) => (rows.length ? rows[rows.length - 1].balance : 0);
+    const totalReceivable = perParty.reduce(
+      (s, { ledger }) => s + Math.max(0, closingOf(ledger.rows)),
+      0,
     );
-  }
+    const totalPayable = perParty.reduce(
+      (s, { ledger }) => s + Math.max(0, -closingOf(ledger.rows)),
+      0,
+    );
+    const fmtBal = (n: number) => `${fmtMoney(Math.abs(n))}${n > 0 ? " Dr" : n < 0 ? " Cr" : ""}`;
 
-  if (which === "supplier-ledger") {
-    const rows = partyBalances(
-      PurchaseRepo.all(),
-      PurchaseReturnRepo.all(),
-      PaymentRepo.all().filter((p) => p.type === "out"),
-      parties.filter((p) => p.type !== "customer"),
-      "supplier",
-    )
-      .filter((r) => Math.abs(r.balance) > 0.01)
-      .sort((a, b) => b.balance - a.balance);
-    const totalPayable = rows.reduce((a, r) => a + Math.max(0, r.balance), 0);
-    const totalAdvances = rows.reduce((a, r) => a + Math.max(0, -r.balance), 0);
+    if (perParty.length === 0) {
+      return (
+        <div>
+          <h2 className="text-base font-bold text-gray-800 mb-3">{label}</h2>
+          <div className="bg-white border rounded-lg p-8 text-center text-gray-400">
+            <FileText className="h-8 w-8 mx-auto mb-2 text-gray-200" />
+            <p>No party activity for selected date range</p>
+          </div>
+        </div>
+      );
+    }
+
+    const company = CompanyRepo.get();
+    const periodLabel = `${dateFrom ? fmtDate(dateFrom) : "Beginning"} to ${dateTo ? fmtDate(dateTo) : "Today"}`;
+    const sheets = perParty.map(({ party: p, ledger }) => {
+      const closing = closingOf(ledger.rows);
+      const meta: (string | number)[][] = [
+        ["Party Statement"],
+        [`Company: ${company.name}`],
+        [`Party: ${p.name}`],
+        [`Phone: ${p.phone || "—"}`],
+        [`GSTIN: ${p.gstin || "—"}`],
+        [`Period: ${periodLabel}`],
+        [`Generated: ${fmtDate(new Date().toISOString())}`],
+        [],
+      ];
+      const header = ["Date", "Type", "Ref #", "Debit", "Credit", "Balance", "Dr/Cr"];
+      const body = ledger.rows.map((r) => [
+        r.date ? fmtDate(r.date) : "",
+        r.type,
+        r.ref,
+        r.debit || "",
+        r.credit || "",
+        r.balance ? Math.abs(r.balance) : "",
+        r.balance > 0 ? "Dr" : r.balance < 0 ? "Cr" : "",
+      ]);
+      const closingRow = [
+        "",
+        "",
+        "Closing Balance",
+        ledger.totalDebit,
+        ledger.totalCredit,
+        Math.abs(closing),
+        closing > 0 ? "Dr" : closing < 0 ? "Cr" : "",
+      ];
+      return { name: p.name, rows: [...meta, header, ...body, [], closingRow] };
+    });
+
+    const openRow = (r: { docId?: string; docKind?: string }) => {
+      if (!r.docId || !r.docKind) return;
+      if (r.docKind === "sale") navigate({ to: "/sales/$id", params: { id: r.docId } });
+      else if (r.docKind === "purchase") navigate({ to: "/purchase/$id", params: { id: r.docId } });
+      else if (r.docKind === "sale-return")
+        navigate({ to: "/sale-return/$id", params: { id: r.docId } });
+      else navigate({ to: "/purchase-return/$id", params: { id: r.docId } });
+    };
 
     return (
-      <TableReport
-        label={`Supplier Ledger`}
-        totalRows={[
-          ["Total Payable", fmtMoney(totalPayable)],
-          ["Advances to Suppliers", fmtMoney(totalAdvances)],
-        ]}
-        cols={["Supplier", "Total Purchase", "Returns", "Paid", "Balance"]}
-        rows={rows.map((r) => [
-          r.name,
-          fmtMoney(r.invoiced),
-          fmtMoney(r.returned),
-          fmtMoney(r.settled + r.advances),
-          fmtMoney(r.balance),
-        ])}
-      />
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-base font-bold text-gray-800">{label}</h2>
+          <button
+            onClick={() => downloadXlsx("Party Ledger", sheets)}
+            className="no-print inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-md text-xs font-semibold text-gray-600 hover:bg-gray-50 transition"
+          >
+            <Download className="h-3.5 w-3.5" /> Export Excel (one sheet per party)
+          </button>
+        </div>
+        <div className="mb-4 flex flex-wrap gap-x-8 gap-y-1 bg-white border rounded-lg px-5 py-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-gray-500">Total Receivable:</span>
+            <span className="text-sm font-bold text-rose-600 tabular-nums">
+              {fmtMoney(totalReceivable)}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-gray-500">Total Payable:</span>
+            <span className="text-sm font-bold text-amber-600 tabular-nums">
+              {fmtMoney(totalPayable)}
+            </span>
+          </div>
+        </div>
+        <div className="space-y-4">
+          {perParty.map(({ party: p, ledger }) => {
+            const closing = closingOf(ledger.rows);
+            return (
+              <div key={p.id} className="bg-white border rounded-lg shadow-sm overflow-hidden">
+                <div className="px-4 py-2.5 bg-gray-50 border-b flex items-center justify-between gap-3">
+                  <button
+                    onClick={() => navigate({ to: "/parties/$id", params: { id: p.id } })}
+                    className="no-print font-bold text-sm text-gray-800 hover:text-primary hover:underline text-left"
+                    title="Open full party statement"
+                  >
+                    {p.name}
+                  </button>
+                  <span className="hidden print:inline font-bold text-sm text-gray-800">
+                    {p.name}
+                  </span>
+                  <span
+                    className={`text-xs font-bold tabular-nums ${closing > 0 ? "text-rose-600" : closing < 0 ? "text-amber-600" : "text-gray-500"}`}
+                  >
+                    Closing: {fmtBal(closing)}
+                  </span>
+                </div>
+                <table className="w-full text-[12px] border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50/60">
+                      {["Date", "Type", "Ref #", "Debit", "Credit", "Balance"].map((h, i) => (
+                        <th
+                          key={h}
+                          className={`px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500 border-b border-gray-100 whitespace-nowrap ${i >= 3 ? "text-right" : "text-left"}`}
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ledger.rows.map((r, i) => (
+                      <tr
+                        key={i}
+                        onClick={() => openRow(r)}
+                        title={r.docId ? "Open this bill" : undefined}
+                        className={`border-b border-gray-50 ${r.docId ? "cursor-pointer hover:bg-gray-50/70" : ""}`}
+                      >
+                        <td className="px-4 py-2 text-gray-600 whitespace-nowrap">
+                          {r.date ? fmtDate(r.date) : "—"}
+                        </td>
+                        <td className="px-4 py-2 font-medium text-gray-800">{r.type}</td>
+                        <td className="px-4 py-2 font-mono text-[11px] text-blue-600">{r.ref}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-rose-600">
+                          {r.debit ? fmtMoney(r.debit) : "—"}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums text-emerald-600">
+                          {r.credit ? fmtMoney(r.credit) : "—"}
+                        </td>
+                        <td
+                          className={`px-4 py-2 text-right tabular-nums font-semibold ${r.balance > 0 ? "text-rose-600" : r.balance < 0 ? "text-amber-600" : "text-gray-500"}`}
+                        >
+                          {fmtBal(r.balance)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-gray-50 border-t-2 border-gray-200 font-bold">
+                      <td colSpan={3} className="px-4 py-2.5 text-[10px] uppercase text-gray-500">
+                        Closing Balance
+                      </td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-rose-600">
+                        {fmtMoney(ledger.totalDebit)}
+                      </td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-emerald-600">
+                        {fmtMoney(ledger.totalCredit)}
+                      </td>
+                      <td
+                        className={`px-4 py-2.5 text-right tabular-nums ${closing > 0 ? "text-rose-600" : closing < 0 ? "text-amber-600" : "text-gray-600"}`}
+                      >
+                        {fmtBal(closing)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     );
   }
 
