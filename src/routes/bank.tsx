@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
@@ -18,12 +18,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Field } from "@/components/Field";
 import { NumField } from "@/components/NumInput";
 import { fmtMoney, today } from "@/lib/format";
-import { Plus, ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
+import { Plus, ArrowDownToLine, ArrowUpFromLine, History, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/bank")({ component: BankPage });
 
 function BankPage() {
+  const navigate = useNavigate();
   const [rows, setRows] = useState<BankAccount[]>([]);
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<BankAccount | null>(null);
@@ -62,6 +63,37 @@ function BankPage() {
       align: "right",
       width: "140px",
       render: (r) => <span className="font-semibold">{fmtMoney(r.balance)}</span>,
+    },
+    {
+      key: "actions",
+      label: "",
+      width: "80px",
+      align: "center",
+      render: (r) => (
+        <span className="inline-flex gap-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate({ to: "/bank/$id", params: { id: r.id } });
+            }}
+            className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+            title="View passbook / transaction history"
+          >
+            <History className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setEdit(r);
+              setOpen(true);
+            }}
+            className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+            title="Edit account"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+        </span>
+      ),
     },
   ];
 
@@ -102,10 +134,7 @@ function BankPage() {
           columns={columns}
           rows={rows}
           rowKey={(r) => r.id}
-          onRowActivate={(r) => {
-            setEdit(r);
-            setOpen(true);
-          }}
+          onRowActivate={(r) => navigate({ to: "/bank/$id", params: { id: r.id } })}
           onDelete={(r) => {
             if (confirm(`Delete ${r.name}?`)) {
               BankRepo.remove(r.id);

@@ -53,7 +53,10 @@
       "Bash(rm -rf .vercel .output)",
       "Bash(df -h /)",
       "Bash(xxd)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(ls ~/AppData/Local/ms-playwright)",
+      "Bash(node -e \"console.log\\(require\\('./node_modules/playwright/package.json'\\).version\\)\")",
+      "Bash(ls ~/AppData/Local/ms-playwright 2>/dev/null; echo \"---\"; df -h / 2>/dev/null)"
     ],
     "additionalDirectories": [
       "c:\\Users\\bhumi\\Downloads\\desktop-ledger\\.vercel"

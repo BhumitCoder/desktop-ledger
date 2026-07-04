@@ -170,7 +170,7 @@ export interface Return {
   createdAt: string;
 }
 
-export type PrintFormat = "a4" | "thermal80" | "thermal58";
+export type PrintFormat = "a4" | "a4-2up" | "thermal80" | "thermal58";
 
 export interface Company {
   name: string;

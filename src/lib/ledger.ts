@@ -1,4 +1,13 @@
-import type { Invoice, Payment, Return, Item, Expense, PaymentMode, CashAdjustment } from "@/types";
+import type {
+  Invoice,
+  Payment,
+  Return,
+  Item,
+  Expense,
+  PaymentMode,
+  CashAdjustment,
+  BankTxn,
+} from "@/types";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -397,6 +406,155 @@ export function buildPartyLedger(
   }
   for (const e of window) {
     running = r2(running + e.debit - e.credit);
+    out.push({ ...e, balance: running });
+  }
+  const totalDebit = r2(out.reduce((s, e) => s + e.debit, 0));
+  const totalCredit = r2(out.reduce((s, e) => s + e.credit, 0));
+  return { rows: out, fullBalance, totalDebit, totalCredit };
+}
+
+export interface BankLedgerRow {
+  date: string;
+  created: string;
+  type: string;
+  ref: string;
+  /** money leaving the account (payment out, purchase, withdrawal) */
+  debit: number;
+  /** money entering the account (payment in, sale, deposit) */
+  credit: number;
+  balance: number;
+  docId?: string;
+  docKind?: "sale" | "purchase";
+}
+
+/**
+ * Full passbook-style ledger for one bank account — every sale/purchase
+ * settled directly into it, every Payments-page in/out tied to it, and every
+ * manual deposit/withdrawal, with a running balance. Standard passbook sign
+ * convention: Credit = money in, Debit = money out (opposite of the party
+ * ledger's convention, where Debit means the party owes more).
+ */
+export function buildBankLedger(
+  bank: { id: string; openingBalance?: number },
+  data: {
+    sales: Invoice[];
+    purchases: Invoice[];
+    payments: Payment[];
+    bankTxns: BankTxn[];
+  },
+  dateFrom = "",
+  dateTo = "",
+): { rows: BankLedgerRow[]; fullBalance: number; totalDebit: number; totalCredit: number } {
+  const entries: Omit<BankLedgerRow, "balance">[] = [];
+
+  for (const s of data.sales.filter((x) => x.bankId === bank.id && (x.bankPaidAmount ?? 0) > 0)) {
+    entries.push({
+      date: s.date,
+      created: s.createdAt,
+      type: "Sale Receipt",
+      ref: `${s.number} — ${s.partyName}`,
+      debit: 0,
+      credit: s.bankPaidAmount!,
+      docId: s.id,
+      docKind: "sale",
+    });
+  }
+  for (const p of data.purchases.filter((x) => x.bankId === bank.id && (x.bankPaidAmount ?? 0) > 0)) {
+    entries.push({
+      date: p.date,
+      created: p.createdAt,
+      type: "Purchase Payment",
+      ref: `${p.number} — ${p.partyName}`,
+      debit: p.bankPaidAmount!,
+      credit: 0,
+      docId: p.id,
+      docKind: "purchase",
+    });
+  }
+  for (const pay of data.payments.filter((x) => x.bankId === bank.id)) {
+    if (pay.type === "in") {
+      entries.push({
+        date: pay.date,
+        created: pay.createdAt,
+        type: "Payment Received",
+        ref: pay.partyName,
+        debit: 0,
+        credit: pay.amount,
+      });
+    } else {
+      entries.push({
+        date: pay.date,
+        created: pay.createdAt,
+        type: "Payment Made",
+        ref: pay.partyName,
+        debit: pay.amount,
+        credit: 0,
+      });
+    }
+  }
+  for (const t of data.bankTxns.filter((x) => x.bankId === bank.id)) {
+    if (t.type === "deposit") {
+      entries.push({
+        date: t.date,
+        created: t.createdAt,
+        type: "Deposit",
+        ref: t.notes || "—",
+        debit: 0,
+        credit: t.amount,
+      });
+    } else if (t.type === "withdraw") {
+      entries.push({
+        date: t.date,
+        created: t.createdAt,
+        type: "Withdrawal",
+        ref: t.notes || "—",
+        debit: t.amount,
+        credit: 0,
+      });
+    }
+  }
+
+  entries.sort(
+    (a, b) => a.date.localeCompare(b.date) || (a.created ?? "").localeCompare(b.created ?? ""),
+  );
+
+  const fullBalance = r2(
+    entries.reduce((s, e) => s + e.credit - e.debit, bank.openingBalance || 0),
+  );
+
+  let running = bank.openingBalance || 0;
+  const out: BankLedgerRow[] = [];
+  const before = dateFrom ? entries.filter((e) => e.date < dateFrom) : [];
+  const window = entries.filter(
+    (e) => (!dateFrom || e.date >= dateFrom) && (!dateTo || e.date <= dateTo),
+  );
+  for (const e of before) {
+    running = r2(running + e.credit - e.debit);
+  }
+
+  if (dateFrom) {
+    out.push({
+      date: "",
+      created: "",
+      type: "Balance b/f",
+      ref: "—",
+      debit: 0,
+      credit: 0,
+      balance: running,
+    });
+  } else if (bank.openingBalance) {
+    out.push({
+      date: "",
+      created: "",
+      type: "Opening Balance",
+      ref: "—",
+      debit: bank.openingBalance < 0 ? -bank.openingBalance : 0,
+      credit: bank.openingBalance > 0 ? bank.openingBalance : 0,
+      balance: running,
+    });
+  }
+  for (const e of window) {
+    running = r2(running + e.credit - e.debit);
     out.push({ ...e, balance: running });
   }
   const totalDebit = r2(out.reduce((s, e) => s + e.debit, 0));

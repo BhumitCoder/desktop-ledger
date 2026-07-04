@@ -10,6 +10,7 @@ import {
   PurchaseRepo,
   SaleReturnRepo,
   PurchaseReturnRepo,
+  BankRepo,
 } from "@/repositories";
 
 export function WorkspaceTabs() {
@@ -76,12 +77,21 @@ export function WorkspaceTabs() {
 // history) get their own tab too, titled with the actual record — not just
 // left to silently reuse whatever tab happened to be active.
 const DETAIL_ROUTES: { re: RegExp; title: (id: string) => string | null }[] = [
+  { re: /^\/sales\/edit\/([^/]+)$/, title: (id) => {
+    const inv = SalesRepo.get(id);
+    return inv ? `Edit ${inv.number}` : null;
+  } },
+  { re: /^\/purchase\/edit\/([^/]+)$/, title: (id) => {
+    const inv = PurchaseRepo.get(id);
+    return inv ? `Edit ${inv.number}` : null;
+  } },
   { re: /^\/sales\/([^/]+)$/, title: (id) => SalesRepo.get(id)?.number ?? null },
   { re: /^\/purchase\/([^/]+)$/, title: (id) => PurchaseRepo.get(id)?.number ?? null },
   { re: /^\/sale-return\/([^/]+)$/, title: (id) => SaleReturnRepo.get(id)?.number ?? null },
   { re: /^\/purchase-return\/([^/]+)$/, title: (id) => PurchaseReturnRepo.get(id)?.number ?? null },
   { re: /^\/parties\/([^/]+)$/, title: (id) => PartyRepo.get(id)?.name ?? null },
   { re: /^\/items\/([^/]+)$/, title: (id) => ItemRepo.get(id)?.name ?? null },
+  { re: /^\/bank\/([^/]+)$/, title: (id) => BankRepo.get(id)?.name ?? null },
 ];
 
 function titleFromPath(path: string): string | null {
@@ -93,12 +103,17 @@ function titleFromPath(path: string): string | null {
     "/sales/new": "New Sale",
     "/purchase": "Purchase",
     "/purchase/new": "New Purchase",
+    "/sale-return": "Sale Return",
+    "/sale-return/new": "New Sale Return",
+    "/purchase-return": "Purchase Return",
+    "/purchase-return/new": "New Purchase Return",
     "/expenses": "Expenses",
     "/payments": "Payments",
     "/inventory": "Inventory",
     "/bank": "Bank",
     "/cash": "Cash",
     "/reports": "Reports",
+    "/daybook": "Daybook",
     "/gst": "GST",
     "/settings": "Settings",
   };
