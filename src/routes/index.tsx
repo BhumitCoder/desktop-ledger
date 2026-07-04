@@ -270,7 +270,7 @@ function Dashboard() {
             <div className="relative">
               <button
                 onClick={() => setShowPeriodMenu((v) => !v)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-gray-200 text-xs font-semibold text-gray-600 bg-white hover:bg-gray-50 transition"
+                className="flex items-center gap-1.5 h-8 px-3 rounded-md border border-gray-200 text-xs font-semibold text-gray-600 bg-white hover:bg-gray-50 transition"
               >
                 {periodLabel}
                 <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
@@ -378,25 +378,25 @@ function Dashboard() {
           <div className="mt-4 flex flex-wrap gap-2">
             <button
               onClick={() => navigate({ to: "/sales/new" })}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-md text-xs font-semibold hover:bg-blue-700 transition"
+              className="inline-flex items-center gap-1.5 h-8 px-3 bg-blue-600 text-white rounded-md text-xs font-semibold hover:bg-blue-700 transition"
             >
               <Plus className="h-3.5 w-3.5" /> Add Sale
             </button>
             <button
               onClick={() => navigate({ to: "/purchase/new" })}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-md text-xs font-semibold hover:bg-gray-50 transition"
+              className="inline-flex items-center gap-1.5 h-8 px-3 bg-white border border-gray-200 text-gray-700 rounded-md text-xs font-semibold hover:bg-gray-50 transition"
             >
               <Plus className="h-3.5 w-3.5" /> Add Purchase
             </button>
             <button
               onClick={() => navigate({ to: "/parties" })}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-md text-xs font-semibold hover:bg-gray-50 transition"
+              className="inline-flex items-center gap-1.5 h-8 px-3 bg-white border border-gray-200 text-gray-700 rounded-md text-xs font-semibold hover:bg-gray-50 transition"
             >
               <Users className="h-3.5 w-3.5" /> Add Party
             </button>
             <button
               onClick={() => navigate({ to: "/items" })}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-md text-xs font-semibold hover:bg-gray-50 transition"
+              className="inline-flex items-center gap-1.5 h-8 px-3 bg-white border border-gray-200 text-gray-700 rounded-md text-xs font-semibold hover:bg-gray-50 transition"
             >
               <Package className="h-3.5 w-3.5" /> Add Item
             </button>

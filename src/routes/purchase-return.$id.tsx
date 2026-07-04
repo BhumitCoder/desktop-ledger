@@ -76,7 +76,7 @@ function PurchaseReturnDetailPage() {
           </div>
           <button
             onClick={() => window.print()}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition"
+            className="inline-flex items-center gap-1.5 h-8 px-4 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition"
           >
             <Printer className="h-4 w-4" /> Print / PDF
           </button>

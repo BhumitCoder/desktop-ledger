@@ -155,7 +155,7 @@ function DaybookPage() {
           </button>
           <button
             onClick={() => printWithName(`Daybook-${date}`)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-md text-xs font-semibold text-gray-600 hover:bg-gray-50"
+            className="inline-flex items-center gap-1.5 h-8 px-3 bg-white border border-gray-200 rounded-md text-xs font-semibold text-gray-600 hover:bg-gray-50"
             title="Print, or choose 'Save as PDF' in the print dialog"
           >
             <Printer className="h-3.5 w-3.5" /> Print / PDF

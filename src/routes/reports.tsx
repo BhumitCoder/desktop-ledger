@@ -96,7 +96,7 @@ function ReportsPage() {
                 `${(current?.label ?? "Report").replace(/\s+/g, "-")}-${dateFrom}-to-${dateTo}`,
               )
             }
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-md text-xs font-semibold text-gray-600 hover:bg-gray-50 transition"
+            className="inline-flex items-center gap-1.5 h-8 px-3 bg-white border border-gray-200 rounded-md text-xs font-semibold text-gray-600 hover:bg-gray-50 transition"
             title="Print, or choose 'Save as PDF' in the print dialog"
           >
             <Printer className="h-3.5 w-3.5" /> Print / PDF
@@ -538,7 +538,7 @@ function ReportView({
           <h2 className="text-base font-bold text-gray-800">{label}</h2>
           <button
             onClick={() => downloadXlsx("Party Ledger", sheets)}
-            className="no-print inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-md text-xs font-semibold text-gray-600 hover:bg-gray-50 transition"
+            className="no-print inline-flex items-center gap-1.5 h-8 px-3 bg-white border border-gray-200 rounded-md text-xs font-semibold text-gray-600 hover:bg-gray-50 transition"
           >
             <Download className="h-3.5 w-3.5" /> Export Excel (one sheet per party)
           </button>
@@ -836,7 +836,7 @@ function TableReport({
           <h2 className="text-base font-bold text-gray-800">{label}</h2>
           <button
             onClick={() => downloadCsv(label, cols, rows)}
-            className="no-print inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-md text-xs font-semibold text-gray-600 hover:bg-gray-50 transition"
+            className="no-print inline-flex items-center gap-1.5 h-8 px-3 bg-white border border-gray-200 rounded-md text-xs font-semibold text-gray-600 hover:bg-gray-50 transition"
           >
             <Download className="h-3.5 w-3.5" /> Export CSV
           </button>

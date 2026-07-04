@@ -133,13 +133,13 @@ function InvoiceDetailPage() {
           </div>
           <button
             onClick={() => navigate({ to: "/sales/edit/$id", params: { id: inv.id } })}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-md text-sm font-semibold hover:bg-gray-50 transition"
+            className="inline-flex items-center gap-1.5 h-8 px-4 bg-white border border-gray-200 text-gray-700 rounded-md text-sm font-semibold hover:bg-gray-50 transition"
           >
             <Pencil className="h-4 w-4" /> Edit
           </button>
           <button
             onClick={shareWhatsApp}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white rounded-md text-sm font-semibold hover:bg-emerald-700 transition"
+            className="inline-flex items-center gap-1.5 h-8 px-4 bg-emerald-600 text-white rounded-md text-sm font-semibold hover:bg-emerald-700 transition"
             title={
               inv.partyPhone
                 ? `Send bill to ${inv.partyPhone}`
@@ -150,7 +150,7 @@ function InvoiceDetailPage() {
           </button>
           <button
             onClick={() => printWithName(inv.number)}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition"
+            className="inline-flex items-center gap-1.5 h-8 px-4 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition"
             title="Print, or choose 'Save as PDF' in the print dialog"
           >
             <Printer className="h-4 w-4" /> Print / PDF

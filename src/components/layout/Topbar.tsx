@@ -26,7 +26,7 @@ export function Topbar() {
     <header className="h-14 bg-gradient-brand text-brand-foreground flex items-center px-3 md:px-4 gap-2 md:gap-3 shrink-0 shadow-elevated">
       <button
         onClick={toggleSidebar}
-        className="md:hidden h-9 w-9 rounded-md hover:bg-white/15 flex items-center justify-center text-white/90"
+        className="md:hidden h-8 w-8 rounded-md hover:bg-white/15 flex items-center justify-center text-white/90"
         title="Toggle menu"
       >
         <Menu className="h-4 w-4" />
@@ -35,7 +35,7 @@ export function Topbar() {
       {/* Search */}
       <button
         onClick={() => setGlobalSearch(true)}
-        className="flex-1 max-w-xl flex items-center gap-2 h-9 px-3.5 rounded-md bg-white/15 hover:bg-white/25 text-white/95 backdrop-blur-sm transition-colors ring-1 ring-white/10"
+        className="flex-1 max-w-xl flex items-center gap-2 h-8 px-3.5 rounded-md bg-white/15 hover:bg-white/25 text-white/95 backdrop-blur-sm transition-colors ring-1 ring-white/10"
       >
         <Search className="h-4 w-4" />
         <span className="flex-1 text-left text-sm truncate">Search customer, item, invoice…</span>
@@ -49,7 +49,7 @@ export function Topbar() {
       {/* Primary actions */}
       <button
         onClick={() => navigate({ to: "/sales/new" })}
-        className="h-9 px-3 md:px-4 rounded-md bg-white text-primary hover:bg-white/95 font-semibold text-sm flex items-center gap-1.5 shadow-card transition"
+        className="h-8 px-3 md:px-4 rounded-md bg-white text-primary hover:bg-white/95 font-semibold text-sm flex items-center gap-1.5 shadow-card transition"
       >
         <Plus className="h-4 w-4" /> <span className="hidden sm:inline">Add </span>Sale
         <kbd className="hidden md:inline-flex text-[10px] font-mono ml-1 opacity-70 bg-primary/10 border-primary/20">
@@ -58,7 +58,7 @@ export function Topbar() {
       </button>
       <button
         onClick={() => navigate({ to: "/purchase/new" })}
-        className="h-9 px-3 md:px-4 rounded-md bg-white/15 hover:bg-white/25 text-white font-semibold text-sm flex items-center gap-1.5 ring-1 ring-white/20 transition"
+        className="h-8 px-3 md:px-4 rounded-md bg-white/15 hover:bg-white/25 text-white font-semibold text-sm flex items-center gap-1.5 ring-1 ring-white/20 transition"
       >
         <Plus className="h-4 w-4" /> <span className="hidden sm:inline">Add </span>Purchase
         <kbd className="hidden md:inline-flex text-[10px] font-mono ml-1 opacity-80 bg-white/20 border-white/20 text-white">
@@ -71,7 +71,7 @@ export function Topbar() {
 
       <button
         onClick={() => navigate({ to: "/settings" })}
-        className="flex items-center gap-2 pl-2 pr-2 h-9 rounded-md bg-white/15 hover:bg-white/25 ring-1 ring-white/20 transition"
+        className="flex items-center gap-2 pl-2 pr-2 h-8 rounded-md bg-white/15 hover:bg-white/25 ring-1 ring-white/20 transition"
         title="Company settings"
       >
         <div className="h-6 w-6 rounded bg-white/20 flex items-center justify-center">
@@ -94,7 +94,7 @@ export function Topbar() {
             toast.error("Logout failed — check your connection");
           }
         }}
-        className="h-9 w-9 rounded-full bg-white/15 hover:bg-white/25 ring-1 ring-white/20 flex items-center justify-center transition"
+        className="h-8 w-8 rounded-full bg-white/15 hover:bg-white/25 ring-1 ring-white/20 flex items-center justify-center transition"
         title={`Logout${isBrowser && auth.currentUser?.email ? ` (${auth.currentUser.email})` : ""}`}
       >
         <LogOut className="h-4 w-4" />

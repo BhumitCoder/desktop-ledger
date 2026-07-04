@@ -137,7 +137,7 @@ function PurchasePage() {
         </div>
         <button
           onClick={() => navigate({ to: "/purchase/new" })}
-          className="inline-flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-semibold hover:opacity-90 transition"
+          className="inline-flex items-center gap-1.5 h-8 px-4 bg-primary text-primary-foreground rounded-md text-sm font-semibold hover:opacity-90 transition"
         >
           <Plus className="h-4 w-4" /> Add Purchase
           <kbd className="ml-1 text-[10px] bg-white/20 px-1.5 py-0.5 rounded">Ctrl+P</kbd>

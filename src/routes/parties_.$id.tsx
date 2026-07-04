@@ -144,7 +144,7 @@ function PartyStatementPage() {
         <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={() => navigate({ to: "/parties" })}
-            className="h-9 w-9 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 flex items-center justify-center text-gray-600 transition shadow-sm"
+            className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 flex items-center justify-center text-gray-600 transition shadow-sm"
             title="Back to Parties"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -172,13 +172,13 @@ function PartyStatementPage() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => setEditOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-md text-sm font-semibold hover:bg-gray-50 transition"
+            className="inline-flex items-center gap-1.5 h-8 px-3 bg-white border border-gray-200 text-gray-700 rounded-md text-sm font-semibold hover:bg-gray-50 transition"
           >
             <Pencil className="h-4 w-4" /> Edit
           </button>
           <button
             onClick={sendReminder}
-            className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-md text-sm font-semibold hover:bg-emerald-700 transition"
+            className="inline-flex items-center gap-1.5 h-8 px-3 bg-emerald-600 text-white rounded-md text-sm font-semibold hover:bg-emerald-700 transition"
             title={
               balance > 0 ? `Send payment reminder for ${fmtMoney(balance)}` : "No pending balance"
             }
@@ -187,14 +187,14 @@ function PartyStatementPage() {
           </button>
           <button
             onClick={downloadExcel}
-            className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-md text-sm font-semibold hover:bg-gray-50 transition"
+            className="inline-flex items-center gap-1.5 h-8 px-3 bg-white border border-gray-200 text-gray-700 rounded-md text-sm font-semibold hover:bg-gray-50 transition"
             title="Download full ledger as Excel/CSV"
           >
             <Download className="h-4 w-4" /> Download Ledger
           </button>
           <button
             onClick={() => printWithName(`Statement-${party.name.replace(/\s+/g, "-")}`)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition"
+            className="inline-flex items-center gap-1.5 h-8 px-3 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition"
             title="Print, or choose 'Save as PDF' in the print dialog"
           >
             <Printer className="h-4 w-4" /> Print / PDF
