@@ -153,7 +153,7 @@ export function PrintableInvoice({
       <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: s(8) }}>
         <tbody>
           <tr>
-            <td style={{ ...cellStyle, width: "60%", verticalAlign: "top" }}>
+            <td style={{ ...cellStyle, verticalAlign: "top" }}>
               <div
                 style={{ fontSize: s(10), color: "#555", fontWeight: 600, marginBottom: s(3) }}
               >
@@ -162,8 +162,8 @@ export function PrintableInvoice({
               <div style={{ fontSize: s(14), fontWeight: 700 }}>{inv.partyName || "—"}</div>
               {inv.partyPhone && <div>Phone: {inv.partyPhone}</div>}
             </td>
-            <td style={{ ...cellStyle, verticalAlign: "top" }}>
-              <table style={{ width: "100%", fontSize: s(11) }}>
+            <td style={{ ...cellStyle, width: "1%", whiteSpace: "nowrap", verticalAlign: "top" }}>
+              <table style={{ width: "auto", fontSize: s(11) }}>
                 <tbody>
                   <tr>
                     <td style={{ fontWeight: 600, paddingRight: s(6) }}>Invoice #:</td>

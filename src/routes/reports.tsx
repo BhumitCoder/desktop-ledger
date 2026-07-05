@@ -13,9 +13,10 @@ import {
 } from "@/repositories";
 import { fmtMoney, fmtDate, today, ymd } from "@/lib/format";
 import { printWithName } from "@/lib/print";
-import { computeCogs, buildPartyLedger } from "@/lib/ledger";
+import { computeCogs, buildPartyStatement } from "@/lib/ledger";
 import { downloadCsv } from "@/lib/csv";
 import { downloadXlsx } from "@/lib/xlsx";
+import { PartyStatementRowBlock } from "./parties_.$id";
 import { fmtMode } from "@/components/ModePills";
 import {
   FileText,
@@ -453,12 +454,13 @@ function ReportView({
   }
 
   if (which === "party-ledger") {
-    // Every party is both customer & supplier now — one combined ledger
-    // (sales, purchases, returns, payments, running balance) per party,
-    // instead of splitting by a customer/supplier field that no longer means
-    // anything. Always built from FULL history — dateFrom/dateTo only
-    // control the visible window inside buildPartyLedger (via a proper
-    // "Balance b/f" line), same as the per-party Statement page.
+    // Every party is both customer & supplier now — one combined statement
+    // (sales, purchases, returns, payments, running balance, and each
+    // transaction's own item breakdown) per party, instead of splitting by a
+    // customer/supplier field that no longer means anything. Always built
+    // from FULL history — dateFrom/dateTo only control the visible window
+    // inside buildPartyStatement (via a proper "Balance b/f" line), same as
+    // the per-party Statement page.
     const data = {
       sales: SalesRepo.all(),
       purchases: PurchaseRepo.all(),
@@ -467,7 +469,7 @@ function ReportView({
       payments: PaymentRepo.all(),
     };
     const perPartyAll = parties
-      .map((p) => ({ party: p, ledger: buildPartyLedger(p, data, dateFrom, dateTo) }))
+      .map((p) => ({ party: p, ledger: buildPartyStatement(p, data, dateFrom, dateTo) }))
       .filter(({ ledger }) => ledger.rows.length > 0)
       .sort((a, b) => a.party.name.localeCompare(b.party.name));
     const q = partySearch.trim().toLowerCase();
@@ -500,9 +502,11 @@ function ReportView({
 
     const company = CompanyRepo.get();
     const periodLabel = `${dateFrom ? fmtDate(dateFrom) : "Beginning"} to ${dateTo ? fmtDate(dateTo) : "Today"}`;
+    const recvCol = (n: number) => (n > 0 ? fmtMoney(n) : "");
+    const payCol = (n: number) => (n < 0 ? fmtMoney(-n) : "");
     const sheets = perParty.map(({ party: p, ledger }) => {
       const closing = closingOf(ledger.rows);
-      const meta: (string | number)[][] = [
+      const meta: string[][] = [
         ["Party Statement"],
         [`Company: ${company.name}`],
         [`Party: ${p.name}`],
@@ -512,24 +516,62 @@ function ReportView({
         [`Generated: ${fmtDate(new Date().toISOString())}`],
         [],
       ];
-      const header = ["Date", "Type", "Ref #", "Debit", "Credit", "Balance", "Dr/Cr"];
-      const body = ledger.rows.map((r) => [
-        r.date ? fmtDate(r.date) : "",
-        r.type,
-        r.ref,
-        r.debit || "",
-        r.credit || "",
-        r.balance ? Math.abs(r.balance) : "",
-        r.balance > 0 ? "Dr" : r.balance < 0 ? "Cr" : "",
-      ]);
+      const header = [
+        "Date",
+        "Txn Type",
+        "Ref No.",
+        "Payment Status",
+        "Total",
+        "Received/Paid",
+        "Txn Balance",
+        "Receivable Balance",
+        "Payable Balance",
+      ];
+      const body: string[][] = [];
+      for (const r of ledger.rows) {
+        body.push([
+          r.date ? fmtDate(r.date) : "",
+          r.type,
+          r.ref,
+          r.status || "",
+          r.total ? fmtMoney(r.total) : "",
+          r.receivedOrPaid ? fmtMoney(r.receivedOrPaid) : "",
+          r.txnBalance ? fmtMoney(r.txnBalance) : "",
+          recvCol(r.balance),
+          payCol(r.balance),
+        ]);
+        if (r.items?.length) {
+          body.push(["", "#", "Item name", "", "Quantity", "Price/Unit", "Amount", "", ""]);
+          r.items.forEach((it, i) => {
+            body.push([
+              "",
+              String(i + 1),
+              it.name,
+              "",
+              String(it.qty),
+              fmtMoney(it.price),
+              fmtMoney(it.amount),
+              "",
+              "",
+            ]);
+          });
+          const itemSubtotal = r.items.reduce((s, it) => s + it.amount, 0);
+          body.push(["", "", "", "", "", "Sub Total", fmtMoney(itemSubtotal), "", ""]);
+          for (const c of r.charges ?? []) {
+            body.push(["", "", "", "", "", c.label, fmtMoney(c.amount), "", ""]);
+          }
+        }
+      }
       const closingRow = [
         "",
         "",
         "Closing Balance",
-        ledger.totalDebit,
-        ledger.totalCredit,
-        Math.abs(closing),
-        closing > 0 ? "Dr" : closing < 0 ? "Cr" : "",
+        "",
+        "",
+        "",
+        "",
+        closing > 0 ? fmtMoney(closing) : "",
+        closing < 0 ? fmtMoney(-closing) : "",
       ];
       return { name: p.name, rows: [...meta, header, ...body, [], closingRow] };
     });
@@ -545,6 +587,10 @@ function ReportView({
 
     return (
       <div>
+        {/* Each party's table is 9 columns wide plus a nested item
+            breakdown — too wide for portrait A4, so it gets cut off at the
+            right edge when printed. Landscape gives it room to fit. */}
+        <style>{`@media print { @page { size: A4 landscape; margin: 12mm; } }`}</style>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-base font-bold text-gray-800">{label}</h2>
           <button
@@ -587,7 +633,11 @@ function ReportView({
           {perParty.map(({ party: p, ledger }) => {
             const closing = closingOf(ledger.rows);
             return (
-              <div key={p.id} className="bg-white border rounded-lg shadow-sm overflow-hidden">
+              <div
+                key={p.id}
+                className="bg-white border rounded-lg shadow-sm overflow-hidden"
+                style={{ breakInside: "avoid" }}
+              >
                 <div className="px-4 py-2.5 bg-gray-50 border-b flex items-center justify-between gap-3">
                   <button
                     onClick={() => navigate({ to: "/parties/$id", params: { id: p.id } })}
@@ -608,10 +658,20 @@ function ReportView({
                 <table className="w-full text-[12px] border-collapse">
                   <thead>
                     <tr className="bg-gray-50/60">
-                      {["Date", "Type", "Ref #", "Debit", "Credit", "Balance"].map((h, i) => (
+                      {[
+                        "Date",
+                        "Txn Type",
+                        "Ref No.",
+                        "Payment Status",
+                        "Total",
+                        "Received/Paid",
+                        "Txn Balance",
+                        "Receivable Balance",
+                        "Payable Balance",
+                      ].map((h, i) => (
                         <th
                           key={h}
-                          className={`px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500 border-b border-gray-100 whitespace-nowrap ${i >= 3 ? "text-right" : "text-left"}`}
+                          className={`px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500 border-b border-gray-100 whitespace-nowrap ${i >= 4 ? "text-right" : "text-left"}`}
                         >
                           {h}
                         </th>
@@ -620,46 +680,19 @@ function ReportView({
                   </thead>
                   <tbody>
                     {ledger.rows.map((r, i) => (
-                      <tr
-                        key={i}
-                        onClick={() => openRow(r)}
-                        title={r.docId ? "Open this bill" : undefined}
-                        className={`border-b border-gray-50 ${r.docId ? "cursor-pointer hover:bg-gray-50/70" : ""}`}
-                      >
-                        <td className="px-4 py-2 text-gray-600 whitespace-nowrap">
-                          {r.date ? fmtDate(r.date) : "—"}
-                        </td>
-                        <td className="px-4 py-2 font-medium text-gray-800">{r.type}</td>
-                        <td className="px-4 py-2 font-mono text-[11px] text-blue-600">{r.ref}</td>
-                        <td className="px-4 py-2 text-right tabular-nums text-rose-600">
-                          {r.debit ? fmtMoney(r.debit) : "—"}
-                        </td>
-                        <td className="px-4 py-2 text-right tabular-nums text-emerald-600">
-                          {r.credit ? fmtMoney(r.credit) : "—"}
-                        </td>
-                        <td
-                          className={`px-4 py-2 text-right tabular-nums font-semibold ${r.balance > 0 ? "text-rose-600" : r.balance < 0 ? "text-amber-600" : "text-gray-500"}`}
-                        >
-                          {fmtBal(r.balance)}
-                        </td>
-                      </tr>
+                      <PartyStatementRowBlock key={i} row={r} onOpen={() => openRow(r)} />
                     ))}
                   </tbody>
                   <tfoot>
                     <tr className="bg-gray-50 border-t-2 border-gray-200 font-bold">
-                      <td colSpan={3} className="px-4 py-2.5 text-[10px] uppercase text-gray-500">
+                      <td colSpan={7} className="px-3 py-2.5 text-[10px] uppercase text-gray-500">
                         Closing Balance
                       </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-rose-600">
-                        {fmtMoney(ledger.totalDebit)}
+                      <td className="px-3 py-2.5 text-right tabular-nums text-rose-600">
+                        {closing > 0 ? fmtMoney(closing) : "—"}
                       </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-emerald-600">
-                        {fmtMoney(ledger.totalCredit)}
-                      </td>
-                      <td
-                        className={`px-4 py-2.5 text-right tabular-nums ${closing > 0 ? "text-rose-600" : closing < 0 ? "text-amber-600" : "text-gray-600"}`}
-                      >
-                        {fmtBal(closing)}
+                      <td className="px-3 py-2.5 text-right tabular-nums text-amber-600">
+                        {closing < 0 ? fmtMoney(-closing) : "—"}
                       </td>
                     </tr>
                   </tfoot>

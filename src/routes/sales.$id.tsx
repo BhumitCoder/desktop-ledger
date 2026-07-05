@@ -169,7 +169,10 @@ function InvoiceDetailPage() {
             <ThermalReceipt inv={inv} company={co} width={fmt === "thermal80" ? 80 : 58} />
           </div>
         ) : fmt === "a4-2up" && co ? (
-          <div className="print-visible a4-2up-sheet bg-white w-full max-w-[1120px] shadow-lg print:shadow-none print:m-0 p-6">
+          <div
+            className="print-visible a4-2up-sheet bg-white w-full max-w-[1120px] shadow-lg print:shadow-none print:m-0 p-6"
+            style={{ minHeight: "793px" }}
+          >
             {/* Landscape A4 is only 210mm tall — a full invoice at a scale
                 that "looks" like it fits can still overflow onto a second
                 page once real margins are counted. Scale is deliberately

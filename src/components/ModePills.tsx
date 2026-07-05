@@ -32,7 +32,7 @@ export function ModePills({
           key={m}
           type="button"
           onClick={() => onChange(m)}
-          className={`px-2.5 h-7 rounded-full border text-[11px] font-semibold transition ${
+          className={`px-2.5 h-7 rounded-full border text-[11px] font-semibold transition outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 ${
             value === m
               ? "bg-primary text-primary-foreground border-primary shadow-sm"
               : "bg-background text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"

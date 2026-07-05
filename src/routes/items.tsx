@@ -985,7 +985,7 @@ function BulkImportDialog({
           <input
             ref={fileRef}
             type="file"
-            accept=".csv,text/csv"
+            accept=".csv,text/csv,text/comma-separated-values,application/csv,application/vnd.ms-excel,text/plain"
             onChange={onFile}
             className="text-sm file:mr-3 file:h-8 file:px-3 file:rounded-md file:border file:bg-background file:text-sm file:font-medium file:cursor-pointer"
           />

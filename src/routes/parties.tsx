@@ -238,6 +238,15 @@ export function PartyDialog({
       toast.error("Name is required");
       return;
     }
+    // Repeat parties cannot be added — block duplicate names (case/spacing
+    // insensitive) so "ABC" and "abc " don't end up as two separate parties.
+    const dup = PartyRepo.all().find(
+      (p) => p.name.trim().toLowerCase() === form.name!.trim().toLowerCase() && p.id !== party?.id,
+    );
+    if (dup) {
+      toast.error(`Party "${dup.name}" already exists — repeat parties cannot be added`);
+      return;
+    }
     setSaving(true);
     if (party) {
       PartyRepo.update(party.id, form as Party);

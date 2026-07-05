@@ -60,7 +60,18 @@
       "Bash(npx vite *)",
       "Bash(netstat -ano)",
       "Bash(wmic process *)",
-      "Bash(powershell -Command \"Get-CimInstance Win32_Process -Filter 'ProcessId=31168' | Select-Object ProcessId,CommandLine\")"
+      "Bash(powershell -Command \"Get-CimInstance Win32_Process -Filter 'ProcessId=31168' | Select-Object ProcessId,CommandLine\")",
+      "Bash(wmic logicaldisk *)",
+      "PowerShell(Test-Path \"$env:LOCALAPPDATA\\\\ms-playwright\"; if \\(Test-Path \"$env:LOCALAPPDATA\\\\ms-playwright\"\\) { Get-ChildItem \"$env:LOCALAPPDATA\\\\ms-playwright\" | Select-Object Name })",
+      "Bash(cd \"c:\\\\Users\\\\bhumi\\\\Downloads\\\\desktop-ledger\" && grep -n \"^function PartyStatementRowBlock\" src/routes/parties_.\\\\$id.tsx)",
+      "Bash(cd \"c:\\\\Users\\\\bhumi\\\\Downloads\\\\desktop-ledger\" && grep -n \"^export function PartyStatementRowBlock\" src/routes/parties_.\\\\$id.tsx)",
+      "Bash(cd \"c:\\\\Users\\\\bhumi\\\\Downloads\\\\desktop-ledger\" && grep -n \"sendReminder\\\\|waLink\\\\|reminderMessage\\\\|MessageCircle\" src/routes/parties_.\\\\$id.tsx)",
+      "Bash(cd \"c:\\\\Users\\\\bhumi\\\\Downloads\\\\desktop-ledger\" && grep -n \"fullBalance\" src/routes/parties_.\\\\$id.tsx)",
+      "Bash(cd \"c:\\\\Users\\\\bhumi\\\\Downloads\\\\desktop-ledger\" && grep -n \"dateFrom\\\\|dateTo\" src/routes/parties_.\\\\$id.tsx)",
+      "Bash(cd \"c:\\\\Users\\\\bhumi\\\\Downloads\\\\desktop-ledger\" && grep -n \"export function PartyStatementRowBlock\" -A 15 src/routes/parties_.\\\\$id.tsx)",
+      "Bash(cd \"c:\\\\Users\\\\bhumi\\\\Downloads\\\\desktop-ledger\" && grep -n \"A4 landscape\" src/routes/parties_.\\\\$id.tsx src/routes/reports.tsx)",
+      "Bash(cd \"c:\\\\Users\\\\bhumi\\\\Downloads\\\\desktop-ledger\" && grep -n \"print-visible bg-white border rounded-lg shadow-sm max-w-6xl\" src/routes/parties_.\\\\$id.tsx)",
+      "Bash(cd \"c:\\\\Users\\\\bhumi\\\\Downloads\\\\desktop-ledger\" && grep -n \"a4-2up\\\\|minHeight\\\\|1123px\" src/routes/sales.\\\\$id.tsx)"
     ],
     "additionalDirectories": [
       "c:\\Users\\bhumi\\Downloads\\desktop-ledger\\.vercel"
