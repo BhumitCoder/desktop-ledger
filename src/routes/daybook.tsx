@@ -304,7 +304,7 @@ function DaybookPage() {
 
   return (
     <div className="flex flex-col h-full bg-[#f5f6fa]">
-      <div className="no-print bg-white border-b px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
+      <div className="no-print bg-white border-b px-5 py-3 flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-3">
           <div className="h-9 w-9 rounded-md bg-primary-soft text-primary flex items-center justify-center">
             <BookOpen className="h-4 w-4" />
@@ -316,7 +316,7 @@ function DaybookPage() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 ml-auto">
           <button
             onClick={() => shiftDay(-1)}
             className="h-8 w-8 rounded-md border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center text-gray-500"
@@ -356,6 +356,15 @@ function DaybookPage() {
           >
             <Printer className="h-3.5 w-3.5" /> Print / PDF
           </button>
+          <div className="relative w-44 lg:w-56">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search name, ref no, type…"
+              className="w-full h-8 pl-8 pr-3 border border-gray-200 rounded-md text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+            />
+          </div>
         </div>
       </div>
 
@@ -396,18 +405,6 @@ function DaybookPage() {
               warn
             />
           )}
-        </div>
-      </div>
-
-      <div className="no-print bg-white border-b px-5 py-2.5">
-        <div className="relative max-w-xs">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search name, ref no, type…"
-            className="w-full h-8 pl-8 pr-3 border border-gray-200 rounded-md text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
-          />
         </div>
       </div>
 

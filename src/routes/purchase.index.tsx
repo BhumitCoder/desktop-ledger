@@ -4,7 +4,19 @@ import { PurchaseRepo, PartyRepo, ItemRepo, PaymentRepo, BankRepo } from "@/repo
 import { newBatch, commitBatch } from "@/repositories/base";
 import type { Invoice } from "@/types";
 import { fmtMoney, fmtDate, ymd, today } from "@/lib/format";
-import { Plus, Search, X, ChevronDown, ShoppingCart, Trash2, Pencil, FileText } from "lucide-react";
+import {
+  Plus,
+  Search,
+  X,
+  ChevronDown,
+  ShoppingCart,
+  Trash2,
+  Pencil,
+  FileText,
+  CheckCircle2,
+  AlertCircle,
+  type LucideIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { usePagination, PaginationBar } from "@/components/Pagination";
 import { fmtMode } from "@/components/ModePills";
@@ -134,13 +146,18 @@ function PurchasePage() {
         icon={<FileText className="h-5 w-5" />}
         iconClassName="bg-warning-soft text-warning"
         actions={
-          <button
-            onClick={() => navigate({ to: "/purchase/new" })}
-            className="inline-flex items-center gap-1.5 h-8 px-4 bg-primary text-primary-foreground rounded-md text-sm font-semibold hover:opacity-90 transition"
-          >
-            <Plus className="h-4 w-4" /> Add Purchase
-            <kbd className="ml-1 text-[10px] bg-white/20 px-1.5 py-0.5 rounded">Ctrl+P</kbd>
-          </button>
+          <>
+            <SalesCard icon={FileText} label="Total Purchase" value={totalAmount} tone="gray" />
+            <SalesCard icon={CheckCircle2} label="Total Paid" value={totalPaid} tone="emerald" />
+            <SalesCard icon={AlertCircle} label="Total Payable" value={totalPayable} tone="rose" />
+            <button
+              onClick={() => navigate({ to: "/purchase/new" })}
+              className="inline-flex items-center gap-1.5 h-8 px-4 bg-primary text-primary-foreground rounded-md text-sm font-semibold hover:opacity-90 transition"
+            >
+              <Plus className="h-4 w-4" /> Add Purchase
+              <kbd className="ml-1 text-[10px] bg-white/20 px-1.5 py-0.5 rounded">Ctrl+P</kbd>
+            </button>
+          </>
         }
       />
 
@@ -251,13 +268,6 @@ function PurchasePage() {
         >
           <X className="h-3 w-3" /> Clear
         </button>
-      </div>
-
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-0 bg-white border-b">
-        <SummaryCard label="Total Purchase" value={totalAmount} color="text-gray-800" border />
-        <SummaryCard label="Total Paid" value={totalPaid} color="text-emerald-600" border />
-        <SummaryCard label="Total Payable" value={totalPayable} color="text-rose-600" />
       </div>
 
       {/* Table */}
@@ -386,21 +396,37 @@ function PurchasePage() {
   );
 }
 
-function SummaryCard({
+const SALES_TONES = {
+  gray: { bg: "bg-gray-100", text: "text-gray-700" },
+  emerald: { bg: "bg-emerald-50", text: "text-emerald-600" },
+  rose: { bg: "bg-rose-50", text: "text-rose-600" },
+} as const;
+
+function SalesCard({
+  icon: Icon,
   label,
   value,
-  color,
-  border,
+  tone,
 }: {
+  icon: LucideIcon;
   label: string;
   value: number;
-  color: string;
-  border?: boolean;
+  tone: keyof typeof SALES_TONES;
 }) {
+  const t = SALES_TONES[tone];
   return (
-    <div className={`px-5 py-3.5 ${border ? "border-r border-gray-100" : ""}`}>
-      <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-1">{label}</p>
-      <p className={`text-[20px] font-bold tabular-nums ${color}`}>{fmtMoney(value)}</p>
+    <div className="shrink-0 flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg border border-gray-100 bg-white">
+      <div className={`h-8 w-8 rounded-md flex items-center justify-center shrink-0 ${t.bg} ${t.text}`}>
+        <Icon className="h-4 w-4" />
+      </div>
+      <div className="min-w-0">
+        <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide mb-0.5 whitespace-nowrap">
+          {label}
+        </p>
+        <p className={`text-[14px] font-bold tabular-nums whitespace-nowrap ${t.text}`}>
+          {fmtMoney(value)}
+        </p>
+      </div>
     </div>
   );
 }

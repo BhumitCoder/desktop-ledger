@@ -26,6 +26,9 @@ import {
   ChevronRight,
   Loader2,
   Pencil,
+  TrendingUp,
+  TrendingDown,
+  type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { genId } from "@/repositories/base";
@@ -239,6 +242,14 @@ function PaymentsPage() {
         icon={<Wallet className="h-5 w-5" />}
         actions={
           <>
+            <PaymentCard icon={ArrowDownCircle} label="Total Received" value={totalIn} tone="emerald" />
+            <PaymentCard icon={ArrowUpCircle} label="Total Paid Out" value={totalOut} tone="rose" />
+            <PaymentCard
+              icon={net >= 0 ? TrendingUp : TrendingDown}
+              label="Net Cash Flow"
+              value={net}
+              tone={net >= 0 ? "emerald" : "rose"}
+            />
             <button
               onClick={() => openForm("in")}
               className="inline-flex items-center gap-1.5 h-8 px-3 bg-emerald-600 text-white rounded-md text-sm font-semibold hover:bg-emerald-700 transition"
@@ -254,32 +265,6 @@ function PaymentsPage() {
           </>
         }
       />
-
-      {/* Summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-0 bg-white border-b">
-        <div className="px-5 py-3.5 border-r border-gray-100">
-          <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-1">
-            Total Received
-          </p>
-          <p className="text-[20px] font-bold tabular-nums text-emerald-600">{fmtMoney(totalIn)}</p>
-        </div>
-        <div className="px-5 py-3.5 border-r border-gray-100">
-          <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-1">
-            Total Paid Out
-          </p>
-          <p className="text-[20px] font-bold tabular-nums text-rose-600">{fmtMoney(totalOut)}</p>
-        </div>
-        <div className="px-5 py-3.5">
-          <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-1">
-            Net Cash Flow
-          </p>
-          <p
-            className={`text-[20px] font-bold tabular-nums ${net >= 0 ? "text-emerald-600" : "text-rose-600"}`}
-          >
-            {fmtMoney(net)}
-          </p>
-        </div>
-      </div>
 
       {/* Tabs + Search */}
       <div className="bg-white border-b px-5 py-2 flex items-center gap-4">
@@ -339,6 +324,40 @@ function PaymentsPage() {
         editing={editing}
         onSaved={refresh}
       />
+    </div>
+  );
+}
+
+const PAYMENT_TONES = {
+  emerald: { bg: "bg-emerald-50", text: "text-emerald-600" },
+  rose: { bg: "bg-rose-50", text: "text-rose-600" },
+} as const;
+
+function PaymentCard({
+  icon: Icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: number;
+  tone: keyof typeof PAYMENT_TONES;
+}) {
+  const t = PAYMENT_TONES[tone];
+  return (
+    <div className="shrink-0 flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg border border-gray-100 bg-white">
+      <div className={`h-8 w-8 rounded-md flex items-center justify-center shrink-0 ${t.bg} ${t.text}`}>
+        <Icon className="h-4 w-4" />
+      </div>
+      <div className="min-w-0">
+        <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide mb-0.5 whitespace-nowrap">
+          {label}
+        </p>
+        <p className={`text-[14px] font-bold tabular-nums whitespace-nowrap ${t.text}`}>
+          {fmtMoney(value)}
+        </p>
+      </div>
     </div>
   );
 }

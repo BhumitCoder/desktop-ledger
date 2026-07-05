@@ -14,7 +14,7 @@ import { usePagination, PaginationBar } from "@/components/Pagination";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/Field";
-import { Banknote, ArrowDownCircle, ArrowUpCircle, Wallet, Search } from "lucide-react";
+import { Banknote, ArrowDownCircle, ArrowUpCircle, Wallet, Search, Calendar, X } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/cash")({ component: CashPage });
@@ -63,36 +63,38 @@ function CashPage() {
   return (
     <div className="flex flex-col h-full bg-[#f5f6fa]">
       <PageHeader
-        title="Cash on Hand"
+        title="Cash"
+        subtitle={`${filtered.length} of ${entries.length} transactions`}
         icon={<Banknote className="h-5 w-5" />}
         actions={
-          <Button size="sm" onClick={() => setAdjustOpen(true)}>
-            <Banknote className="h-3.5 w-3.5" /> Adjust Cash
-          </Button>
+          <>
+            <CashCard icon={<ArrowDownCircle className="h-4 w-4" />} label="Cash In" value={totalIn} tone="emerald" />
+            <CashCard icon={<ArrowUpCircle className="h-4 w-4" />} label="Cash Out" value={totalOut} tone="rose" />
+            <CashCard icon={<Wallet className="h-4 w-4" />} label="Balance" value={balance} tone="primary" />
+            <Button size="sm" onClick={() => setAdjustOpen(true)}>
+              <Banknote className="h-3.5 w-3.5" /> Adjust Cash
+            </Button>
+          </>
         }
       />
 
-      {/* Summary + search — one row, so the table gets the space instead of
-          two stacked strips. */}
-      <div className="no-print bg-white border-b px-5 py-3 flex items-center gap-3 flex-wrap">
-        <CashCard icon={<ArrowDownCircle className="h-4 w-4" />} label="Cash In" value={totalIn} tone="emerald" />
-        <CashCard icon={<ArrowUpCircle className="h-4 w-4" />} label="Cash Out" value={totalOut} tone="rose" />
-        <CashCard icon={<Wallet className="h-4 w-4" />} label="Balance" value={balance} tone="primary" />
-        <div className="flex-1" />
-        <div className="flex items-center gap-1.5 text-xs text-gray-500 self-center">
-          <span>From</span>
+      {/* Filters */}
+      <div className="bg-white border-b px-5 py-3 flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2">
+          <Calendar className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+          <label className="text-xs font-medium text-gray-500">From</label>
           <input
             type="date"
             value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
-            className="border border-gray-200 rounded-md text-xs px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+            className="border border-gray-200 rounded-md text-xs px-2 py-1.5 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
           />
-          <span>To</span>
+          <label className="text-xs font-medium text-gray-500">To</label>
           <input
             type="date"
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
-            className="border border-gray-200 rounded-md text-xs px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+            className="border border-gray-200 rounded-md text-xs px-2 py-1.5 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
           />
           {(dateFrom || dateTo) && (
             <button
@@ -100,15 +102,14 @@ function CashPage() {
                 setDateFrom("");
                 setDateTo("");
               }}
-              className="text-gray-400 hover:text-gray-600 font-semibold px-1"
-              title="Clear date filter"
+              className="text-xs text-gray-400 hover:text-gray-600 transition flex items-center gap-1"
             >
-              ✕
+              <X className="h-3 w-3" /> Clear
             </button>
           )}
         </div>
-        <div className="relative max-w-xs w-full sm:w-64 self-center">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+        <div className="relative flex-1 min-w-[180px] max-w-xs">
+          <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}

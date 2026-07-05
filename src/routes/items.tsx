@@ -217,7 +217,17 @@ function ItemsPage() {
         subtitle={`${rows.length} items`}
         icon={<Package className="h-5 w-5" />}
         actions={
-          <div className="flex flex-wrap gap-1.5 sm:gap-2">
+          <>
+            <div className="relative w-44 lg:w-56">
+              <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                autoFocus
+                placeholder="Search items by name..."
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                className="w-full h-8 pl-8 pr-3 border border-gray-200 rounded-md text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+              />
+            </div>
             <Button
               size="sm"
               variant="outline"
@@ -244,45 +254,37 @@ function ItemsPage() {
               <Plus className="h-3.5 w-3.5" /> New Item{" "}
               <kbd className="hidden sm:inline text-[10px] ml-1">N</kbd>
             </Button>
-          </div>
+          </>
         }
       />
-      <div className="p-3 border-b bg-card flex items-center gap-3 flex-wrap">
-        <div className="relative max-w-md flex-1 min-w-[220px]">
-          <Search className="h-3.5 w-3.5 absolute left-2 top-2.5 text-muted-foreground" />
-          <input
-            autoFocus
-            placeholder="Search items by name..."
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            className="h-8 pl-7 pr-2 border rounded w-full bg-background focus:border-primary outline-none"
-          />
+      {(filtered.length > 0 || selectedIds.size > 0) && (
+        <div className="px-5 py-2 border-b bg-white flex items-center gap-3 flex-wrap">
+          {filtered.length > 0 && (
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={allFilteredSelected}
+                onChange={toggleAllFiltered}
+                className="accent-primary"
+              />
+              Select all
+            </label>
+          )}
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-2 ml-auto">
+              <span className="text-xs font-medium text-muted-foreground">
+                {selectedIds.size} selected
+              </span>
+              <Button size="sm" variant="outline" onClick={() => setBulkEditOpen(true)}>
+                <Pencil className="h-3.5 w-3.5" /> Bulk Edit
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
+                Clear
+              </Button>
+            </div>
+          )}
         </div>
-        {filtered.length > 0 && (
-          <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={allFilteredSelected}
-              onChange={toggleAllFiltered}
-              className="accent-primary"
-            />
-            Select all
-          </label>
-        )}
-        {selectedIds.size > 0 && (
-          <div className="flex items-center gap-2 ml-auto">
-            <span className="text-xs font-medium text-muted-foreground">
-              {selectedIds.size} selected
-            </span>
-            <Button size="sm" variant="outline" onClick={() => setBulkEditOpen(true)}>
-              <Pencil className="h-3.5 w-3.5" /> Bulk Edit
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
-              Clear
-            </Button>
-          </div>
-        )}
-      </div>
+      )}
       <div className="p-3 flex-1 min-h-0 flex">
         <DataTable
           columns={columns}

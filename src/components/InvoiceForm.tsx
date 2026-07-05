@@ -653,7 +653,7 @@ export function InvoiceForm({ mode, existing }: Props) {
             ) : null}
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="relative lg:col-span-2">
+            <div className="relative">
               <label className="flex flex-col gap-1 text-[12px]">
                 <span className="text-muted-foreground font-medium">
                   {isSale ? "Customer Name" : "Supplier Name"} *
@@ -749,10 +749,8 @@ export function InvoiceForm({ mode, existing }: Props) {
               value={inv.date}
               onChange={(e) => setInv({ ...inv, date: e.target.value })}
             />
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
-            <div className="flex flex-col gap-1 text-[12px] md:col-span-1">
+            <div className="flex flex-col gap-1 text-[12px]">
               <span className="text-muted-foreground font-medium">
                 {isSale ? "Invoice #" : "Bill #"}
               </span>
@@ -1053,16 +1051,6 @@ export function InvoiceForm({ mode, existing }: Props) {
           Tab/Enter to move · Ctrl+S save · Esc cancel
         </span>
         <Button
-          variant="outline"
-          size="sm"
-          onClick={() => navigate({ to: isSale ? "/sales" : "/purchase" })}
-        >
-          <X className="h-3.5 w-3.5" /> Cancel
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => save(true)} disabled={saving}>
-          <Printer className="h-3.5 w-3.5" /> Save & Print
-        </Button>
-        <Button
           size="sm"
           onClick={() => save()}
           disabled={saving}
@@ -1075,6 +1063,16 @@ export function InvoiceForm({ mode, existing }: Props) {
           )}
           {saving ? "Saving…" : "Save"}
           {!saving && <kbd className="ml-1 text-[10px] opacity-80">Ctrl+S</kbd>}
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => save(true)} disabled={saving}>
+          <Printer className="h-3.5 w-3.5" /> Save & Print
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => navigate({ to: isSale ? "/sales" : "/purchase" })}
+        >
+          <X className="h-3.5 w-3.5" /> Cancel
         </Button>
       </div>
       <PrintableInvoice inv={inv} company={company} mode={mode} />
@@ -1180,8 +1178,6 @@ function ItemEntryRow({
     else if (showAddNew) pickNew();
   };
 
-  const restColSpan = gstOn ? 7 : 6;
-
   return (
     <tr className="border-t hover:bg-accent/20">
       <td className="px-3 py-1.5"></td>
@@ -1272,9 +1268,45 @@ function ItemEntryRow({
             document.body,
           )}
       </td>
-      <td colSpan={restColSpan} className="px-3 py-1.5 text-[11px] text-muted-foreground">
-        —
+      <td className="py-1.5 px-1">
+        <input
+          disabled
+          className="w-full h-7 px-1.5 text-right border rounded bg-muted/40 text-muted-foreground/50 outline-none cursor-not-allowed"
+        />
       </td>
+      <td className="py-1.5 px-1">
+        <input
+          disabled
+          className="w-full h-7 px-1.5 border rounded bg-muted/40 text-muted-foreground/50 outline-none cursor-not-allowed"
+        />
+      </td>
+      <td className="py-1.5 px-1">
+        <input
+          disabled
+          className="w-full h-7 px-1.5 text-right border rounded bg-muted/40 text-muted-foreground/50 outline-none cursor-not-allowed"
+        />
+      </td>
+      <td className="py-1.5 px-1">
+        <input
+          disabled
+          className="w-full h-7 px-1.5 text-right border rounded bg-muted/40 text-muted-foreground/50 outline-none cursor-not-allowed"
+        />
+      </td>
+      {gstOn && (
+        <td className="py-1.5 px-1">
+          <input
+            disabled
+            className="w-full h-7 px-1.5 text-right border rounded bg-muted/40 text-muted-foreground/50 outline-none cursor-not-allowed"
+          />
+        </td>
+      )}
+      <td className="py-1.5 px-1">
+        <input
+          disabled
+          className="w-full h-7 px-1.5 text-right border rounded bg-muted/40 text-muted-foreground/50 outline-none cursor-not-allowed"
+        />
+      </td>
+      <td className="py-1.5 px-1"></td>
     </tr>
   );
 }
