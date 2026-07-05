@@ -293,8 +293,8 @@ function BankTxnDialog({
             />
             <span>
               {type === "deposit"
-                ? "Deposited from cash in hand (reduce counter cash)"
-                : "Withdrawn to cash in hand (add counter cash)"}
+                ? "Deposited from cash on hand (reduce counter cash)"
+                : "Withdrawn to cash on hand (add counter cash)"}
             </span>
           </label>
           <div className="flex justify-end gap-2">

@@ -992,10 +992,12 @@ export function InvoiceForm({ mode, existing }: Props) {
                 </div>
               )}
               <div className="flex justify-between items-center gap-2 pt-1">
-                <span className="text-muted-foreground">Paid Amount</span>
+                <span className="text-muted-foreground">
+                  {mode === "sale" ? "Received Amount" : "Paid Amount"}
+                </span>
                 {inv.paymentMode === "credit" ? (
                   <span className="text-[12px] text-muted-foreground select-none">
-                    ₹0.00 — will pay later
+                    ₹0.00 — {mode === "sale" ? "will receive later" : "will pay later"}
                   </span>
                 ) : (
                   <div className="flex items-center gap-1.5">

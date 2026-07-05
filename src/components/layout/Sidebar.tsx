@@ -76,7 +76,7 @@ const groups: NavGroup[] = [
     title: "Cash & Bank",
     items: [
       { path: "/bank", label: "Bank Accounts", icon: Landmark },
-      { path: "/cash", label: "Cash in Hand", icon: Banknote },
+      { path: "/cash", label: "Cash on Hand", icon: Banknote },
       { path: "/payments", label: "Payments", icon: Wallet }
     ],
   },

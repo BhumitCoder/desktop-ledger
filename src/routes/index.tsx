@@ -431,7 +431,7 @@ function Dashboard() {
         <StatRow label="Expenses" badge={periodLabel} value={`₹ ${fmt(totalExpense)}`} />
         <StatRow label="Stock Value" badge="As of Now" value={`₹ ${fmt(stockValue)}`} />
         <StatRow
-          label="Cash In Hand"
+          label="Cash On Hand"
           badge="As of Now"
           value={`₹ ${fmt(cashInHand)}`}
           valueClass={cashInHand < 0 ? "text-rose-600" : "text-gray-800"}
