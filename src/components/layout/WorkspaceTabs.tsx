@@ -41,7 +41,7 @@ export function WorkspaceTabs() {
   };
 
   return (
-    <div className="h-10 border-b bg-muted/50 flex items-end px-2 gap-0.5 overflow-x-auto shrink-0">
+    <div className="hidden md:flex h-10 border-b bg-muted/50 items-end px-2 gap-0.5 overflow-x-auto shrink-0">
       {tabs.map((tab) => {
         const active = tab.path === pathname;
         return (

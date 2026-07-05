@@ -31,8 +31,9 @@ import { toast } from "sonner";
 import { genId } from "@/repositories/base";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { usePagination, PaginationBar } from "@/components/Pagination";
+import { DataTable, type Column } from "@/components/DataTable";
 import { ModePills, fmtMode } from "@/components/ModePills";
+import { PageHeader } from "@/components/PageHeader";
 
 export const Route = createFileRoute("/payments")({ component: PaymentsPage });
 
@@ -63,7 +64,6 @@ function PaymentsPage() {
   const totalIn = rows.filter((r) => r.type === "in").reduce((s, r) => s + r.amount, 0);
   const totalOut = rows.filter((r) => r.type === "out").reduce((s, r) => s + r.amount, 0);
   const net = totalIn - totalOut;
-  const pg = usePagination(filtered);
 
   const openForm = (type: "in" | "out") => {
     setFormType(type);
@@ -124,37 +124,139 @@ function PaymentsPage() {
     toast.success("Payment deleted");
   };
 
+  const columns: Column<Payment>[] = [
+    {
+      key: "date",
+      label: "Date",
+      width: "100px",
+      render: (r) => <span className="whitespace-nowrap">{fmtDate(r.date)}</span>,
+      sortValue: (r) => r.date,
+    },
+    {
+      key: "type",
+      label: "Type",
+      width: "120px",
+      render: (r) =>
+        r.type === "in" ? (
+          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+            <ArrowDownCircle className="h-3 w-3" /> Received
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
+            <ArrowUpCircle className="h-3 w-3" /> Paid Out
+          </span>
+        ),
+      sortValue: (r) => r.type,
+    },
+    {
+      key: "party",
+      label: "Party",
+      render: (r) => <span className="font-medium text-gray-800">{r.partyName}</span>,
+      sortValue: (r) => r.partyName,
+    },
+    {
+      key: "linked",
+      label: "Linked Invoice / Bill",
+      render: (r) => (
+        <span className="font-mono text-xs text-blue-600">
+          {r.allocations?.length ? (
+            r.allocations.map((a) => a.number).join(", ")
+          ) : r.ref && r.ref.match(/^(INV|PUR)-/) ? (
+            r.ref
+          ) : (
+            <span className="text-gray-400">—</span>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: "mode",
+      label: "Mode",
+      width: "90px",
+      render: (r) => <span className="text-gray-500 text-xs">{fmtMode(r.mode)}</span>,
+    },
+    {
+      key: "ref",
+      label: "Reference",
+      render: (r) => (
+        <span className="font-mono text-xs text-gray-400">
+          {r.ref && (r.allocations?.length || !r.ref.match(/^(INV|PUR)-/)) ? r.ref : "—"}
+        </span>
+      ),
+    },
+    {
+      key: "amount",
+      label: "Amount",
+      width: "120px",
+      align: "right",
+      render: (r) => (
+        <span
+          className={`font-bold tabular-nums ${r.type === "in" ? "text-emerald-600" : "text-rose-600"}`}
+        >
+          {r.type === "out" ? "−" : "+"}
+          {fmtMoney(r.amount)}
+        </span>
+      ),
+      sortValue: (r) => (r.type === "in" ? r.amount : -r.amount),
+    },
+    {
+      key: "actions",
+      label: "Action",
+      width: "70px",
+      align: "center",
+      render: (r) => (
+        <span className="inline-flex gap-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              openEdit(r);
+            }}
+            className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+            title="Edit payment"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDelete(r);
+            }}
+            className="p-1 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"
+            title="Delete payment"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </span>
+      ),
+    },
+  ];
+
   return (
     <div className="flex flex-col h-full bg-[#f5f6fa]">
-      {/* Header */}
-      <div className="bg-white border-b px-5 py-3 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-md bg-primary-soft text-primary flex items-center justify-center">
-            <Wallet className="h-4 w-4" />
-          </div>
-          <div>
-            <h1 className="text-[17px] font-bold text-gray-800">Payments</h1>
-            <p className="text-[12px] text-gray-400">{rows.length} records</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => openForm("in")}
-            className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-md text-sm font-semibold hover:bg-emerald-700 transition"
-          >
-            <ArrowDownCircle className="h-4 w-4" /> Receive Payment
-          </button>
-          <button
-            onClick={() => openForm("out")}
-            className="inline-flex items-center gap-1.5 px-3 py-2 bg-rose-600 text-white rounded-md text-sm font-semibold hover:bg-rose-700 transition"
-          >
-            <ArrowUpCircle className="h-4 w-4" /> Make Payment
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Payments"
+        subtitle={`${rows.length} records`}
+        icon={<Wallet className="h-5 w-5" />}
+        actions={
+          <>
+            <button
+              onClick={() => openForm("in")}
+              className="inline-flex items-center gap-1.5 h-8 px-3 bg-emerald-600 text-white rounded-md text-sm font-semibold hover:bg-emerald-700 transition"
+            >
+              <ArrowDownCircle className="h-4 w-4" /> Receive Payment
+            </button>
+            <button
+              onClick={() => openForm("out")}
+              className="inline-flex items-center gap-1.5 h-8 px-3 bg-rose-600 text-white rounded-md text-sm font-semibold hover:bg-rose-700 transition"
+            >
+              <ArrowUpCircle className="h-4 w-4" /> Make Payment
+            </button>
+          </>
+        }
+      />
 
       {/* Summary */}
-      <div className="grid grid-cols-3 gap-0 bg-white border-b">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-0 bg-white border-b">
         <div className="px-5 py-3.5 border-r border-gray-100">
           <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-1">
             Total Received
@@ -216,124 +318,16 @@ function PaymentsPage() {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="flex-1 overflow-auto">
-        <table className="w-full text-[13px] border-collapse">
-          <thead className="sticky top-0 bg-white border-b z-10">
-            <tr>
-              {[
-                "Date",
-                "Type",
-                "Party",
-                "Linked Invoice / Bill",
-                "Mode",
-                "Reference",
-                "Amount",
-                "",
-              ].map((h) => (
-                <th
-                  key={h}
-                  className={`px-4 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-100 whitespace-nowrap bg-white ${h === "Amount" ? "text-right" : "text-left"}`}
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 ? (
-              <tr>
-                <td colSpan={8} className="text-center py-20 text-gray-400">
-                  <Wallet className="h-10 w-10 mx-auto mb-3 text-gray-200" />
-                  <p className="font-medium">No payments recorded</p>
-                  <p className="text-xs mt-1">Use the buttons above to record a payment</p>
-                </td>
-              </tr>
-            ) : (
-              pg.paged.map((r) => (
-                <tr
-                  key={r.id}
-                  className="border-b border-gray-100 hover:bg-gray-50/60 transition-colors group"
-                >
-                  <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{fmtDate(r.date)}</td>
-                  <td className="px-4 py-3">
-                    {r.type === "in" ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                        <ArrowDownCircle className="h-3 w-3" /> Received
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
-                        <ArrowUpCircle className="h-3 w-3" /> Paid Out
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 font-medium text-gray-800 max-w-[150px] truncate">
-                    {r.partyName}
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs text-blue-600">
-                    {r.allocations?.length ? (
-                      r.allocations.map((a) => a.number).join(", ")
-                    ) : r.ref && r.ref.match(/^(INV|PUR)-/) ? (
-                      r.ref
-                    ) : (
-                      <span className="text-gray-400">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-gray-500 text-xs">{fmtMode(r.mode)}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-gray-400">
-                    {r.ref && (r.allocations?.length || !r.ref.match(/^(INV|PUR)-/)) ? r.ref : "—"}
-                  </td>
-                  <td
-                    className={`px-4 py-3 text-right font-bold tabular-nums text-sm ${r.type === "in" ? "text-emerald-600" : "text-rose-600"}`}
-                  >
-                    {r.type === "out" ? "−" : "+"}
-                    {fmtMoney(r.amount)}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <button
-                      onClick={() => openEdit(r)}
-                      className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
-                      title="Edit payment"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(r)}
-                      className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"
-                      title="Delete payment"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-          {filtered.length > 0 && (
-            <tfoot className="sticky bottom-0 bg-gray-50 border-t-2 border-gray-200">
-              <tr>
-                <td colSpan={6} className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">
-                  {filtered.length} record{filtered.length !== 1 ? "s" : ""}
-                </td>
-                <td className="px-4 py-3 text-right font-bold tabular-nums text-sm text-gray-800">
-                  {fmtMoney(
-                    filtered.reduce((s, r) => s + (r.type === "in" ? r.amount : -r.amount), 0),
-                  )}
-                </td>
-                <td />
-              </tr>
-            </tfoot>
-          )}
-        </table>
+      <div className="p-3 flex-1 min-h-0 flex">
+        <DataTable
+          columns={columns}
+          rows={filtered}
+          rowKey={(r) => r.id}
+          onRowActivate={openEdit}
+          onDelete={handleDelete}
+          emptyMessage="No payments recorded — use the buttons above to record one"
+        />
       </div>
-      <PaginationBar
-        page={pg.page}
-        totalPages={pg.totalPages}
-        pageSize={pg.pageSize}
-        total={pg.total}
-        onPage={pg.setPage}
-        onPageSize={pg.setPageSize}
-      />
 
       <ReceivePaymentDialog
         open={open}

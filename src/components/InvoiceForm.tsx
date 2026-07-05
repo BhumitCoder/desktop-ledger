@@ -1336,7 +1336,7 @@ function QuickAddItemDialog({
           "{draft.name}" isn't in your items list yet — set its price & GST before adding it to
           this {isSale ? "invoice" : "bill"}.
         </p>
-        <form onSubmit={submit} className="grid grid-cols-2 gap-3">
+        <form onSubmit={submit} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="col-span-2">
             <Field
               ref={firstRef}

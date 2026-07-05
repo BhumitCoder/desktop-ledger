@@ -19,6 +19,7 @@ import {
   History,
   Download,
   Upload,
+  Package,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -168,7 +169,7 @@ function ItemsPage() {
     },
     {
       key: "adjust",
-      label: "",
+      label: "Action",
       width: "110px",
       align: "center",
       render: (r) => (
@@ -214,17 +215,24 @@ function ItemsPage() {
       <PageHeader
         title="Items"
         subtitle={`${rows.length} items`}
+        icon={<Package className="h-5 w-5" />}
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-1.5 sm:gap-2">
             <Button
               size="sm"
               variant="outline"
               onClick={() => downloadCsv("items", [...EXPORT_COLUMNS], rows.map(itemToBulkRow))}
+              title="Export CSV"
             >
-              <Download className="h-3.5 w-3.5" /> Export CSV
+              <Download className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Export CSV</span>
             </Button>
-            <Button size="sm" variant="outline" onClick={() => setBulkOpen(true)}>
-              <Upload className="h-3.5 w-3.5" /> Bulk Import
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setBulkOpen(true)}
+              title="Bulk Import"
+            >
+              <Upload className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Bulk Import</span>
             </Button>
             <Button
               size="sm"
@@ -233,7 +241,8 @@ function ItemsPage() {
                 setOpen(true);
               }}
             >
-              <Plus className="h-3.5 w-3.5" /> New Item <kbd className="text-[10px] ml-1">N</kbd>
+              <Plus className="h-3.5 w-3.5" /> New Item{" "}
+              <kbd className="hidden sm:inline text-[10px] ml-1">N</kbd>
             </Button>
           </div>
         }
@@ -393,7 +402,7 @@ export function StockAdjustDialog({
               − Reduce Stock
             </button>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field
               label={`Quantity (${item.unit}) *`}
               type="number"
@@ -699,7 +708,7 @@ export function ItemDialog({
         <DialogHeader>
           <DialogTitle>{item ? "Edit Item" : "New Item"}</DialogTitle>
         </DialogHeader>
-        <form onSubmit={save} className="grid grid-cols-3 gap-3">
+        <form onSubmit={save} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="col-span-2">
             <Field
               ref={firstRef}

@@ -9,6 +9,7 @@ import { today } from "@/lib/format";
 import { APP_VERSION } from "@/lib/version";
 import { auth, isBrowser } from "@/lib/firebase";
 import type { Company } from "@/types";
+import { Settings as SettingsIcon } from "lucide-react";
 
 export const Route = createFileRoute("/settings")({ component: SettingsPage });
 
@@ -120,7 +121,11 @@ function SettingsPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <PageHeader title="Settings" subtitle="Company & preferences" />
+      <PageHeader
+        title="Settings"
+        subtitle="Company & preferences"
+        icon={<SettingsIcon className="h-5 w-5" />}
+      />
       <div className="p-4 space-y-6 overflow-auto max-w-3xl">
         <form onSubmit={save} className="border rounded-md bg-card p-4">
           <h2 className="font-semibold text-sm mb-3">Company Details</h2>

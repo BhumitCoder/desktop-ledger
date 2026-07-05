@@ -205,47 +205,47 @@ function Dashboard() {
   ];
 
   return (
-    <div className="flex h-full overflow-hidden bg-[#f5f6fa]">
+    <div className="flex flex-col md:flex-row h-full overflow-auto md:overflow-hidden bg-[#f5f6fa]">
       {/* Main content */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-auto">
+      <div className="flex-1 flex flex-col min-w-0 md:overflow-auto">
         {/* Receivable / Payable */}
         <div className="flex gap-0 border-b border-gray-200 bg-white">
           {/* Total Receivable */}
-          <div className="flex-1 p-5 border-r border-gray-200">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-1">
+          <div className="flex-1 min-w-0 p-3 sm:p-5 border-r border-gray-200">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-1 truncate">
                   Total Receivable
                 </p>
-                <p className="text-[28px] font-bold text-gray-800 leading-tight">
+                <p className="text-[20px] sm:text-[28px] font-bold text-gray-800 leading-tight truncate">
                   ₹ {fmt(receivable)}
                 </p>
-                <p className="text-xs text-gray-400 mt-1">
+                <p className="text-xs text-gray-400 mt-1 truncate">
                   From {receivableParties} {receivableParties === 1 ? "Party" : "Parties"}
                 </p>
               </div>
-              <div className="h-10 w-10 rounded-full bg-emerald-50 border-2 border-emerald-200 flex items-center justify-center mt-1">
-                <ArrowDownLeft className="h-5 w-5 text-emerald-500" />
+              <div className="h-8 w-8 sm:h-10 sm:w-10 shrink-0 rounded-full bg-emerald-50 border-2 border-emerald-200 flex items-center justify-center mt-1">
+                <ArrowDownLeft className="h-4 w-4 sm:h-5 sm:w-5 text-emerald-500" />
               </div>
             </div>
           </div>
 
           {/* Total Payable */}
-          <div className="flex-1 p-5">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-1">
+          <div className="flex-1 min-w-0 p-3 sm:p-5">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-1 truncate">
                   Total Payable
                 </p>
-                <p className="text-[28px] font-bold text-gray-800 leading-tight">
+                <p className="text-[20px] sm:text-[28px] font-bold text-gray-800 leading-tight truncate">
                   ₹ {fmt(payable)}
                 </p>
-                <p className="text-xs text-gray-400 mt-1">
+                <p className="text-xs text-gray-400 mt-1 truncate">
                   From {payableParties} {payableParties === 1 ? "Party" : "Parties"}
                 </p>
               </div>
-              <div className="h-10 w-10 rounded-full bg-rose-50 border-2 border-rose-200 flex items-center justify-center mt-1">
-                <ArrowUpRight className="h-5 w-5 text-rose-500" />
+              <div className="h-8 w-8 sm:h-10 sm:w-10 shrink-0 rounded-full bg-rose-50 border-2 border-rose-200 flex items-center justify-center mt-1">
+                <ArrowUpRight className="h-4 w-4 sm:h-5 sm:w-5 text-rose-500" />
               </div>
             </div>
           </div>
@@ -426,7 +426,7 @@ function Dashboard() {
       </div>
 
       {/* Right Stats Panel */}
-      <div className="w-[240px] flex-shrink-0 bg-white border-l border-gray-200 flex flex-col overflow-auto">
+      <div className="w-full md:w-[240px] shrink-0 bg-white border-t md:border-t-0 md:border-l border-gray-200 flex flex-col md:overflow-auto">
         <StatRow label="Purchases" badge={periodLabel} value={`₹ ${fmt(totalPurchase)}`} />
         <StatRow label="Expenses" badge={periodLabel} value={`₹ ${fmt(totalExpense)}`} />
         <StatRow label="Stock Value" badge="As of Now" value={`₹ ${fmt(stockValue)}`} />

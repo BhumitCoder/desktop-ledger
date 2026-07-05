@@ -12,11 +12,13 @@ import {
 } from "@/repositories";
 import type { Item } from "@/types";
 import { fmtMoney } from "@/lib/format";
+import { Boxes, Search } from "lucide-react";
 
 export const Route = createFileRoute("/inventory")({ component: InventoryPage });
 
 function InventoryPage() {
   const [rows, setRows] = useState<Item[]>([]);
+  const [q, setQ] = useState("");
   const refresh = () => setRows(ItemRepo.all());
   useEffect(() => {
     refresh();
@@ -118,14 +120,32 @@ function InventoryPage() {
     (r) => (r.minStock != null && r.stock <= r.minStock) || r.stock < 0,
   ).length;
 
+  const filtered = rows.filter((r) => {
+    const s = q.toLowerCase();
+    return !s || r.name.toLowerCase().includes(s) || r.sku?.toLowerCase().includes(s);
+  });
+
   return (
     <div className="flex flex-col h-full">
       <PageHeader
         title="Inventory"
         subtitle={`${rows.length} items · Stock value: ${fmtMoney(totalValue)} · Low: ${lowCount}`}
+        icon={<Boxes className="h-5 w-5" />}
       />
+      <div className="p-3 border-b bg-card">
+        <div className="relative max-w-md">
+          <Search className="h-3.5 w-3.5 absolute left-2 top-2.5 text-muted-foreground" />
+          <input
+            autoFocus
+            placeholder="Search items by name or SKU..."
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            className="h-8 pl-7 pr-2 border rounded w-full bg-background focus:border-primary outline-none"
+          />
+        </div>
+      </div>
       <div className="p-3 flex-1 min-h-0 flex">
-        <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} />
+        <DataTable columns={columns} rows={filtered} rowKey={(r) => r.id} />
       </div>
     </div>
   );

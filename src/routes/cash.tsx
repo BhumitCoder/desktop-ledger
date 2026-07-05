@@ -45,6 +45,7 @@ function CashPage() {
       <PageHeader
         title="Cash in Hand"
         subtitle={`In: ${fmtMoney(totalIn)} · Out: ${fmtMoney(totalOut)} · Balance: ${fmtMoney(balance)}`}
+        icon={<Banknote className="h-5 w-5" />}
         actions={
           <Button size="sm" onClick={() => setAdjustOpen(true)}>
             <Banknote className="h-3.5 w-3.5" /> Adjust Cash
@@ -177,7 +178,7 @@ function CashAdjustDialog({
               − Reduce Cash
             </button>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field
               label="Amount (₹) *"
               type="number"

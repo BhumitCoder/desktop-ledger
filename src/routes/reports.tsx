@@ -26,6 +26,7 @@ import {
   RefreshCcw,
   Printer,
   Download,
+  Search,
 } from "lucide-react";
 
 export const Route = createFileRoute("/reports")({
@@ -71,9 +72,14 @@ function ReportsPage() {
   return (
     <div className="flex flex-col h-full bg-[#f5f6fa]">
       <div className="bg-white border-b px-5 py-3 flex items-center justify-between gap-3 no-print">
-        <div>
-          <h1 className="text-[17px] font-bold text-gray-800">Reports</h1>
-          <p className="text-[12px] text-gray-400">{current?.desc}</p>
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 shrink-0 rounded-lg bg-primary-soft text-primary flex items-center justify-center">
+            <BarChart3 className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-[17px] font-bold text-gray-800">Reports</h1>
+            <p className="text-[12px] text-gray-400">{current?.desc}</p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <label className="text-xs font-medium text-gray-500">From</label>
@@ -178,6 +184,7 @@ function ReportView({
   );
   const parties = useMemo(() => PartyRepo.all(), []);
   const items = useMemo(() => ItemRepo.all(), []);
+  const [partySearch, setPartySearch] = useState("");
 
   if (which === "pl") {
     const revenue = sales.reduce((a, s) => a + s.total, 0);
@@ -459,10 +466,14 @@ function ReportView({
       purchaseReturns: PurchaseReturnRepo.all(),
       payments: PaymentRepo.all(),
     };
-    const perParty = parties
+    const perPartyAll = parties
       .map((p) => ({ party: p, ledger: buildPartyLedger(p, data, dateFrom, dateTo) }))
       .filter(({ ledger }) => ledger.rows.length > 0)
       .sort((a, b) => a.party.name.localeCompare(b.party.name));
+    const q = partySearch.trim().toLowerCase();
+    const perParty = q
+      ? perPartyAll.filter(({ party: p }) => p.name.toLowerCase().includes(q))
+      : perPartyAll;
 
     const closingOf = (rows: { balance: number }[]) => (rows.length ? rows[rows.length - 1].balance : 0);
     const totalReceivable = perParty.reduce(
@@ -475,7 +486,7 @@ function ReportView({
     );
     const fmtBal = (n: number) => `${fmtMoney(Math.abs(n))}${n > 0 ? " Dr" : n < 0 ? " Cr" : ""}`;
 
-    if (perParty.length === 0) {
+    if (perPartyAll.length === 0) {
       return (
         <div>
           <h2 className="text-base font-bold text-gray-800 mb-3">{label}</h2>
@@ -543,7 +554,7 @@ function ReportView({
             <Download className="h-3.5 w-3.5" /> Export Excel (one sheet per party)
           </button>
         </div>
-        <div className="mb-4 flex flex-wrap gap-x-8 gap-y-1 bg-white border rounded-lg px-5 py-3">
+        <div className="mb-4 flex flex-wrap items-center gap-x-8 gap-y-2 bg-white border rounded-lg px-5 py-3">
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold text-gray-500">Total Receivable:</span>
             <span className="text-sm font-bold text-rose-600 tabular-nums">
@@ -556,7 +567,22 @@ function ReportView({
               {fmtMoney(totalPayable)}
             </span>
           </div>
+          <div className="no-print flex items-center gap-1.5 border border-gray-200 rounded-md px-2.5 py-1.5 bg-white flex-1 max-w-xs ml-auto">
+            <Search className="h-3.5 w-3.5 text-gray-400" />
+            <input
+              value={partySearch}
+              onChange={(e) => setPartySearch(e.target.value)}
+              placeholder="Search party…"
+              className="text-xs flex-1 outline-none placeholder-gray-400 bg-transparent"
+            />
+          </div>
         </div>
+        {perParty.length === 0 && (
+          <div className="bg-white border rounded-lg p-8 text-center text-gray-400 mb-4">
+            <Search className="h-8 w-8 mx-auto mb-2 text-gray-200" />
+            <p>No party matches "{partySearch}"</p>
+          </div>
+        )}
         <div className="space-y-4">
           {perParty.map(({ party: p, ledger }) => {
             const closing = closingOf(ledger.rows);
@@ -717,7 +743,7 @@ function ReportView({
             </span>
           </div>
         </div>
-        <div className="mt-4 grid grid-cols-3 gap-3">
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
           <StatCard
             label="Invoices"
             value={todaySales.length}

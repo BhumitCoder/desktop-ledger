@@ -71,7 +71,7 @@ export function QuickAddPartyDialog({
         <p className="text-[12px] text-muted-foreground -mt-2">
           "{draft.name}" isn't in your parties list yet — add their details to continue.
         </p>
-        <form onSubmit={submit} className="grid grid-cols-2 gap-3">
+        <form onSubmit={submit} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="col-span-2">
             <Field
               ref={firstRef}

@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Field } from "@/components/Field";
 import { NumField } from "@/components/NumInput";
 import { fmtMoney } from "@/lib/format";
-import { Plus, Search, Pencil, FileText } from "lucide-react";
+import { Plus, Search, Pencil, FileText, Users } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/parties")({ component: PartiesPage });
@@ -73,7 +73,7 @@ function PartiesPage() {
     },
     {
       key: "actions",
-      label: "",
+      label: "Action",
       width: "90px",
       align: "center",
       render: (r) => (
@@ -109,6 +109,7 @@ function PartiesPage() {
       <PageHeader
         title="Parties"
         subtitle={`${rows.length} customers / suppliers`}
+        icon={<Users className="h-5 w-5" />}
         actions={
           <Button
             size="sm"
@@ -234,7 +235,7 @@ export function PartyDialog({
         <DialogHeader>
           <DialogTitle>{party ? "Edit Party" : "New Party"}</DialogTitle>
         </DialogHeader>
-        <form onSubmit={save} className="grid grid-cols-2 gap-3">
+        <form onSubmit={save} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field
             ref={firstRef}
             label="Name *"

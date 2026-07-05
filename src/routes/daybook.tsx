@@ -354,7 +354,8 @@ function DaybookPage() {
           <div className="px-5 py-3 border-b">
             <p className="text-sm font-bold text-gray-800">Daybook — {fmtDate(date)}</p>
           </div>
-          <table className="w-full text-[12.5px] border-collapse">
+          <div className="overflow-x-auto">
+          <table className="w-full text-[12.5px] border-collapse min-w-max">
             <thead>
               <tr className="bg-gray-50">
                 {["#", "Type", "Ref / Category", "Party", "Mode", "Amount"].map((h, i) => (
@@ -382,19 +383,25 @@ function DaybookPage() {
                     title={r.docId ? "Open this bill" : undefined}
                     className={`border-b border-gray-100 hover:bg-gray-50/60 ${r.docId ? "cursor-pointer" : ""}`}
                   >
-                    <td className="px-4 py-2.5 text-gray-400 text-[11px]">{i + 1}</td>
-                    <td className="px-4 py-2.5">
+                    <td className="px-4 py-2.5 text-gray-400 text-[11px] whitespace-nowrap">{i + 1}</td>
+                    <td className="px-4 py-2.5 whitespace-nowrap">
                       <span
-                        className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${r.amount >= 0 ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-rose-50 text-rose-700 border border-rose-200"}`}
+                        className={`text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${r.amount >= 0 ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-rose-50 text-rose-700 border border-rose-200"}`}
                       >
                         {r.type}
                       </span>
                     </td>
-                    <td className="px-4 py-2.5 font-mono text-xs text-blue-600">{r.ref}</td>
-                    <td className="px-4 py-2.5 font-medium text-gray-800">{r.party}</td>
-                    <td className="px-4 py-2.5 text-gray-500 text-xs">{modeLabel(r)}</td>
+                    <td className="px-4 py-2.5 font-mono text-xs text-blue-600 whitespace-nowrap">
+                      {r.ref}
+                    </td>
+                    <td className="px-4 py-2.5 font-medium text-gray-800 whitespace-nowrap">
+                      {r.party}
+                    </td>
+                    <td className="px-4 py-2.5 text-gray-500 text-xs whitespace-nowrap">
+                      {modeLabel(r)}
+                    </td>
                     <td
-                      className={`px-4 py-2.5 text-right font-bold tabular-nums ${r.amount >= 0 ? "text-emerald-600" : "text-rose-600"}`}
+                      className={`px-4 py-2.5 text-right font-bold tabular-nums whitespace-nowrap ${r.amount >= 0 ? "text-emerald-600" : "text-rose-600"}`}
                     >
                       {r.amount >= 0 ? "+" : "−"}
                       {fmtMoney(Math.abs(r.amount))}
@@ -406,11 +413,11 @@ function DaybookPage() {
             {rows.length > 0 && (
               <tfoot>
                 <tr className="bg-gray-50 border-t-2 border-gray-200 font-bold">
-                  <td colSpan={5} className="px-4 py-3 text-xs uppercase text-gray-500">
+                  <td colSpan={5} className="px-4 py-3 text-xs uppercase text-gray-500 whitespace-nowrap">
                     Net for the day
                   </td>
                   <td
-                    className={`px-4 py-3 text-right tabular-nums ${net >= 0 ? "text-emerald-600" : "text-rose-600"}`}
+                    className={`px-4 py-3 text-right tabular-nums whitespace-nowrap ${net >= 0 ? "text-emerald-600" : "text-rose-600"}`}
                   >
                     {net >= 0 ? "+" : "−"}
                     {fmtMoney(Math.abs(net))}
@@ -419,6 +426,7 @@ function DaybookPage() {
               </tfoot>
             )}
           </table>
+          </div>
         </div>
       </div>
     </div>

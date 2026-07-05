@@ -131,7 +131,7 @@ function BankStatementPage() {
       </div>
 
       {/* Summary */}
-      <div className="no-print grid grid-cols-3 bg-white border-b">
+      <div className="no-print grid grid-cols-1 sm:grid-cols-3 bg-white border-b">
         <div className="px-5 py-3.5 border-r border-gray-100">
           <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-1">
             Total Credit (In)

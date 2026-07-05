@@ -18,7 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Field } from "@/components/Field";
 import { NumField } from "@/components/NumInput";
 import { fmtMoney, today } from "@/lib/format";
-import { Plus, ArrowDownToLine, ArrowUpFromLine, History, Pencil } from "lucide-react";
+import { Plus, ArrowDownToLine, ArrowUpFromLine, History, Pencil, Landmark } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/bank")({ component: BankPage });
@@ -66,7 +66,7 @@ function BankPage() {
     },
     {
       key: "actions",
-      label: "",
+      label: "Action",
       width: "80px",
       align: "center",
       render: (r) => (
@@ -110,11 +110,18 @@ function BankPage() {
       <PageHeader
         title="Bank Accounts"
         subtitle={`${rows.length} accounts · Opening: ${fmtMoney(openingTotal)} · Bank transactions: ${bankActivity >= 0 ? "+" : "−"}${fmtMoney(Math.abs(bankActivity))} · Total: ${fmtMoney(totalBalance)}`}
+        icon={<Landmark className="h-5 w-5" />}
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-1.5 sm:gap-2">
             {rows.length > 0 && (
-              <Button size="sm" variant="outline" onClick={() => setTxnOpen(true)}>
-                <ArrowDownToLine className="h-3.5 w-3.5" /> Deposit / Withdraw
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setTxnOpen(true)}
+                title="Deposit / Withdraw"
+              >
+                <ArrowDownToLine className="h-3.5 w-3.5" />{" "}
+                <span className="hidden sm:inline">Deposit / Withdraw</span>
               </Button>
             )}
             <Button
@@ -257,7 +264,7 @@ function BankTxnDialog({
               <ArrowUpFromLine className="h-3.5 w-3.5" /> Withdraw
             </button>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field
               label="Amount (₹) *"
               type="number"
@@ -356,7 +363,7 @@ function BankDialog({
         <DialogHeader>
           <DialogTitle>{bank ? "Edit" : "New"} Bank Account</DialogTitle>
         </DialogHeader>
-        <form onSubmit={save} className="grid grid-cols-2 gap-3">
+        <form onSubmit={save} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="col-span-2">
             <Field
               ref={firstRef}
