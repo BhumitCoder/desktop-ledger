@@ -22,11 +22,25 @@ function safeSheetName(name: string, used: Set<string>): string {
 /** Download a multi-sheet .xlsx workbook — one array-of-arrays sheet per entry.
  * Used for "one sheet per party" ledger exports, where a flat CSV can't
  * express separate sheets at all. */
+/** Auto-fit column widths from content — default widths truncate every
+ * header ("Receivable Bal…" showing as "Receivabl") and look unfinished. */
+function autoColumnWidths(rows: (string | number)[][]): { wch: number }[] {
+  const widths: number[] = [];
+  for (const row of rows) {
+    row.forEach((cell, i) => {
+      const len = String(cell ?? "").length;
+      if (len > (widths[i] ?? 0)) widths[i] = len;
+    });
+  }
+  return widths.map((w) => ({ wch: Math.min(42, Math.max(9, w + 2)) }));
+}
+
 export function downloadXlsx(filename: string, sheets: XlsxSheet[]) {
   const wb = XLSX.utils.book_new();
   const used = new Set<string>();
   for (const s of sheets) {
     const ws = XLSX.utils.aoa_to_sheet(s.rows);
+    ws["!cols"] = autoColumnWidths(s.rows);
     XLSX.utils.book_append_sheet(wb, ws, safeSheetName(s.name, used));
   }
   XLSX.writeFile(wb, `${filename.toLowerCase().replace(/\s+/g, "-")}.xlsx`);

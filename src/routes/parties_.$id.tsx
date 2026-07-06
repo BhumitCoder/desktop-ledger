@@ -12,7 +12,8 @@ import {
 import { buildPartyStatement, type PartyStatementRow } from "@/lib/ledger";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { printWithName } from "@/lib/print";
-import { downloadCsv } from "@/lib/csv";
+import { downloadXlsx } from "@/lib/xlsx";
+import { partyStatementSheet } from "@/lib/partySheet";
 import { PartyDialog } from "./parties";
 import type { Party } from "@/types";
 import { toast } from "sonner";
@@ -97,80 +98,14 @@ function PartyStatementPage() {
   // already shown on screen so the download always matches what's visible.
   const downloadExcel = () => {
     const company = CompanyRepo.get();
-    const recvCol = (n: number) => (n > 0 ? fmtMoney(n) : "");
-    const payCol = (n: number) => (n < 0 ? fmtMoney(-n) : "");
-    const meta: string[][] = [
-      ["Party Statement"],
-      [`Company: ${company.name}`],
-      [`Party: ${party.name}`],
-      [`Phone: ${party.phone || "—"}`],
-      [`GSTIN: ${party.gstin || "—"}`],
-      [`Period: ${dateFrom ? fmtDate(dateFrom) : "Beginning"} to ${dateTo ? fmtDate(dateTo) : "Today"}`],
-      [`Generated: ${fmtDate(new Date().toISOString())}`],
-      [],
-    ];
-    const header = [
-      "Date",
-      "Txn Type",
-      "Ref No.",
-      "Payment Status",
-      "Total",
-      "Received/Paid",
-      "Txn Balance",
-      "Receivable Balance",
-      "Payable Balance",
-    ];
-    const body: string[][] = [];
-    for (const e of rows) {
-      body.push([
-        e.date ? fmtDate(e.date) : "",
-        e.type,
-        e.ref,
-        e.status || "",
-        e.total ? fmtMoney(e.total) : "",
-        e.receivedOrPaid ? fmtMoney(e.receivedOrPaid) : "",
-        e.txnBalance ? fmtMoney(e.txnBalance) : "",
-        recvCol(e.balance),
-        payCol(e.balance),
-      ]);
-      if (e.items?.length) {
-        body.push(["", "#", "Item name", "", "Quantity", "Price/Unit", "Amount", "", ""]);
-        e.items.forEach((it, i) => {
-          body.push([
-            "",
-            String(i + 1),
-            it.name,
-            "",
-            String(it.qty),
-            fmtMoney(it.price),
-            fmtMoney(it.amount),
-            "",
-            "",
-          ]);
-        });
-        const itemSubtotal = e.items.reduce((s, it) => s + it.amount, 0);
-        body.push(["", "", "", "", "", "Sub Total", fmtMoney(itemSubtotal), "", ""]);
-        for (const c of e.charges ?? []) {
-          body.push(["", "", "", "", "", c.label, fmtMoney(c.amount), "", ""]);
-        }
-      }
-    }
-    const closingRecv = Math.max(0, balance);
-    const closingPay = Math.max(0, -balance);
-    const closing = [
-      "",
-      "",
-      "Closing Balance",
-      "",
-      "",
-      "",
-      "",
-      closingRecv ? fmtMoney(closingRecv) : "",
-      closingPay ? fmtMoney(closingPay) : "",
-    ];
-    const allRows = [...meta, header, ...body, [], closing];
-    downloadCsv(`Statement-${party.name}`, allRows[0], allRows.slice(1));
-    toast.success("Statement downloaded");
+    const periodLabel = `${dateFrom ? fmtDate(dateFrom) : "Beginning"} to ${dateTo ? fmtDate(dateTo) : "Today"}`;
+    // Real .xlsx via the same builder the Party Ledger report uses — proper
+    // column widths and numeric amount cells (the old CSV version opened
+    // with every column truncated in Excel/WPS/Numbers)
+    downloadXlsx(`Statement-${party.name}`, [
+      partyStatementSheet(party, rows, company, periodLabel),
+    ]);
+    toast.success("Statement downloaded as Excel");
   };
 
   return (

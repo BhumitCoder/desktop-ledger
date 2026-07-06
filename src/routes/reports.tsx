@@ -16,6 +16,7 @@ import { printWithName } from "@/lib/print";
 import { computeCogs, buildPartyStatement } from "@/lib/ledger";
 import { downloadCsv } from "@/lib/csv";
 import { downloadXlsx } from "@/lib/xlsx";
+import { partyStatementSheet } from "@/lib/partySheet";
 import { PartyStatementRowBlock } from "./parties_.$id";
 import { fmtMode } from "@/components/ModePills";
 import {
@@ -502,79 +503,9 @@ function ReportView({
 
     const company = CompanyRepo.get();
     const periodLabel = `${dateFrom ? fmtDate(dateFrom) : "Beginning"} to ${dateTo ? fmtDate(dateTo) : "Today"}`;
-    const recvCol = (n: number) => (n > 0 ? fmtMoney(n) : "");
-    const payCol = (n: number) => (n < 0 ? fmtMoney(-n) : "");
-    const sheets = perParty.map(({ party: p, ledger }) => {
-      const closing = closingOf(ledger.rows);
-      const meta: string[][] = [
-        ["Party Statement"],
-        [`Company: ${company.name}`],
-        [`Party: ${p.name}`],
-        [`Phone: ${p.phone || "—"}`],
-        [`GSTIN: ${p.gstin || "—"}`],
-        [`Period: ${periodLabel}`],
-        [`Generated: ${fmtDate(new Date().toISOString())}`],
-        [],
-      ];
-      const header = [
-        "Date",
-        "Txn Type",
-        "Ref No.",
-        "Payment Status",
-        "Total",
-        "Received/Paid",
-        "Txn Balance",
-        "Receivable Balance",
-        "Payable Balance",
-      ];
-      const body: string[][] = [];
-      for (const r of ledger.rows) {
-        body.push([
-          r.date ? fmtDate(r.date) : "",
-          r.type,
-          r.ref,
-          r.status || "",
-          r.total ? fmtMoney(r.total) : "",
-          r.receivedOrPaid ? fmtMoney(r.receivedOrPaid) : "",
-          r.txnBalance ? fmtMoney(r.txnBalance) : "",
-          recvCol(r.balance),
-          payCol(r.balance),
-        ]);
-        if (r.items?.length) {
-          body.push(["", "#", "Item name", "", "Quantity", "Price/Unit", "Amount", "", ""]);
-          r.items.forEach((it, i) => {
-            body.push([
-              "",
-              String(i + 1),
-              it.name,
-              "",
-              String(it.qty),
-              fmtMoney(it.price),
-              fmtMoney(it.amount),
-              "",
-              "",
-            ]);
-          });
-          const itemSubtotal = r.items.reduce((s, it) => s + it.amount, 0);
-          body.push(["", "", "", "", "", "Sub Total", fmtMoney(itemSubtotal), "", ""]);
-          for (const c of r.charges ?? []) {
-            body.push(["", "", "", "", "", c.label, fmtMoney(c.amount), "", ""]);
-          }
-        }
-      }
-      const closingRow = [
-        "",
-        "",
-        "Closing Balance",
-        "",
-        "",
-        "",
-        "",
-        closing > 0 ? fmtMoney(closing) : "",
-        closing < 0 ? fmtMoney(-closing) : "",
-      ];
-      return { name: p.name, rows: [...meta, header, ...body, [], closingRow] };
-    });
+    const sheets = perParty.map(({ party: p, ledger }) =>
+      partyStatementSheet(p, ledger.rows, company, periodLabel),
+    );
 
     const openRow = (r: { docId?: string; docKind?: string }) => {
       if (!r.docId || !r.docKind) return;
