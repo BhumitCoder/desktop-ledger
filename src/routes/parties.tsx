@@ -77,6 +77,8 @@ function PartiesPage() {
   );
   const receivable = customerBalances.reduce((a, b) => a + Math.max(0, b.balance), 0);
   const payable = supplierBalances.reduce((a, b) => a + Math.max(0, b.balance), 0);
+  const receivableByParty = new Map(customerBalances.map((b) => [b.partyId, Math.max(0, b.balance)]));
+  const payableByParty = new Map(supplierBalances.map((b) => [b.partyId, Math.max(0, b.balance)]));
 
   const columns: Column<Party>[] = [
     {
@@ -87,12 +89,34 @@ function PartiesPage() {
     },
     { key: "phone", label: "Phone", width: "160px", render: (r) => r.phone ?? "—" },
     {
-      key: "balance",
-      label: "Opening Balance",
+      key: "receivable",
+      label: "Receivable",
       align: "right",
-      width: "150px",
-      render: (r) => fmtMoney(r.openingBalance),
-      sortValue: (r) => r.openingBalance,
+      width: "130px",
+      render: (r) => {
+        const v = receivableByParty.get(r.id) ?? 0;
+        return v > 0 ? (
+          <span className="text-rose-600 font-medium">{fmtMoney(v)}</span>
+        ) : (
+          "—"
+        );
+      },
+      sortValue: (r) => receivableByParty.get(r.id) ?? 0,
+    },
+    {
+      key: "payable",
+      label: "Payable",
+      align: "right",
+      width: "130px",
+      render: (r) => {
+        const v = payableByParty.get(r.id) ?? 0;
+        return v > 0 ? (
+          <span className="text-amber-600 font-medium">{fmtMoney(v)}</span>
+        ) : (
+          "—"
+        );
+      },
+      sortValue: (r) => payableByParty.get(r.id) ?? 0,
     },
     {
       key: "credit",
