@@ -25,6 +25,7 @@ import {
   Users,
   ArrowDownCircle,
   ArrowUpCircle,
+  AlertTriangle,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -222,11 +223,13 @@ export function PartyDialog({
   const firstRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState<Partial<Party>>({});
   const [saving, setSaving] = useState(false);
+  const [nameOpen, setNameOpen] = useState(false);
 
   useEffect(() => {
     if (open) {
       setForm(party ?? { type: "both", openingBalance: 0 });
       setSaving(false);
+      setNameOpen(false);
       setTimeout(() => firstRef.current?.focus(), 50);
     }
   }, [open, party]);
@@ -264,6 +267,16 @@ export function PartyDialog({
     onOpenChange(false);
   };
 
+  // Live "does this already exist?" hint — the exact-match case is hard
+  // blocked on save, but a near-match (extra word, different spacing) isn't
+  // an error, just something the client asked to be warned about before
+  // they commit to a possible duplicate.
+  const nameQ = (form.name ?? "").trim().toLowerCase();
+  const similarPartiesAll = nameQ
+    ? PartyRepo.all().filter((p) => p.id !== party?.id && p.name.trim().toLowerCase().includes(nameQ))
+    : [];
+  const similarParties = similarPartiesAll.slice(0, 5);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -276,12 +289,41 @@ export function PartyDialog({
           <DialogTitle>{party ? "Edit Party" : "New Party"}</DialogTitle>
         </DialogHeader>
         <form onSubmit={save} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Field
-            ref={firstRef}
-            label="Name *"
-            value={form.name ?? ""}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-          />
+          <div className="relative">
+            <Field
+              ref={firstRef}
+              label="Name *"
+              value={form.name ?? ""}
+              onChange={(e) => {
+                setForm({ ...form, name: e.target.value });
+                setNameOpen(true);
+              }}
+              onFocus={() => setNameOpen(true)}
+              onBlur={() => setTimeout(() => setNameOpen(false), 150)}
+              autoComplete="off"
+            />
+            {nameOpen && similarParties.length > 0 && (
+              <div className="absolute z-30 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-elevated max-h-52 overflow-auto">
+                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600 bg-amber-50 border-b flex items-center gap-1.5">
+                  <AlertTriangle className="h-3 w-3" />
+                  {similarPartiesAll.length === 1 ? "Similar party exists" : "Similar parties exist"}
+                  — check before saving
+                </div>
+                {similarParties.map((p) => (
+                  <div key={p.id} className="px-3 py-2 text-sm flex items-center justify-between">
+                    <span className="font-medium">{p.name}</span>
+                    {p.phone && <span className="text-[11px] text-muted-foreground">{p.phone}</span>}
+                  </div>
+                ))}
+                {similarPartiesAll.length > similarParties.length && (
+                  <div className="px-3 py-1.5 text-[11px] text-muted-foreground border-t">
+                    +{similarPartiesAll.length - similarParties.length} more match
+                    {similarPartiesAll.length - similarParties.length > 1 ? "es" : ""}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
           <Field
             label="Phone"
             value={form.phone ?? ""}

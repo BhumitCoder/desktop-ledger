@@ -31,6 +31,7 @@ import {
   Pencil,
   Check,
   Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import { PrintableInvoice } from "@/components/PrintableInvoice";
 import { NumInput } from "@/components/NumInput";
@@ -1108,13 +1109,25 @@ export function InvoiceForm({ mode, existing }: Props) {
       <QuickAddPartyDialog
         draft={quickAddParty}
         isSale={isSale}
+        existingParties={allParties}
         onCancel={() => setQuickAddParty(null)}
+        onPickExisting={(p) => {
+          setQuickAddParty(null);
+          selectParty(p);
+        }}
         onConfirm={confirmQuickAddParty}
       />
       <QuickAddItemDialog
         draft={quickAddItem}
         isSale={isSale}
+        existingItems={items}
         onCancel={() => setQuickAddItem(null)}
+        onPickExisting={(it) => {
+          if (!quickAddItem) return;
+          focusQtyId.current = addLineItem(it);
+          completePendingRow(quickAddItem.rowId);
+          setQuickAddItem(null);
+        }}
         onConfirm={confirmQuickAddItem}
       />
     </div>
@@ -1343,12 +1356,16 @@ function ItemEntryRow({
 function QuickAddItemDialog({
   draft,
   isSale,
+  existingItems = [],
   onCancel,
+  onPickExisting,
   onConfirm,
 }: {
   draft: { name: string; rowId: string } | null;
   isSale: boolean;
+  existingItems?: Item[];
   onCancel: () => void;
+  onPickExisting?: (it: Item) => void;
   onConfirm: (details: {
     name: string;
     unit: string;
@@ -1362,6 +1379,7 @@ function QuickAddItemDialog({
   const [gstRate, setGstRate] = useState(0);
   const [salePrice, setSalePrice] = useState(0);
   const [purchasePrice, setPurchasePrice] = useState(0);
+  const [nameOpen, setNameOpen] = useState(false);
   const firstRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -1371,6 +1389,7 @@ function QuickAddItemDialog({
       setGstRate(0);
       setSalePrice(0);
       setPurchasePrice(0);
+      setNameOpen(false);
       setTimeout(() => firstRef.current?.focus(), 50);
     }
   }, [draft]);
@@ -1386,6 +1405,15 @@ function QuickAddItemDialog({
     onConfirm({ name, unit, gstRate, salePrice, purchasePrice });
   };
 
+  // Live "does this already exist?" hint — the name typed at the counter
+  // didn't exactly match anyone, but if they edit it here into something
+  // close to an existing item, flag it before a near-duplicate gets created.
+  const nameQ = name.trim().toLowerCase();
+  const similarItemsAll = nameQ
+    ? existingItems.filter((it) => it.name.trim().toLowerCase().includes(nameQ))
+    : [];
+  const similarItems = similarItemsAll.slice(0, 5);
+
   return (
     <Dialog open onOpenChange={(v) => !v && onCancel()}>
       <DialogContent className="max-w-md">
@@ -1400,13 +1428,50 @@ function QuickAddItemDialog({
           this {isSale ? "invoice" : "bill"}.
         </p>
         <form onSubmit={submit} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="col-span-2">
+          <div className="col-span-2 relative">
             <Field
               ref={firstRef}
               label="Name *"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                setNameOpen(true);
+              }}
+              onFocus={() => setNameOpen(true)}
+              onBlur={() => setTimeout(() => setNameOpen(false), 150)}
+              autoComplete="off"
             />
+            {nameOpen && similarItems.length > 0 && (
+              <div className="absolute z-30 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-elevated max-h-52 overflow-auto">
+                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600 bg-amber-50 border-b flex items-center gap-1.5">
+                  <AlertTriangle className="h-3 w-3" />
+                  {similarItemsAll.length === 1 ? "Similar item exists" : "Similar items exist"} —
+                  click to use it instead
+                </div>
+                {similarItems.map((it) => (
+                  <div
+                    key={it.id}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      onPickExisting?.(it);
+                      setNameOpen(false);
+                    }}
+                    className="px-3 py-2 text-sm cursor-pointer hover:bg-accent flex items-center justify-between"
+                  >
+                    <span className="font-medium">{it.name}</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      Stock: {it.stock} {it.unit}
+                    </span>
+                  </div>
+                ))}
+                {similarItemsAll.length > similarItems.length && (
+                  <div className="px-3 py-1.5 text-[11px] text-muted-foreground border-t">
+                    +{similarItemsAll.length - similarItems.length} more match
+                    {similarItemsAll.length - similarItems.length > 1 ? "es" : ""}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           <Field label="Unit" value={unit} onChange={(e) => setUnit(e.target.value)} />
           <Field
