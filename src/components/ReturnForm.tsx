@@ -317,17 +317,30 @@ export function ReturnForm({ mode }: Props) {
 
   const confirmQuickAddParty = (details: QuickAddPartyDetails) => {
     if (!quickAddParty) return;
+    const name = details.name.trim() || quickAddParty.name;
+    const phone = details.phone.trim();
+    setQuickAddParty(null);
+    // The name may have been EDITED inside the dialog — re-check so a
+    // same-phone or same-name party (any capitalisation) is reused, never
+    // duplicated. Mirrors InvoiceForm's confirmQuickAddParty.
+    const match =
+      (phone ? allParties.find((p) => (p.phone ?? "").trim() === phone) : undefined) ??
+      allParties.find((p) => p.name.trim().toLowerCase() === name.toLowerCase());
+    if (match) {
+      toast.info(`Using existing party: ${match.name}`);
+      finalizeSave({ id: match.id, name: match.name });
+      return;
+    }
     const newParty: Party = {
       id: genId(),
-      name: details.name.trim() || quickAddParty.name,
+      name,
       type: "both",
-      phone: details.phone.trim() || undefined,
+      phone: phone || undefined,
       openingBalance: details.openingBalance || 0,
       gstin: details.gstin.trim() || undefined,
       creditLimit: details.creditLimit || undefined,
       createdAt: new Date().toISOString(),
     };
-    setQuickAddParty(null);
     finalizeSave({ create: newParty });
   };
 
