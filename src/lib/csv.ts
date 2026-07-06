@@ -2,8 +2,29 @@ import { today } from "@/lib/format";
 
 /** Parse RFC4180-ish CSV text into rows of string cells. Handles quoted
  * fields, embedded commas/newlines, escaped `""`, and a leading BOM. */
+/** Pick the delimiter that appears most in the header line — Numbers and
+ * European-locale Excel export semicolon-separated "CSV", and Excel's
+ * "Text (Tab delimited)" uses tabs. Comma wins ties. */
+function detectDelimiter(text: string): string {
+  const idxN = text.indexOf("\n");
+  const idxR = text.indexOf("\r");
+  const cut = Math.min(idxN < 0 ? text.length : idxN, idxR < 0 ? text.length : idxR);
+  const firstLine = text.slice(0, cut);
+  let best = ",";
+  let bestCount = firstLine.split(",").length - 1;
+  for (const d of [";", "\t"]) {
+    const count = firstLine.split(d).length - 1;
+    if (count > bestCount) {
+      best = d;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
 export function parseCsv(text: string): string[][] {
   const clean = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  const delimiter = detectDelimiter(clean);
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
@@ -26,7 +47,7 @@ export function parseCsv(text: string): string[][] {
     }
     if (c === '"') {
       inQuotes = true;
-    } else if (c === ",") {
+    } else if (c === delimiter) {
       row.push(field);
       field = "";
     } else if (c === "\n" || c === "\r") {

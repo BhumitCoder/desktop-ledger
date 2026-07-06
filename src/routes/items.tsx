@@ -905,7 +905,31 @@ function BulkImportDialog({
     const file = e.target.files?.[0];
     if (!file) return;
     setFileName(file.name);
-    setRows(buildPreview(await file.text(), ItemRepo.all()));
+    // Decode by BOM — Excel's "Unicode Text" export is UTF-16, which read
+    // as UTF-8 turns into garbage and every row silently errors
+    const buf = await file.arrayBuffer();
+    const b = new Uint8Array(buf);
+    const text =
+      b[0] === 0xff && b[1] === 0xfe
+        ? new TextDecoder("utf-16le").decode(buf)
+        : b[0] === 0xfe && b[1] === 0xff
+          ? new TextDecoder("utf-16be").decode(buf)
+          : new TextDecoder("utf-8").decode(buf);
+    const table = parseCsv(text);
+    if (!table.length) {
+      toast.error("File looks empty or unreadable — export it as CSV and try again");
+      setRows([]);
+      return;
+    }
+    const header = table[0].map(normalizeHeader);
+    if (!HEADER_ALIASES.name.some((a) => header.includes(a))) {
+      toast.error(
+        `No "Name" column found. First row of your file: "${table[0].join(", ").slice(0, 100)}" — download the Sample CSV to see the expected format`,
+      );
+      setRows([]);
+      return;
+    }
+    setRows(buildPreview(text, ItemRepo.all()));
   };
 
   const newCount = rows.filter((r) => r.status === "new").length;

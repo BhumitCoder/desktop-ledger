@@ -43,7 +43,15 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, ...props }, ref) => {
     const Comp = asChild ? Slot : "button";
     return (
-      <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />
+      <Comp
+        className={cn(buttonVariants({ variant, size, className }))}
+        ref={ref}
+        // Explicit tabindex: macOS Safari skips <button> elements when
+        // Tabbing unless tabindex is set — without this, keyboard users on
+        // Mac can never Tab to Save/Cancel in any form or dialog.
+        tabIndex={0}
+        {...props}
+      />
     );
   },
 );

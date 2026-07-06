@@ -1023,6 +1023,22 @@ export function InvoiceForm({ mode, existing }: Props) {
                   {fmtMoney(Math.max(0, inv.total - inv.paid))}
                 </span>
               </div>
+              {/* End of the Tab journey: Save right where the cashier finishes
+                  typing — explicit tabindex so macOS Safari can Tab to it */}
+              <button
+                type="button"
+                tabIndex={0}
+                onClick={() => save()}
+                disabled={saving}
+                className="w-full h-10 mt-3 rounded-md bg-primary text-primary-foreground font-bold text-sm hover:opacity-90 transition disabled:opacity-60 flex items-center justify-center gap-2 outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2"
+              >
+                {saving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                {saving ? "Saving…" : `Save ${isSale ? "Sale" : "Purchase"}`}
+              </button>
             </div>
           </div>
 
