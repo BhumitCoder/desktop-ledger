@@ -287,7 +287,11 @@ function PaymentsPage() {
           footer={
             <tr>
               <td colSpan={6}>
-                Received: {fmtMoney(totalIn)} · Paid Out: {fmtMoney(totalOut)}
+                Received <span className="text-gray-300">|</span>{" "}
+                <span className="tabular-nums">{fmtMoney(totalIn)}</span>
+                <span className="text-gray-300"> · </span>
+                Paid Out <span className="text-gray-300">|</span>{" "}
+                <span className="tabular-nums">{fmtMoney(totalOut)}</span>
               </td>
               <td className="text-right tabular-nums">{fmtMoney(net)}</td>
               <td />
