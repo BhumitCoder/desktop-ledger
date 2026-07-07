@@ -118,7 +118,16 @@
       "Bash(git --no-pager diff -- .claude/settings.json)",
       "Bash(git --no-pager diff -- src/components/NumInput.tsx)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(git --no-pager diff --stat .claude/settings.json)",
+      "Bash(git --no-pager diff .claude/settings.json)",
+      "Bash(cd \"c:/Users/bhumi/Downloads/desktop-ledger\" && grep -n \"landscape\\\\|renderPdf\\\\|downloadPdf\\\\|sharePdf\" src/routes/sales.\\\\$id.tsx src/lib/pdf.ts | head -40)",
+      "Bash(cd \"c:/Users/bhumi/Downloads/desktop-ledger\" && grep -n \"a4-2up\\\\|fmt ===\\\\|SelectItem\\\\|option\" src/routes/sales.\\\\$id.tsx | head -30)",
+      "Bash(cd \"c:/Users/bhumi/Downloads/desktop-ledger\" && grep -n \"value:.*label:\" src/routes/sales.\\\\$id.tsx)",
+      "Bash(cd \"c:/Users/bhumi/Downloads/desktop-ledger\" && wc -l src/routes/sales.\\\\$id.tsx src/routes/purchase.\\\\$id.tsx)",
+      "Bash(cd \"c:/Users/bhumi/Downloads/desktop-ledger\" && grep -c \"downloadElementAsPdf\\\\|shareElementAsPdf\" src/routes/purchase-return.\\\\$id.tsx src/routes/sale-return.\\\\$id.tsx src/routes/bank_.\\\\$id.tsx)",
+      "Bash(grep -i 'purchase.$id\\\\|purchase\\\\.\\\\$id')"
     ],
     "additionalDirectories": [
       "c:\\Users\\bhumi\\Downloads\\desktop-ledger\\.vercel"
