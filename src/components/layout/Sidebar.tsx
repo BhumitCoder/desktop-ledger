@@ -91,6 +91,12 @@ const groups: NavGroup[] = [
   { title: "System", items: [{ path: "/settings", label: "Settings", icon: Settings, key: "8" }] },
 ];
 
+// Plain startsWith("/purchase") also matches "/purchase-return" — require a
+// "/" boundary after the prefix so sibling routes with a shared prefix
+// (purchase vs. purchase-return, sale vs. sale-return) don't both light up.
+const matchesPath = (pathname: string, path: string) =>
+  path === "/" ? pathname === "/" : pathname === path || pathname.startsWith(`${path}/`);
+
 export function Sidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const collapsed = useWorkspace((s) => s.sidebarCollapsed);
@@ -108,8 +114,7 @@ export function Sidebar() {
     setOpenGroups((prev) => ({ ...prev, [title]: !prev[title] }));
 
   // Auto-expand group if the active route belongs to it
-  const isGroupActive = (g: NavGroup) =>
-    g.items.some((it) => it.path === pathname || (it.path !== "/" && pathname.startsWith(it.path)));
+  const isGroupActive = (g: NavGroup) => g.items.some((it) => matchesPath(pathname, it.path));
 
   return (
     <>
@@ -177,8 +182,7 @@ export function Sidebar() {
 
                 {(collapsed || isOpen) &&
                   g.items.map((it) => {
-                    const itemActive =
-                      pathname === it.path || (it.path !== "/" && pathname.startsWith(it.path));
+                    const itemActive = matchesPath(pathname, it.path);
                     const Icon = it.icon;
                     return (
                       <Link
