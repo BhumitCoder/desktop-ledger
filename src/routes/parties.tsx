@@ -178,8 +178,8 @@ function PartiesPage() {
           footer={
             <tr>
               <td colSpan={2}>Total ({filtered.length} parties)</td>
-              <td className="text-right tabular-nums">Receivable: {fmtMoney(receivable)}</td>
-              <td className="text-right tabular-nums">Payable: {fmtMoney(payable)}</td>
+              <td className="text-right tabular-nums">{fmtMoney(receivable)}</td>
+              <td className="text-right tabular-nums">{fmtMoney(payable)}</td>
               <td colSpan={2} />
             </tr>
           }

@@ -880,15 +880,12 @@ function TableReport({
         </div>
       )}
       <div className="bg-white border border-gray-200/80 rounded-xl shadow-card overflow-hidden">
-        <div className="overflow-auto max-h-[calc(100vh-300px)]">
-          <table className="w-full text-[12.5px] border-collapse min-w-max">
-            <thead className="sticky top-0">
-              <tr className="bg-gray-50/80">
+        <div className="data-table overflow-auto max-h-[calc(100vh-300px)]">
+          <table className="w-full text-[12.5px] min-w-max">
+            <thead>
+              <tr>
                 {cols.map((c, i) => (
-                  <th
-                    key={c}
-                    className={`px-5 py-3 text-[10px] font-semibold uppercase tracking-wider text-gray-500 border-b border-gray-200/80 whitespace-nowrap ${i > 0 ? "text-right" : "text-left"}`}
-                  >
+                  <th key={c} style={{ textAlign: i > 0 ? "right" : "left" }}>
                     {c}
                   </th>
                 ))}
@@ -896,11 +893,12 @@ function TableReport({
             </thead>
             <tbody>
               {rows.map((row, ri) => (
-                <tr key={ri} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/70 transition-colors">
+                <tr key={ri}>
                   {row.map((cell, ci) => (
                     <td
                       key={ci}
-                      className={`px-5 py-3 ${ci === 0 ? "font-medium text-gray-800 text-left" : "text-right text-gray-700 tabular-nums"}`}
+                      style={{ textAlign: ci === 0 ? "left" : "right" }}
+                      className={ci === 0 ? "font-medium text-gray-800" : "text-gray-700 tabular-nums"}
                     >
                       {cell}
                     </td>
@@ -911,10 +909,12 @@ function TableReport({
           </table>
         </div>
         {totalRows.length > 0 && (
-          <div className="border-t border-gray-200/80 bg-gray-50/60 px-5 py-3.5 flex flex-wrap gap-x-8 gap-y-1">
-            {totalRows.map(([k, v]) => (
-              <div key={k} className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-gray-500">{k}:</span>
+          <div className="border-t border-gray-200/80 bg-gray-50/60 px-5 py-3 flex flex-wrap items-center gap-3">
+            {totalRows.map(([k, v], i) => (
+              <div key={i} className="flex items-center gap-3">
+                {i > 0 && <span className="text-gray-300">•</span>}
+                {k && <span className="text-xs font-semibold text-gray-500">{k}</span>}
+                <span className="text-gray-300">|</span>
                 <span className="text-sm font-bold text-gray-800 tabular-nums">{v}</span>
               </div>
             ))}

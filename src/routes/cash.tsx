@@ -151,8 +151,10 @@ function CashPage() {
           emptyMessage={entries.length === 0 ? "No cash transactions yet" : "No matches for your search"}
           footer={
             <tr>
-              <td colSpan={2}>Total</td>
-              <td>Balance: {fmtMoney(balance)}</td>
+              <td colSpan={3}>
+                Total <span className="text-gray-300">|</span>{" "}
+                <span className="tabular-nums">{fmtMoney(balance)}</span>
+              </td>
               <td className="text-right tabular-nums">{fmtMoney(totalIn)}</td>
               <td className="text-right tabular-nums">{fmtMoney(totalOut)}</td>
             </tr>

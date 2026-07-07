@@ -156,7 +156,7 @@ function InventoryPage() {
               <td colSpan={4}>Total ({filtered.length} items)</td>
               <td colSpan={2}>{lowCount > 0 ? `${lowCount} low on stock` : "All stocked"}</td>
               <td colSpan={2} className="text-right tabular-nums">
-                Stock Value: {fmtMoney(totalValue)}
+                {fmtMoney(totalValue)}
               </td>
             </tr>
           }
