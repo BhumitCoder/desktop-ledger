@@ -22,6 +22,7 @@ import {
   ChevronDown,
   ChevronRight,
   LogOut,
+  UserSquare2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWorkspace } from "@/store/workspace";
@@ -64,6 +65,7 @@ const groups: NavGroup[] = [
       { path: "/purchase", label: "Purchase", icon: Truck, key: "5" },
       { path: "/purchase-return", label: "Purchase Return", icon: CornerUpLeft },
       { path: "/expenses", label: "Expenses", icon: Receipt, key: "6" },
+      { path: "/payees", label: "Expense Payees", icon: UserSquare2 },
     ],
   },
   // {

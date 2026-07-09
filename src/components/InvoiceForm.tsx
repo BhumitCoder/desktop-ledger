@@ -165,6 +165,11 @@ export function InvoiceForm({ mode, existing }: Props) {
   const [bankQ, setBankQ] = useState("");
   const [bankOpen, setBankOpen] = useState(false);
   const [bankIdx, setBankIdx] = useState(0);
+  // Enter should only commit a bank pick once the user has typed or
+  // arrow-navigated — a reflex Enter right after the dropdown opens on
+  // focus (showing every bank account) shouldn't silently pick whichever
+  // one happens to be first.
+  const [bankNavigated, setBankNavigated] = useState(false);
   useEffect(() => {
     setBankQ(banks.find((b) => b.id === inv.bankId)?.name ?? "");
   }, [inv.bankId, banks]);
@@ -1092,14 +1097,15 @@ export function InvoiceForm({ mode, existing }: Props) {
                 <span className="text-muted-foreground">Payment Mode</span>
                 <ModePills
                   value={inv.paymentMode}
-                  onChange={(newMode: PaymentMode) =>
+                  onChange={(newMode: PaymentMode) => {
+                    if (newMode !== "bank") setBankNavigated(false);
                     setInv({
                       ...inv,
                       paymentMode: newMode,
                       paid: newMode === "credit" ? 0 : inv.paid,
                       bankId: newMode === "bank" ? inv.bankId : undefined,
-                    })
-                  }
+                    });
+                  }}
                   modes={["cash", "bank", "credit"]}
                 />
               </div>
@@ -1120,13 +1126,17 @@ export function InvoiceForm({ mode, existing }: Props) {
                     onKeyDown={(e) => {
                       if (e.key === "ArrowDown") {
                         e.preventDefault();
+                        setBankNavigated(true);
                         setBankIdx((i) => Math.min(bankSuggests.length - 1, i + 1));
                       } else if (e.key === "ArrowUp") {
                         e.preventDefault();
+                        setBankNavigated(true);
                         setBankIdx((i) => Math.max(0, i - 1));
                       } else if (e.key === "Enter") {
                         e.preventDefault();
-                        if (bankSuggests[bankIdx]) selectBank(bankSuggests[bankIdx]);
+                        if (bankSuggests[bankIdx] && (bankQ.trim() || bankNavigated)) {
+                          selectBank(bankSuggests[bankIdx]);
+                        }
                       }
                     }}
                     placeholder="Search bank account…"
