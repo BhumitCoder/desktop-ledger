@@ -227,8 +227,10 @@ function PartyStatementPage() {
         <div ref={printRef} className="print-visible bg-white border rounded-lg shadow-sm max-w-6xl mx-auto">
           {/* The statement is 9 columns wide plus a nested item table — too
               wide for portrait A4, so it gets cut off at the right edge on
-              print/PDF. Landscape gives it enough width to fit. */}
-          <style>{`@media print { @page { size: A4 landscape; margin: 12mm; } }`}</style>
+              print/PDF. Landscape gives it enough width to fit. No margin
+              here — .print-visible below already adds 12mm of its own via
+              padding; setting it again here on @page doubled it to 24mm. */}
+          <style>{`@media print { @page { size: A4 landscape; margin: 0; } }`}</style>
           <div className="px-5 py-3 border-b flex items-center justify-between gap-3 flex-wrap">
             <div>
             <p className="text-sm font-bold text-gray-800">Party Statement — {party.name}</p>

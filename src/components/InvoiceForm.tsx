@@ -138,6 +138,11 @@ export function InvoiceForm({ mode, existing }: Props) {
   const [phoneQ, setPhoneQ] = useState(existing?.partyPhone ?? "");
   const [partyOpen, setPartyOpen] = useState(false);
   const [partyIdx, setPartyIdx] = useState(0);
+  // Enter should only commit a party pick once the user has actually typed
+  // or arrow-navigated — otherwise a reflex Enter right after the dropdown
+  // opens on focus (now showing the full list) would silently pick whatever
+  // party happens to be first.
+  const [partyNavigated, setPartyNavigated] = useState(false);
   const [numberEditing, setNumberEditing] = useState(false);
   const numberRef = useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
@@ -192,7 +197,9 @@ export function InvoiceForm({ mode, existing }: Props) {
   const partySuggests = useMemo(() => {
     const q = partyQ.trim().toLowerCase();
     const pq = phoneQ.trim();
-    if (!q && !pq) return [];
+    // Empty query — browse the full party list (like a combobox), instead
+    // of showing nothing until the user starts typing.
+    if (!q && !pq) return parties.slice(0, 8);
     return parties
       .filter(
         (p) => (q && p.name.toLowerCase().includes(q)) || (pq && (p.phone ?? "").includes(pq)),
@@ -245,6 +252,7 @@ export function InvoiceForm({ mode, existing }: Props) {
     setInv({ ...inv, partyId: "", partyName: "", partyPhone: "" });
     setPartyQ("");
     setPhoneQ("");
+    setPartyNavigated(false);
     setTimeout(() => partyRef.current?.focus(), 30);
   };
 
@@ -783,14 +791,17 @@ export function InvoiceForm({ mode, existing }: Props) {
                     onKeyDown={(e) => {
                       if (e.key === "ArrowDown") {
                         e.preventDefault();
+                        setPartyNavigated(true);
                         setPartyIdx((i) => Math.min(partySuggests.length - 1, i + 1));
                       } else if (e.key === "ArrowUp") {
                         e.preventDefault();
+                        setPartyNavigated(true);
                         setPartyIdx((i) => Math.max(0, i - 1));
                       } else if (e.key === "Enter") {
                         e.preventDefault();
-                        if (partySuggests[partyIdx]) selectParty(partySuggests[partyIdx]);
-                        else phoneRef.current?.focus();
+                        if (partySuggests[partyIdx] && (partyQ.trim() || partyNavigated)) {
+                          selectParty(partySuggests[partyIdx]);
+                        } else phoneRef.current?.focus();
                       }
                     }}
                     className="h-9 px-3 border rounded-md bg-background focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none flex-1"
@@ -1291,6 +1302,10 @@ function ItemEntryRow({
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [idx, setIdx] = useState(0);
+  // Enter should only commit a pick once the user has typed or
+  // arrow-navigated — a reflex Enter right after the dropdown opens on
+  // focus (now showing every item) shouldn't silently add a phantom line.
+  const [navigated, setNavigated] = useState(false);
   const inputElRef = useRef<HTMLInputElement | null>(null);
   const [dropdownRect, setDropdownRect] = useState<{
     top: number;
@@ -1321,8 +1336,9 @@ function ItemEntryRow({
     };
   }, [open]);
 
-  // Empty query = NO suggestions — otherwise Enter/ArrowDown on the empty box
-  // would act on an invisible list of all items and add a phantom line
+  // Empty query — browse the full item catalog (like a combobox), instead
+  // of showing nothing until the user starts typing. Enter is still guarded
+  // against silently adding a phantom line (see `navigated` above).
   const suggests = q.trim()
     ? items
         .filter(
@@ -1332,7 +1348,7 @@ function ItemEntryRow({
             i.barcode?.includes(q),
         )
         .slice(0, 8)
-    : [];
+    : items.slice(0, 8);
 
   // Offer "add as new item" whenever the typed name doesn't exactly match an existing one
   const trimmed = q.trim();
@@ -1365,18 +1381,20 @@ function ItemEntryRow({
             setOpen(true);
             setIdx(0);
           }}
-          onFocus={() => q && setOpen(true)}
+          onFocus={() => setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
           onKeyDown={(e) => {
             if (e.key === "ArrowDown") {
               e.preventDefault();
+              setNavigated(true);
               setIdx((i) => Math.min(optionCount - 1, i + 1));
             } else if (e.key === "ArrowUp") {
               e.preventDefault();
+              setNavigated(true);
               setIdx((i) => Math.max(0, i - 1));
             } else if (e.key === "Enter") {
               e.preventDefault();
-              if (optionCount > 0) choose(idx);
+              if (optionCount > 0 && (q.trim() || navigated)) choose(idx);
             }
           }}
           placeholder="Type item name to add…"
