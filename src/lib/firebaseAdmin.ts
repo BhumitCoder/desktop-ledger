@@ -57,7 +57,12 @@ export async function getAdminDb() {
       const admin = (await import("firebase-admin")).default;
       const app = await getAdminApp();
       const db = admin.firestore(app);
-      db.settings({ databaseId: DATABASE_ID });
+      // preferRest is required on Vercel — the Admin SDK's default gRPC
+      // transport (google-gax/@grpc/grpc-js) doesn't survive Vite/Nitro's
+      // serverless bundling and throws "this._gaxModule.GrpcClient is not a
+      // constructor" at runtime. Plain HTTP has no such bundling dependency,
+      // and works identically for the low read/write volume here.
+      db.settings({ databaseId: DATABASE_ID, preferRest: true });
       return db;
     })();
   }
