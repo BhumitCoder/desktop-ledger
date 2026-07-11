@@ -1,14 +1,14 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { TeamUserRepo, subscribeTeamRoster } from "@/repositories";
 import { auth } from "@/lib/firebase";
-import { createTeamUserServerFn } from "@/lib/teamAdmin";
+import { createTeamUserServerFn, deleteTeamUserServerFn } from "@/lib/teamAdmin";
 import type { ModuleKey, ModulePermission, TeamUser } from "@/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field } from "@/components/Field";
 import { toast } from "sonner";
-import { Plus, UserCog, ShieldCheck } from "lucide-react";
+import { Plus, UserCog, ShieldCheck, Trash2 } from "lucide-react";
 
 const MODULES: { key: ModuleKey; label: string }[] = [
   { key: "masterData", label: "Master Data" },
@@ -37,12 +37,35 @@ export function TeamSection() {
     return () => TeamUserRepo.stopRoster();
   }, []);
 
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
   const toggleActive = async (u: TeamUser) => {
     try {
       await TeamUserRepo.update(u.id, { active: !u.active });
       toast.success(u.active ? `${u.name} deactivated` : `${u.name} reactivated`);
     } catch {
       toast.error("Could not update — check your internet connection");
+    }
+  };
+
+  const deleteMember = async (u: TeamUser) => {
+    if (
+      !confirm(
+        `Permanently delete ${u.name}'s login? This can't be undone — to just remove access ` +
+          `temporarily, use Deactivate instead.`,
+      )
+    )
+      return;
+    setDeletingId(u.id);
+    try {
+      const callerIdToken = await auth.currentUser?.getIdToken();
+      if (!callerIdToken) throw new Error("Not signed in");
+      await deleteTeamUserServerFn({ data: { callerIdToken, targetUid: u.id } });
+      toast.success(`${u.name} deleted`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not delete team member");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -86,6 +109,16 @@ export function TeamSection() {
                   onClick={() => toggleActive(u)}
                 >
                   {u.active ? "Deactivate" : "Reactivate"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-destructive hover:text-destructive"
+                  disabled={deletingId === u.id}
+                  onClick={() => deleteMember(u)}
+                  title="Permanently delete this login"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </div>
             )}

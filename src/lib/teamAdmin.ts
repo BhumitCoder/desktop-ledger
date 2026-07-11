@@ -63,3 +63,38 @@ export const createTeamUserServerFn = createServerFn({ method: "POST" })
 
     return { uid: userRecord.uid };
   });
+
+type DeleteTeamUserInput = { callerIdToken: string; targetUid: string };
+
+/**
+ * Permanently removes a team member's login, not just their access. Deleting
+ * only the Firestore doc (a plain client-side write) would leave the Firebase
+ * Auth account itself intact — they could still sign in, just with no
+ * permissions doc — so this has to go through the Admin SDK too, same as
+ * creation. Deactivating (TeamUserRepo.update active:false) stays the normal,
+ * reversible way to remove access; this is for when the account itself
+ * should stop existing.
+ */
+export const deleteTeamUserServerFn = createServerFn({ method: "POST" })
+  .validator((data: unknown): DeleteTeamUserInput => {
+    const d = data as Partial<DeleteTeamUserInput>;
+    if (!d?.callerIdToken) throw new Error("Not authenticated");
+    if (!d.targetUid?.trim()) throw new Error("targetUid is required");
+    return { callerIdToken: d.callerIdToken, targetUid: d.targetUid.trim() };
+  })
+  .handler(async ({ data }) => {
+    await requireOwner(data.callerIdToken);
+    const auth = await getAdminAuth();
+    const db = await getAdminDb();
+
+    const targetDoc = await db.doc(`teamUsers/${data.targetUid}`).get();
+    const target = targetDoc.data();
+    if (target?.isOwner) {
+      throw new Error("The owner account can't be deleted.");
+    }
+
+    await auth.deleteUser(data.targetUid);
+    await db.doc(`teamUsers/${data.targetUid}`).delete();
+
+    return { ok: true };
+  });
