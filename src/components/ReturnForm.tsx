@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/Field";
@@ -77,14 +78,20 @@ export function ReturnForm({ mode }: Props) {
 
   const invSuggests = useMemo(() => {
     const q = invQ.trim().toLowerCase();
+    // Once a customer/supplier is picked, a return can only ever be against
+    // one of THEIR bills — scope the search to just their invoices instead
+    // of browsing every party's, same as the party field itself narrows
+    // things down first.
+    const pool = ret.partyId
+      ? invoiceRepo.all().filter((i) => i.partyId === ret.partyId)
+      : invoiceRepo.all();
     // Empty query — browse the most recent bills (already newest-first),
     // like every other search-as-you-type field in this app.
-    if (!q) return invoiceRepo.all().slice(0, 8);
-    return invoiceRepo
-      .all()
+    if (!q) return pool.slice(0, 8);
+    return pool
       .filter((i) => i.number.toLowerCase().includes(q) || i.partyName.toLowerCase().includes(q))
       .slice(0, 8);
-  }, [invQ, invoiceRepo]);
+  }, [invQ, invoiceRepo, ret.partyId]);
 
   const loadFromInvoice = (inv: Invoice) => {
     const lines = inv.lineItems.map((l) => ({ ...l, id: genId() }));
@@ -550,9 +557,10 @@ export function ReturnForm({ mode }: Props) {
             <span className="text-[13px] font-semibold">
               Returned Items ({ret.lineItems.length})
             </span>
-            <span className="text-[11px] text-muted-foreground">Search below to add items</span>
+            <span className="text-[11px] text-muted-foreground">
+              Search item to add, or pick the original bill to auto-load
+            </span>
           </div>
-          <ReturnItemSearchBar items={items} onAdd={addLineItem} />
           <div className="overflow-x-auto rounded-b-lg">
             <table className="w-full text-[13px] min-w-[640px]">
               <thead className="text-[11px] text-muted-foreground uppercase tracking-wider">
@@ -624,16 +632,7 @@ export function ReturnForm({ mode }: Props) {
                     </td>
                   </tr>
                 ))}
-                {ret.lineItems.length === 0 && (
-                  <tr className="border-t">
-                    <td
-                      colSpan={gstOn ? 9 : 8}
-                      className="px-3 py-6 text-center text-muted-foreground text-[12px]"
-                    >
-                      No items yet — search above, or pick the original bill to auto-load
-                    </td>
-                  </tr>
-                )}
+                <ReturnItemSearchRow items={items} onAdd={addLineItem} gstOn={gstOn} />
               </tbody>
             </table>
           </div>
@@ -685,13 +684,53 @@ export function ReturnForm({ mode }: Props) {
   );
 }
 
-function ReturnItemSearchBar({ items, onAdd }: { items: Item[]; onAdd: (i: Item) => void }) {
+// A real row in the same table as the filled line items — matching
+// InvoiceForm's pending-row pattern — instead of a standalone search bar
+// floating above it, so this looks and behaves the same as the Sales form.
+function ReturnItemSearchRow({
+  items,
+  onAdd,
+  gstOn,
+}: {
+  items: Item[];
+  onAdd: (i: Item) => void;
+  gstOn: boolean;
+}) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [idx, setIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [dropdownRect, setDropdownRect] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
+
+  // The row lives inside a horizontally-scrollable table (overflow-x-auto),
+  // which also forces overflow-y to "auto" — a plain absolutely positioned
+  // dropdown would get silently clipped by the table's own scroll box.
+  // Render it through a portal instead, positioned from the input's rect.
+  useEffect(() => {
+    if (!open) return;
+    const updateRect = () => {
+      const el = inputRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setDropdownRect({ top: r.bottom + 4, left: r.left, width: Math.max(r.width, 260) });
+    };
+    updateRect();
+    window.addEventListener("scroll", updateRect, true);
+    window.addEventListener("resize", updateRect);
+    return () => {
+      window.removeEventListener("scroll", updateRect, true);
+      window.removeEventListener("resize", updateRect);
+    };
+  }, [open]);
+
   // Empty query — browse the full item catalog (like a combobox), instead
-  // of showing nothing until the user starts typing.
+  // of showing nothing until the user starts typing. Enter always commits
+  // whichever row is highlighted (index 0 by default), matching what's
+  // visually shown as selected.
   const suggests = q.trim()
     ? items
         .filter(
@@ -710,9 +749,12 @@ function ReturnItemSearchBar({ items, onAdd }: { items: Item[]; onAdd: (i: Item)
     setIdx(0);
     setTimeout(() => inputRef.current?.focus(), 30);
   };
+
   return (
-    <div className="p-2 relative bg-primary-soft/30 border-b">
-      <input
+    <tr className="border-t hover:bg-accent/20">
+      <td className="px-3 py-1.5"></td>
+      <td className="px-3 py-1.5">
+        <input
           ref={inputRef}
           value={q}
           onChange={(e) => {
@@ -734,33 +776,82 @@ function ReturnItemSearchBar({ items, onAdd }: { items: Item[]; onAdd: (i: Item)
               if (suggests[idx]) pick(suggests[idx]);
             }
           }}
-          placeholder="🔍  Search item to add for return…"
-          className="w-full h-9 px-3 border rounded-md bg-background focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none text-sm"
+          placeholder="Search item to add for return…"
+          className="w-full h-8 px-2 border rounded bg-background focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none text-sm"
         />
-        {open && suggests.length > 0 && (
-          <div className="absolute z-30 top-full left-2 right-2 mt-1 border rounded-md bg-popover shadow-lg max-h-48 overflow-auto">
-            {suggests.map((it, i) => (
-              <div
-                key={it.id}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  pick(it);
-                }}
-                className={`px-3 py-2 cursor-pointer flex justify-between items-center ${i === idx ? "bg-accent" : "hover:bg-accent"}`}
-              >
-                <div>
-                  <span className="font-medium">{it.name}</span>
-                  {it.sku && (
-                    <span className="text-[11px] text-muted-foreground ml-2">{it.sku}</span>
-                  )}
+        {open &&
+          suggests.length > 0 &&
+          dropdownRect &&
+          createPortal(
+            <div
+              style={{
+                position: "fixed",
+                top: dropdownRect.top,
+                left: dropdownRect.left,
+                width: dropdownRect.width,
+              }}
+              className="z-50 border rounded-md bg-popover shadow-elevated max-h-72 overflow-auto"
+            >
+              {suggests.map((it, i) => (
+                <div
+                  key={it.id}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    pick(it);
+                  }}
+                  className={`px-3 py-2 text-sm cursor-pointer flex justify-between ${i === idx ? "bg-accent" : "hover:bg-accent"}`}
+                >
+                  <div>
+                    <div className="font-semibold">{it.name}</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      Stock: {it.stock} {it.unit}
+                    </div>
+                  </div>
                 </div>
-                <span className="text-[11px] text-muted-foreground">
-                  Stock: {it.stock} {it.unit}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-    </div>
+              ))}
+            </div>,
+            document.body,
+          )}
+      </td>
+      <td className="py-1.5 px-1">
+        <input
+          disabled
+          className="w-full h-7 px-1.5 text-right border rounded bg-muted/40 text-muted-foreground/50 outline-none cursor-not-allowed"
+        />
+      </td>
+      <td className="py-1.5 px-1">
+        <input
+          disabled
+          className="w-full h-7 px-1.5 border rounded bg-muted/40 text-muted-foreground/50 outline-none cursor-not-allowed"
+        />
+      </td>
+      <td className="py-1.5 px-1">
+        <input
+          disabled
+          className="w-full h-7 px-1.5 text-right border rounded bg-muted/40 text-muted-foreground/50 outline-none cursor-not-allowed"
+        />
+      </td>
+      <td className="py-1.5 px-1">
+        <input
+          disabled
+          className="w-full h-7 px-1.5 text-right border rounded bg-muted/40 text-muted-foreground/50 outline-none cursor-not-allowed"
+        />
+      </td>
+      {gstOn && (
+        <td className="py-1.5 px-1">
+          <input
+            disabled
+            className="w-full h-7 px-1.5 text-right border rounded bg-muted/40 text-muted-foreground/50 outline-none cursor-not-allowed"
+          />
+        </td>
+      )}
+      <td className="py-1.5 px-1">
+        <input
+          disabled
+          className="w-full h-7 px-1.5 text-right border rounded bg-muted/40 text-muted-foreground/50 outline-none cursor-not-allowed"
+        />
+      </td>
+      <td className="py-1.5 px-1"></td>
+    </tr>
   );
 }
