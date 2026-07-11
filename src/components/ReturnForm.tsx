@@ -159,6 +159,9 @@ export function ReturnForm({ mode }: Props) {
     setRet({ ...ret, partyId: p.id, partyName: p.name, partyPhone: p.phone ?? "" });
     setPartyQ(p.name);
     setPartyOpen(false);
+    // Straight to adding items next — the natural next step once the
+    // customer/supplier is picked.
+    setTimeout(() => document.getElementById("return-item-search")?.focus(), 30);
   };
 
   const addLineItem = (it: Item) => {
@@ -772,6 +775,7 @@ function ReturnItemSearchRow({
       <td className="px-3 py-1.5"></td>
       <td className="px-3 py-1.5">
         <input
+          id="return-item-search"
           ref={inputRef}
           value={q}
           onChange={(e) => {
