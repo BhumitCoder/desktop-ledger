@@ -87,14 +87,15 @@ export function WorkspaceTabs() {
         const Icon = iconForPath(tab.path);
         const pinnedWidth = pinnedWidths?.[tab.id];
         return (
-          <div
+          <Link
             key={tab.id}
+            to={tab.path}
             ref={(el) => {
-              tabElsRef.current[tab.id] = el;
+              tabElsRef.current[tab.id] = el as unknown as HTMLDivElement | null;
             }}
             style={pinnedWidth != null ? { flex: `0 0 ${pinnedWidth}px` } : undefined}
             className={cn(
-              "group relative flex items-center gap-2 h-10 pl-3 pr-1.5 rounded-t-xl text-[12.5px] cursor-pointer transition-all duration-150 min-w-[104px] max-w-[220px]",
+              "group relative flex items-center gap-1.5 h-10 pl-2.5 pr-1 rounded-t-xl text-[12.5px] cursor-pointer transition-all duration-150 min-w-[72px] max-w-[152px]",
               pinnedWidth != null ? "shrink-0 overflow-hidden" : "flex-1",
               active
                 ? "bg-background text-foreground font-semibold shadow-[0_-2px_8px_rgba(0,0,0,0.08)] -mb-px"
@@ -107,22 +108,21 @@ export function WorkspaceTabs() {
                 active ? "text-primary" : "text-muted-foreground/70 group-hover:text-foreground",
               )}
             />
-            <Link to={tab.path} className="truncate flex-1 min-w-0">
-              {tab.title}
-            </Link>
+            <span className="truncate flex-1 min-w-0">{tab.title}</span>
             <button
               onClick={(e) => {
                 e.preventDefault();
+                e.stopPropagation();
                 handleClose(tab.id, tab.path);
               }}
               className={cn(
-                "rounded-full p-0.5 hover:!opacity-100 hover:bg-accent transition-opacity",
+                "rounded-full p-0.5 hover:!opacity-100 hover:bg-accent transition-opacity shrink-0",
                 active ? "opacity-60" : "opacity-0 group-hover:opacity-60",
               )}
             >
               <X className="h-3 w-3" />
             </button>
-          </div>
+          </Link>
         );
       })}
     </div>
