@@ -380,7 +380,7 @@ function ReceivePaymentDialog({
 
   const suggests = partyQ.trim()
     ? allParties.filter((p) => p.name.toLowerCase().includes(partyQ.toLowerCase())).slice(0, 6)
-    : [];
+    : allParties.slice(0, 6);
 
   const bankSuggests = bankQ.trim()
     ? banks.filter(
@@ -699,7 +699,7 @@ function ReceivePaymentDialog({
                   setSelectedParty(null);
                   setApplyRows([]);
                 }}
-                onFocus={() => partyQ && setPartyOpen(true)}
+                onFocus={() => setPartyOpen(true)}
                 onBlur={() => setTimeout(() => setPartyOpen(false), 150)}
                 onKeyDown={(e) => {
                   if (e.key === "ArrowDown") {

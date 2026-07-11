@@ -77,7 +77,9 @@ export function ReturnForm({ mode }: Props) {
 
   const invSuggests = useMemo(() => {
     const q = invQ.trim().toLowerCase();
-    if (!q) return [];
+    // Empty query — browse the most recent bills (already newest-first),
+    // like every other search-as-you-type field in this app.
+    if (!q) return invoiceRepo.all().slice(0, 8);
     return invoiceRepo
       .all()
       .filter((i) => i.number.toLowerCase().includes(q) || i.partyName.toLowerCase().includes(q))
@@ -495,7 +497,7 @@ export function ReturnForm({ mode }: Props) {
                     setInvOpen(true);
                     setInvIdx(0);
                   }}
-                  onFocus={() => invQ && setInvOpen(true)}
+                  onFocus={() => setInvOpen(true)}
                   onBlur={() => setTimeout(() => setInvOpen(false), 150)}
                   onKeyDown={(e) => {
                     if (e.key === "ArrowDown") {
