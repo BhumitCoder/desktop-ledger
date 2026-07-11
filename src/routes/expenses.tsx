@@ -151,7 +151,6 @@ function ExpenseDialog({
       setF(expense ?? { date: today(), paymentMode: "cash", amount: 0, category: "" });
       setPayees(PayeeRepo.all());
       setPayeeQ(expense?.payeeName ?? "");
-      setPayeeNavigated(false);
       setSaving(false);
       setTimeout(() => firstRef.current?.focus(), 50);
     }
@@ -163,11 +162,6 @@ function ExpenseDialog({
   const [bankQ, setBankQ] = useState("");
   const [bankOpen, setBankOpen] = useState(false);
   const [bankIdx, setBankIdx] = useState(0);
-  // Enter should only commit a bank pick once the user has typed or
-  // arrow-navigated — a reflex Enter right after the dropdown opens on
-  // focus (showing every bank account) shouldn't silently pick whichever
-  // one happens to be first.
-  const [bankNavigated, setBankNavigated] = useState(false);
   useEffect(() => {
     setBankQ(banks.find((b) => b.id === f.bankId)?.name ?? "");
   }, [f.bankId, banks]);
@@ -189,7 +183,6 @@ function ExpenseDialog({
   const [payeeQ, setPayeeQ] = useState("");
   const [payeeOpen, setPayeeOpen] = useState(false);
   const [payeeIdx, setPayeeIdx] = useState(0);
-  const [payeeNavigated, setPayeeNavigated] = useState(false);
   const payeeSuggests = payees.filter((p) => {
     const q = payeeQ.trim().toLowerCase();
     if (!q) return true;
@@ -324,15 +317,13 @@ function ExpenseDialog({
               onKeyDown={(ev) => {
                 if (ev.key === "ArrowDown") {
                   ev.preventDefault();
-                  setPayeeNavigated(true);
                   setPayeeIdx((i) => Math.min(payeeSuggests.length - 1, i + 1));
                 } else if (ev.key === "ArrowUp") {
                   ev.preventDefault();
-                  setPayeeNavigated(true);
                   setPayeeIdx((i) => Math.max(0, i - 1));
                 } else if (ev.key === "Enter") {
                   ev.preventDefault();
-                  if (payeeSuggests[payeeIdx] && (payeeQ.trim() || payeeNavigated)) {
+                  if (payeeSuggests[payeeIdx]) {
                     selectPayee(payeeSuggests[payeeIdx]);
                   }
                 }
@@ -379,7 +370,6 @@ function ExpenseDialog({
               <ModePills
                 value={f.paymentMode ?? "cash"}
                 onChange={(m) => {
-                  if (m !== "bank") setBankNavigated(false);
                   setF({ ...f, paymentMode: m, bankId: m === "bank" ? f.bankId : undefined });
                 }}
                 modes={["cash", "bank"]}
@@ -402,15 +392,13 @@ function ExpenseDialog({
                 onKeyDown={(e) => {
                   if (e.key === "ArrowDown") {
                     e.preventDefault();
-                    setBankNavigated(true);
                     setBankIdx((i) => Math.min(bankSuggests.length - 1, i + 1));
                   } else if (e.key === "ArrowUp") {
                     e.preventDefault();
-                    setBankNavigated(true);
                     setBankIdx((i) => Math.max(0, i - 1));
                   } else if (e.key === "Enter") {
                     e.preventDefault();
-                    if (bankSuggests[bankIdx] && (bankQ.trim() || bankNavigated)) {
+                    if (bankSuggests[bankIdx]) {
                       selectBank(bankSuggests[bankIdx]);
                     }
                   }
