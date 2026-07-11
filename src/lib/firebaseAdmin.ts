@@ -104,3 +104,19 @@ export async function requireOwner(callerIdToken: string): Promise<string> {
   }
   return decoded.uid;
 }
+
+/** Same independent-verification idea as requireOwner, but for actions any
+ * active team member should be able to do (e.g. sending a bill they can
+ * already see) — not just the owner. The owner always passes this too,
+ * since isOwner accounts are also active. */
+export async function requireActiveUser(callerIdToken: string): Promise<string> {
+  const auth = await getAdminAuth();
+  const decoded = await auth.verifyIdToken(callerIdToken);
+  const db = await getAdminDb();
+  const callerDoc = await db.doc(`teamUsers/${decoded.uid}`).get();
+  const caller = callerDoc.data();
+  if (!caller || caller.active !== true) {
+    throw new Error("Your account isn't active — ask the business owner to check your access.");
+  }
+  return decoded.uid;
+}

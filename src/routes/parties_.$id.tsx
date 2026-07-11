@@ -14,6 +14,7 @@ import { fmtMoney, fmtDate } from "@/lib/format";
 import { printWithName } from "@/lib/print";
 import { downloadXlsx } from "@/lib/xlsx";
 import { downloadElementAsPdf, shareElementAsPdf } from "@/lib/pdf";
+import { sendElementViaWhatsApp } from "@/lib/whatsappSend";
 import { partyStatementSheet } from "@/lib/partySheet";
 import { PartyDialog } from "./parties";
 import type { Party } from "@/types";
@@ -31,6 +32,7 @@ import {
   CheckCircle2,
   FileText,
   Rows3,
+  MessageCircle,
   type LucideIcon,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -52,7 +54,7 @@ function PartyStatementPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [pdfBusy, setPdfBusy] = useState<"download" | "share" | null>(null);
+  const [pdfBusy, setPdfBusy] = useState<"download" | "share" | "whatsapp" | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
   const simpleLedgerRef = useRef<HTMLDivElement>(null);
   // Which of the two printable layouts is currently wired up to become the
@@ -61,8 +63,10 @@ function PartyStatementPage() {
   // Doesn't affect normal on-screen viewing (the existing statement is
   // always visible on screen regardless — only the print-time class moves).
   const [ledgerFormat, setLedgerFormat] = useState<"full" | "simple">("full");
-  const [formatPrompt, setFormatPrompt] = useState<null | "print" | "download" | "share">(null);
-  const pendingActionRef = useRef<null | "print" | "download" | "share">(null);
+  const [formatPrompt, setFormatPrompt] = useState<null | "print" | "download" | "share" | "whatsapp">(
+    null,
+  );
+  const pendingActionRef = useRef<null | "print" | "download" | "share" | "whatsapp">(null);
   // Fires the pending action below — a separate counter, not `ledgerFormat`
   // itself, because if the user picks the format that's already active
   // (e.g. "Full Detail Ledger" while ledgerFormat is already "full", the
@@ -174,6 +178,27 @@ function PartyStatementPage() {
     }
   };
 
+  const handleSendWhatsApp = async () => {
+    const el = activePrintEl();
+    if (!el || pdfBusy || !party) return;
+    setPdfBusy("whatsapp");
+    try {
+      const company = CompanyRepo.get();
+      await sendElementViaWhatsApp({
+        el,
+        phone: party.phone,
+        message: `Hi ${party.name}, here's your account statement${company ? ` from ${company.name}` : ""}.`,
+        fileName: pdfName(),
+        orientation: "landscape",
+      });
+      toast.success("Statement sent on WhatsApp");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not send via WhatsApp");
+    } finally {
+      setPdfBusy(null);
+    }
+  };
+
   // Print/Download/Share all route through the format-picker modal so the
   // user always picks a layout first. `ledgerFormat` must actually commit to
   // the DOM (toggling which block carries the print-time class) before the
@@ -185,7 +210,7 @@ function PartyStatementPage() {
   // calls guarded against `party` being null) so this hook always runs in
   // the same position on every render — conditionally calling a hook after
   // an early return breaks the Rules of Hooks.
-  const promptFormat = (action: "print" | "download" | "share") => setFormatPrompt(action);
+  const promptFormat = (action: "print" | "download" | "share" | "whatsapp") => setFormatPrompt(action);
 
   const chooseFormat = (fmt: "full" | "simple") => {
     pendingActionRef.current = formatPrompt;
@@ -200,6 +225,7 @@ function PartyStatementPage() {
     pendingActionRef.current = null;
     if (action === "print") printWithName(pdfName());
     else if (action === "download") handleDownloadPdf();
+    else if (action === "whatsapp") handleSendWhatsApp();
     else handleShare();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actionTrigger]);
@@ -327,6 +353,14 @@ function PartyStatementPage() {
             title="Share statement PDF"
           >
             <Share2 className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => promptFormat("whatsapp")}
+            disabled={pdfBusy !== null}
+            className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50"
+            title="Send statement on WhatsApp"
+          >
+            <MessageCircle className="h-4 w-4" />
           </button>
           <button
             onClick={() => promptFormat("print")}
@@ -536,7 +570,8 @@ function PartyStatementPage() {
           <DialogHeader>
             <DialogTitle>Choose a ledger format</DialogTitle>
             <DialogDescription>
-              Which layout should this {formatPrompt ?? "action"} use?
+              Which layout should this{" "}
+              {formatPrompt === "whatsapp" ? "WhatsApp message" : (formatPrompt ?? "action")} use?
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-1 gap-2.5">

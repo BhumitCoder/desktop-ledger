@@ -1,4 +1,4 @@
-import { renderPdfServerFn } from "@/lib/pdfServer";
+import { renderPdfServerFn, renderPdfBase64ServerFn } from "@/lib/pdfServer";
 
 /** Concatenates every same-origin stylesheet the page has already loaded and
  * parsed, so the headless-rendered copy gets the exact same CSS (including
@@ -18,25 +18,41 @@ function collectAppStylesheets(): string {
   return parts.join("\n");
 }
 
+/** The exported markup carries no `<script>` tags, only the printable
+ * subtree's HTML plus the app's own compiled CSS, so the server just prints
+ * a static page — it never boots the SPA or touches Firestore. */
+function buildPrintableHtml(el: HTMLElement): string {
+  const css = collectAppStylesheets();
+  return (
+    "<!DOCTYPE html><html><head><meta charset=\"utf-8\">" +
+    `<base href="${window.location.origin}/">` +
+    `<style>${css}</style></head><body>${el.outerHTML}</body></html>`
+  );
+}
+
 /** Renders a DOM node to a real, vector-quality PDF server-side (headless
  * Chromium), rather than rasterizing a screenshot — text stays crisp at any
- * zoom and the file is far smaller. The exported markup carries no
- * `<script>` tags, only the printable subtree's HTML plus the app's own
- * compiled CSS, so the server just prints a static page — it never boots
- * the SPA or touches Firestore. */
+ * zoom and the file is far smaller. */
 async function elementToPdfBlob(
   el: HTMLElement,
   orientation: "portrait" | "landscape" = "landscape",
 ): Promise<Blob> {
-  const css = collectAppStylesheets();
-  const html =
-    "<!DOCTYPE html><html><head><meta charset=\"utf-8\">" +
-    `<base href="${window.location.origin}/">` +
-    `<style>${css}</style></head><body>${el.outerHTML}</body></html>`;
   const res = await renderPdfServerFn({
-    data: { html, landscape: orientation === "landscape" },
+    data: { html: buildPrintableHtml(el), landscape: orientation === "landscape" },
   });
   return res.blob();
+}
+
+/** Same rendering as elementToPdfBlob, but returns base64 — for handing the
+ * PDF to another server (e.g. WhatsApp send) that can't consume a Blob. */
+export async function elementToPdfBase64(
+  el: HTMLElement,
+  orientation: "portrait" | "landscape" = "landscape",
+): Promise<string> {
+  const { pdfBase64 } = await renderPdfBase64ServerFn({
+    data: { html: buildPrintableHtml(el), landscape: orientation === "landscape" },
+  });
+  return pdfBase64;
 }
 
 function pdfFilename(name: string): string {
