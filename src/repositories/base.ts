@@ -9,9 +9,34 @@ import {
   writeBatch,
   increment,
   type WriteBatch,
+  type FirestoreError,
 } from "firebase/firestore";
-import { db, isBrowser } from "@/lib/firebase";
+import { signOut } from "firebase/auth";
+import { db, auth, isBrowser } from "@/lib/firebase";
 import { toast } from "sonner";
+
+/** A just-deactivated (or permission-changed) user's already-open tab would
+ * otherwise sit on stale cached data behind a misleading "check your
+ * internet" toast — this reacts to a genuine permission-denied specifically
+ * by forcing a clean sign-out, distinct from a transient connectivity blip.
+ * Calling signOut here (not clearing repo caches directly) is deliberate:
+ * it triggers the same onAuthStateChanged → stopRepos() path a normal
+ * logout already goes through in src/routes/__root.tsx, so there's exactly
+ * one place that owns "what happens when a session ends." */
+let forcingSignOut = false;
+export function handlePostHydrationError(err: FirestoreError, name: string) {
+  console.error(`Sync error on "${name}"`, err);
+  if (err.code === "permission-denied") {
+    if (forcingSignOut) return;
+    forcingSignOut = true;
+    toast.error("Your access has changed — signing you out. Sign in again to continue.");
+    signOut(auth).finally(() => {
+      forcingSignOut = false;
+    });
+    return;
+  }
+  toast.error("Cloud sync interrupted — check internet, then reload");
+}
 
 export const genId = () => nanoid(10);
 
@@ -87,11 +112,11 @@ export class Repository<T extends { id: string }> {
           }
         },
         (err) => {
-          console.error(`Failed to load "${this.name}"`, err);
           if (first) {
+            console.error(`Failed to load "${this.name}"`, err);
             first = false;
             reject(err);
-          } else toast.error("Cloud sync interrupted — check internet, then reload");
+          } else handlePostHydrationError(err, this.name);
         },
       );
     });

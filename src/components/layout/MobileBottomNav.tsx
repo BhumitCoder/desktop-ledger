@@ -1,18 +1,24 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { LayoutDashboard, Receipt, Plus, Users, Menu } from "lucide-react";
-import { useWorkspace } from "@/store/workspace";
+import { LayoutDashboard, Package, Plus, Truck, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { usePermissions } from "@/hooks/usePermissions";
 
 /**
  * Mobile-only bottom tab bar (hidden at md: and up, where the sidebar is
  * docked) — the single biggest thing that makes a responsive website start
  * feeling like a native billing app: thumb-reachable primary actions instead
- * of a hamburger menu for everything.
+ * of a hamburger menu for everything. No separate "More" tab here — the
+ * header's own hamburger icon already opens the full nav drawer, so a
+ * second one down here would just be a duplicate.
+ *
+ * A second, independent nav surface from the desktop Sidebar — its tabs need
+ * the same permission filtering, or a restricted mobile user gets tap
+ * targets into modules the desktop sidebar would have hidden.
  */
 export function MobileBottomNav() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
-  const toggleMobileNav = useWorkspace((s) => s.toggleMobileNav);
+  const { isOwner, canView, canEdit } = usePermissions();
 
   // Plain startsWith would also match a sibling route sharing the same
   // prefix (e.g. "/sales" matching "/sale-return") — require a "/" boundary.
@@ -34,30 +40,38 @@ export function MobileBottomNav() {
         <LayoutDashboard className="h-5 w-5" />
         <span className="text-[10px] font-semibold">Home</span>
       </Link>
-      <Link to="/sales" className={tabClass(isActive("/sales"))}>
-        <Receipt className="h-5 w-5" />
-        <span className="text-[10px] font-semibold">Sales</span>
-      </Link>
+      {(isOwner || canView("masterData")) && (
+        <Link to="/items" className={tabClass(isActive("/items"))}>
+          <Package className="h-5 w-5" />
+          <span className="text-[10px] font-semibold">Items</span>
+        </Link>
+      )}
 
       {/* Center FAB — the single most common action (billing a sale) always one tap away */}
-      <div className="flex-1 flex items-start justify-center">
-        <button
-          onClick={() => navigate({ to: "/sales/new" })}
-          className="-mt-5 h-14 w-14 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-lg ring-4 ring-white active:scale-95 transition-transform"
-          title="Add Sale"
-        >
-          <Plus className="h-6 w-6" />
-        </button>
-      </div>
+      {(isOwner || canEdit("sales")) && (
+        <div className="flex-1 flex items-start justify-center">
+          <button
+            onClick={() => navigate({ to: "/sales/new" })}
+            className="-mt-4 h-12 w-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-lg ring-4 ring-white active:scale-95 transition-transform"
+            title="Add Sale"
+          >
+            <Plus className="h-5 w-5" />
+          </button>
+        </div>
+      )}
 
-      <Link to="/parties" className={tabClass(isActive("/parties"))}>
-        <Users className="h-5 w-5" />
-        <span className="text-[10px] font-semibold">Parties</span>
-      </Link>
-      <button onClick={toggleMobileNav} className={tabClass(false)}>
-        <Menu className="h-5 w-5" />
-        <span className="text-[10px] font-semibold">More</span>
-      </button>
+      {(isOwner || canView("purchaseExpenses")) && (
+        <Link to="/purchase" className={tabClass(isActive("/purchase"))}>
+          <Truck className="h-5 w-5" />
+          <span className="text-[10px] font-semibold">Purchase</span>
+        </Link>
+      )}
+      {(isOwner || canView("masterData")) && (
+        <Link to="/parties" className={tabClass(isActive("/parties"))}>
+          <Users className="h-5 w-5" />
+          <span className="text-[10px] font-semibold">Parties</span>
+        </Link>
+      )}
     </nav>
   );
 }

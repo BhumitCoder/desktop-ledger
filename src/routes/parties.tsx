@@ -19,11 +19,15 @@ import { fmtMoney } from "@/lib/format";
 import { partyBalances } from "@/lib/ledger";
 import { Plus, Search, Pencil, FileText, Users, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
+import { usePermissions } from "@/hooks/usePermissions";
 
 export const Route = createFileRoute("/parties")({ component: PartiesPage });
 
 function PartiesPage() {
   const navigate = useNavigate();
+  const { isOwner, canEdit, canDelete } = usePermissions();
+  const editAllowed = isOwner || canEdit("masterData");
+  const deleteAllowed = isOwner || canDelete("masterData");
   const [rows, setRows] = useState<Party[]>([]);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
@@ -124,17 +128,19 @@ function PartiesPage() {
           >
             <FileText className="h-3.5 w-3.5" />
           </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setEdit(r);
-              setOpen(true);
-            }}
-            className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
-            title="Edit party"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
+          {editAllowed && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setEdit(r);
+                setOpen(true);
+              }}
+              className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+              title="Edit party"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
         </span>
       ),
     },
@@ -158,15 +164,17 @@ function PartiesPage() {
                 className="w-full h-8 pl-8 pr-3 border border-gray-200 rounded-md text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
               />
             </div>
-            <Button
-              size="sm"
-              onClick={() => {
-                setEdit(null);
-                setOpen(true);
-              }}
-            >
-              <Plus className="h-3.5 w-3.5" /> New Party
-            </Button>
+            {editAllowed && (
+              <Button
+                size="sm"
+                onClick={() => {
+                  setEdit(null);
+                  setOpen(true);
+                }}
+              >
+                <Plus className="h-3.5 w-3.5" /> New Party
+              </Button>
+            )}
           </>
         }
       />
@@ -186,6 +194,15 @@ function PartiesPage() {
           activateOnClick
           onRowActivate={(r) => navigate({ to: "/parties/$id", params: { id: r.id } })}
           onDelete={(r) => {
+            // Ctrl+Delete reaches this directly, bypassing whatever button
+            // is or isn't shown — the real enforcement is Firestore rules,
+            // but this check keeps the attempt from ever reaching the
+            // network for someone who can already see they lack delete
+            // access, instead of a confusing rejected-write toast.
+            if (!deleteAllowed) {
+              toast.error("You don't have permission to delete parties");
+              return;
+            }
             // A party with any history must never be removable — old
             // invoices/payments would keep referencing a partyId that
             // resolves to nothing, making their statement/edit/reminder

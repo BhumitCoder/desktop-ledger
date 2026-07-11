@@ -14,10 +14,14 @@ import { ModePills, fmtMode } from "@/components/ModePills";
 import { fmtMoney, fmtDate, today } from "@/lib/format";
 import { Plus, Receipt } from "lucide-react";
 import { toast } from "sonner";
+import { usePermissions } from "@/hooks/usePermissions";
 
 export const Route = createFileRoute("/expenses")({ component: ExpensesPage });
 
 function ExpensesPage() {
+  const { isOwner, canEdit, canDelete } = usePermissions();
+  const editAllowed = isOwner || canEdit("purchaseExpenses");
+  const deleteAllowed = isOwner || canDelete("purchaseExpenses");
   const [rows, setRows] = useState<Expense[]>([]);
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<Expense | null>(null);
@@ -67,15 +71,17 @@ function ExpensesPage() {
         icon={<Receipt className="h-5 w-5" />}
         iconClassName="text-warning"
         actions={
-          <Button
-            size="sm"
-            onClick={() => {
-              setEdit(null);
-              setOpen(true);
-            }}
-          >
-            <Plus className="h-3.5 w-3.5" /> New Expense
-          </Button>
+          editAllowed && (
+            <Button
+              size="sm"
+              onClick={() => {
+                setEdit(null);
+                setOpen(true);
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" /> New Expense
+            </Button>
+          )
         }
       />
       <div className="p-6 flex-1 min-h-0 flex">
@@ -83,12 +89,20 @@ function ExpensesPage() {
           columns={columns}
           rows={rows}
           rowKey={(r) => r.id}
-          activateOnClick
-          onRowActivate={(r) => {
-            setEdit(r);
-            setOpen(true);
-          }}
+          activateOnClick={editAllowed}
+          onRowActivate={
+            editAllowed
+              ? (r) => {
+                  setEdit(r);
+                  setOpen(true);
+                }
+              : undefined
+          }
           onDelete={(r) => {
+            if (!deleteAllowed) {
+              toast.error("You don't have permission to delete expenses");
+              return;
+            }
             if (confirm("Delete expense?")) {
               // Money that was taken off a specific bank account when this
               // expense was recorded must be moved back on, or the account

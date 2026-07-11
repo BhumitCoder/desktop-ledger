@@ -10,7 +10,7 @@ import {
 } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
-import { Sparkles, Loader2, AlertCircle } from "lucide-react";
+import { Sparkles, Loader2, AlertCircle, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -18,8 +18,39 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AppShell } from "@/components/layout/AppShell";
 import { auth, isBrowser } from "@/lib/firebase";
-import { hydrateRepos, migrateFromLocalStorage, stopRepos } from "@/repositories";
+import { hydrateRepos, migrateFromLocalStorage, stopRepos, TeamUserRepo } from "@/repositories";
+import { usePermissions } from "@/hooks/usePermissions";
+import type { ModuleKey } from "@/types";
 import { LoginPage } from "./login";
+
+/** Same modules as the Sidebar's own groupings — one central place decides
+ * whether the current route is even reachable, instead of every one of the
+ * ~15 route files needing its own check. Settings isn't listed here: it's
+ * gated by isOwner directly below, never by a configurable permission. */
+const PATH_MODULE: Record<string, ModuleKey> = {
+  "/parties": "masterData",
+  "/items": "masterData",
+  "/inventory": "masterData",
+  "/sales": "sales",
+  "/sale-return": "sales",
+  "/purchase": "purchaseExpenses",
+  "/purchase-return": "purchaseExpenses",
+  "/expenses": "purchaseExpenses",
+  "/payees": "purchaseExpenses",
+  "/bank": "cashBank",
+  "/cash": "cashBank",
+  "/payments": "cashBank",
+  "/reports": "reports",
+  "/daybook": "reports",
+  "/gst": "reports",
+};
+
+function moduleForPath(pathname: string): ModuleKey | null {
+  for (const [path, module] of Object.entries(PATH_MODULE)) {
+    if (pathname === path || pathname.startsWith(`${path}/`)) return module;
+  }
+  return null;
+}
 
 /** Remembers whether someone was signed in on this device, so the very first
  * paint can go straight to the right screen (login vs splash) with no blink. */
@@ -64,7 +95,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { title: "AIM — Billing & Inventory ERP" },
       {
         name: "description",
@@ -77,11 +108,26 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
+      // Without these, "Add to Home Screen" on iOS falls back to Safari's own
+      // undocumented default for un-tagged bookmarks — which isn't guaranteed
+      // consistent across iOS versions/devices (exactly the iPhone 13 Pro vs.
+      // 17 Pro Max difference). These make standalone (no Safari chrome) the
+      // explicit, declared behavior instead of a guess.
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+      { name: "apple-mobile-web-app-title", content: "AIM" },
+      { name: "mobile-web-app-capable", content: "yes" },
+      { name: "theme-color", content: "#0f172a" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
+      { rel: "manifest", href: "/manifest.webmanifest" },
       { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon", sizes: "48x48" },
+      // iOS does not reliably rasterize SVG for apple-touch-icon (unlike the
+      // regular favicon above) — it wants a real PNG, ideally 180x180. Until
+      // a proper PNG is added, this SVG is at least a functional fallback,
+      // but the home-screen icon may not render as crisply as it should.
       { rel: "apple-touch-icon", href: "/favicon.svg" },
     ],
   }),
@@ -129,6 +175,7 @@ function AuthGate() {
   const [dataReady, setDataReady] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [mounted, setMounted] = useState(false);
+  const { isOwner, canView } = usePermissions();
 
   useEffect(() => {
     setMounted(true);
@@ -156,9 +203,17 @@ function AuthGate() {
     let cancelled = false;
     (async () => {
       try {
-        await hydrateRepos();
-        const migrated = await migrateFromLocalStorage();
-        if (migrated > 0) toast.success(`Moved ${migrated} records from this device to cloud`);
+        await hydrateRepos(user.uid, user.email ?? "");
+        // Legacy localStorage → cloud migration only ever applies to the
+        // owner's own original device/browser — a freshly created team
+        // member's browser has no old data to migrate, and since their repos
+        // are only partially hydrated by design (permission-scoped), the
+        // "is the cloud already populated" check below isn't meaningful for
+        // them anyway.
+        if (TeamUserRepo.current()?.isOwner) {
+          const migrated = await migrateFromLocalStorage();
+          if (migrated > 0) toast.success(`Moved ${migrated} records from this device to cloud`);
+        }
         if (!cancelled) setDataReady(true);
       } catch (err) {
         console.error("Data load failed", err);
@@ -223,10 +278,32 @@ function AuthGate() {
 
   if (user === undefined || !dataReady) return <SplashScreen />;
 
+  // One central gate instead of a check in each of the ~15 route files.
+  // Dashboard ("/") has no module — any active signed-in user can see it.
+  // Settings is never a configurable permission, owner-only always, so a
+  // staff member editing their own permissions can never grant themselves
+  // broader access through it.
+  const isSettingsPath = pathname === "/settings" || pathname.startsWith("/settings/");
+  const module = moduleForPath(pathname);
+  const blocked = !isOwner && (isSettingsPath || (module !== null && !canView(module)));
+
   return (
     <AppShell>
-      <Outlet />
+      {blocked ? <AccessRestricted /> : <Outlet />}
     </AppShell>
+  );
+}
+
+function AccessRestricted() {
+  return (
+    <div className="flex flex-col items-center justify-center h-full min-h-[60vh] text-center px-4">
+      <ShieldAlert className="h-12 w-12 text-muted-foreground mb-3" />
+      <h1 className="text-lg font-semibold">Access restricted</h1>
+      <p className="mt-1.5 text-sm text-muted-foreground max-w-sm">
+        You don't have permission to view this section. Contact your administrator if you need
+        access.
+      </p>
+    </div>
   );
 }
 

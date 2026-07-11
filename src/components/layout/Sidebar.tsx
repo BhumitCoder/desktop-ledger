@@ -30,10 +30,20 @@ import { useState } from "react";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { stopRepos } from "@/repositories";
+import { usePermissions } from "@/hooks/usePermissions";
+import type { ModuleKey } from "@/types";
 import { toast } from "sonner";
 
 type NavItem = { path: string; label: string; icon: any; key?: string };
-type NavGroup = { title: string; items: NavItem[]; collapsible?: boolean; defaultOpen?: boolean };
+type NavGroup = {
+  title: string;
+  items: NavItem[];
+  collapsible?: boolean;
+  defaultOpen?: boolean;
+  /** Missing = always visible (Overview/Dashboard); "owner" = System/Settings,
+   * never a configurable permission, gated by isOwner directly below. */
+  module?: ModuleKey | "owner";
+};
 
 const groups: NavGroup[] = [
   {
@@ -42,6 +52,7 @@ const groups: NavGroup[] = [
   },
   {
     title: "Master Data",
+    module: "masterData",
     items: [
       { path: "/parties", label: "Parties", icon: Users, key: "2" },
       { path: "/items", label: "Items", icon: Package, key: "3" },
@@ -52,6 +63,7 @@ const groups: NavGroup[] = [
     title: "Sales",
     collapsible: true,
     defaultOpen: false,
+    module: "sales",
     items: [
       { path: "/sales", label: "Sales", icon: ShoppingCart, key: "4" },
       { path: "/sale-return", label: "Sale Return", icon: CornerDownLeft },
@@ -61,6 +73,7 @@ const groups: NavGroup[] = [
     title: "Purchase & Expenses",
     collapsible: true,
     defaultOpen: false,
+    module: "purchaseExpenses",
     items: [
       { path: "/purchase", label: "Purchase", icon: Truck, key: "5" },
       { path: "/purchase-return", label: "Purchase Return", icon: CornerUpLeft },
@@ -76,6 +89,7 @@ const groups: NavGroup[] = [
   // },
   {
     title: "Cash & Bank",
+    module: "cashBank",
     items: [
       { path: "/bank", label: "Bank Accounts", icon: Landmark },
       { path: "/cash", label: "Cash on Hand", icon: Banknote },
@@ -84,13 +98,18 @@ const groups: NavGroup[] = [
   },
   {
     title: "Reports",
+    module: "reports",
     items: [
       { path: "/reports", label: "Reports", icon: BarChart3, key: "7" },
       { path: "/daybook", label: "Daybook", icon: BookOpen },
       { path: "/gst", label: "GST Returns", icon: FileText },
     ],
   },
-  { title: "System", items: [{ path: "/settings", label: "Settings", icon: Settings, key: "8" }] },
+  {
+    title: "System",
+    module: "owner",
+    items: [{ path: "/settings", label: "Settings", icon: Settings, key: "8" }],
+  },
 ];
 
 // Plain startsWith("/purchase") also matches "/purchase-return" — require a
@@ -105,6 +124,14 @@ export function Sidebar() {
   const toggle = useWorkspace((s) => s.toggleSidebar);
   const mobileNavOpen = useWorkspace((s) => s.mobileNavOpen);
   const setMobileNavOpen = useWorkspace((s) => s.setMobileNavOpen);
+  const { isOwner, canView } = usePermissions();
+
+  const visibleGroups = groups.filter((g) => {
+    if (!g.module) return true; // Overview/Dashboard — always visible
+    if (isOwner) return true;
+    if (g.module === "owner") return false; // System/Settings — owner only
+    return canView(g.module);
+  });
 
   const initOpen: Record<string, boolean> = {};
   groups.forEach((g) => {
@@ -153,7 +180,7 @@ export function Sidebar() {
         </div>
 
         <nav className="flex-1 overflow-y-auto overflow-x-hidden py-2 text-[13px]">
-          {groups.map((g) => {
+          {visibleGroups.map((g) => {
             const active = isGroupActive(g);
             const isOpen = g.collapsible ? openGroups[g.title] || active : true;
 

@@ -7,11 +7,15 @@ import { Plus, CornerDownLeft, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { DataTable } from "@/components/DataTable";
 import { PageHeader } from "@/components/PageHeader";
+import { usePermissions } from "@/hooks/usePermissions";
 
 export const Route = createFileRoute("/sale-return/")({ component: SaleReturnPage });
 
 function SaleReturnPage() {
   const navigate = useNavigate();
+  const { isOwner, canEdit, canDelete } = usePermissions();
+  const editAllowed = isOwner || canEdit("sales");
+  const deleteAllowed = isOwner || canDelete("sales");
   const [rows, setRows] = useState<Return[]>([]);
   const refresh = () => setRows(SaleReturnRepo.all().sort((a, b) => b.date.localeCompare(a.date)));
   useEffect(refresh, []);
@@ -19,6 +23,10 @@ function SaleReturnPage() {
   const totalCredit = rows.reduce((s, r) => s + r.total, 0);
 
   const handleDelete = (r: Return) => {
+    if (!deleteAllowed) {
+      toast.error("You don't have permission to delete sale returns");
+      return;
+    }
     if (
       !confirm(`Delete return ${r.number}? Returned quantities will be removed from stock again.`)
     )
@@ -40,12 +48,14 @@ function SaleReturnPage() {
         subtitle={`${rows.length} credit notes · Total: ${fmtMoney(totalCredit)}`}
         icon={<CornerDownLeft className="h-5 w-5" />}
         actions={
-          <button
-            onClick={() => navigate({ to: "/sale-return/new" })}
-            className="inline-flex items-center gap-1.5 h-8 px-4 bg-primary text-primary-foreground rounded-md text-sm font-semibold hover:opacity-90 transition"
-          >
-            <Plus className="h-4 w-4" /> New Sale Return
-          </button>
+          editAllowed && (
+            <button
+              onClick={() => navigate({ to: "/sale-return/new" })}
+              className="inline-flex items-center gap-1.5 h-8 px-4 bg-primary text-primary-foreground rounded-md text-sm font-semibold hover:opacity-90 transition"
+            >
+              <Plus className="h-4 w-4" /> New Sale Return
+            </button>
+          )
         }
       />
 
@@ -90,18 +100,19 @@ function SaleReturnPage() {
               key: "action",
               label: "Action",
               align: "center",
-              render: (r) => (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDelete(r);
-                  }}
-                  className="p-1 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"
-                  title="Delete return"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              ),
+              render: (r) =>
+                deleteAllowed && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(r);
+                    }}
+                    className="p-1 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"
+                    title="Delete return"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                ),
             },
           ]}
           rows={rows}

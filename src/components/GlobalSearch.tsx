@@ -11,11 +11,13 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { PartyRepo, ItemRepo, SalesRepo, PurchaseRepo } from "@/repositories";
+import { usePermissions } from "@/hooks/usePermissions";
 import { Users, Package, ShoppingCart, Truck } from "lucide-react";
 
 export function GlobalSearch() {
   const { globalSearchOpen, setGlobalSearch } = useWorkspace();
   const navigate = useNavigate();
+  const { isOwner, canView } = usePermissions();
   const [data, setData] = useState<{
     parties: any[];
     items: any[];
@@ -23,16 +25,20 @@ export function GlobalSearch() {
     purchases: any[];
   }>({ parties: [], items: [], sales: [], purchases: [] });
 
+  // Belt-and-suspenders on top of permission-aware hydration (a repo for a
+  // module the user can't view is never populated in the first place, so
+  // .all() is already empty for them) — an explicit check here means this
+  // stays safe even if hydration's own scoping ever regresses later.
   useEffect(() => {
     if (globalSearchOpen) {
       setData({
-        parties: PartyRepo.all(),
-        items: ItemRepo.all(),
-        sales: SalesRepo.all(),
-        purchases: PurchaseRepo.all(),
+        parties: isOwner || canView("masterData") ? PartyRepo.all() : [],
+        items: isOwner || canView("masterData") ? ItemRepo.all() : [],
+        sales: isOwner || canView("sales") ? SalesRepo.all() : [],
+        purchases: isOwner || canView("purchaseExpenses") ? PurchaseRepo.all() : [],
       });
     }
-  }, [globalSearchOpen]);
+  }, [globalSearchOpen, isOwner, canView]);
 
   const go = (path: string) => {
     setGlobalSearch(false);

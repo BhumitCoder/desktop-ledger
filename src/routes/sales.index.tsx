@@ -19,6 +19,7 @@ import { usePagination, PaginationBar } from "@/components/Pagination";
 import { DataTable } from "@/components/DataTable";
 import { fmtMode } from "@/components/ModePills";
 import { PageHeader } from "@/components/PageHeader";
+import { usePermissions } from "@/hooks/usePermissions";
 
 export const Route = createFileRoute("/sales/")({ component: SalesPage });
 
@@ -30,6 +31,9 @@ const monthStart = () => ymd(new Date(new Date().getFullYear(), new Date().getMo
 
 function SalesPage() {
   const navigate = useNavigate();
+  const { isOwner, canEdit, canDelete } = usePermissions();
+  const editAllowed = isOwner || canEdit("sales");
+  const deleteAllowed = isOwner || canDelete("sales");
   const [rows, setRows] = useState<Invoice[]>([]);
   const [parties, setParties] = useState<{ id: string; name: string }[]>([]);
   const [dateFrom, setDateFrom] = useState(monthStart);
@@ -99,6 +103,10 @@ function SalesPage() {
     search !== "";
 
   const handleDelete = (r: Invoice) => {
+    if (!deleteAllowed) {
+      toast.error("You don't have permission to delete sales");
+      return;
+    }
     if (
       !confirm(
         `Delete invoice ${r.number}? Sold quantities will be added back to stock, and any payments applied to it will become advance payments.`,
@@ -252,12 +260,14 @@ function SalesPage() {
               </button>
             )}
 
-            <button
-              onClick={() => navigate({ to: "/sales/new" })}
-              className="inline-flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition"
-            >
-              <Plus className="h-4 w-4" /> Add Sale
-            </button>
+            {editAllowed && (
+              <button
+                onClick={() => navigate({ to: "/sales/new" })}
+                className="inline-flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition"
+              >
+                <Plus className="h-4 w-4" /> Add Sale
+              </button>
+            )}
           </>
         }
       />
@@ -306,26 +316,30 @@ function SalesPage() {
                           Due {fmtMoney(balance)}
                         </span>
                       )}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate({ to: "/sales/edit/$id", params: { id: r.id } });
-                        }}
-                        className="p-1.5 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
-                        title="Edit invoice"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(r);
-                        }}
-                        className="p-1.5 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"
-                        title="Delete invoice"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      {editAllowed && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate({ to: "/sales/edit/$id", params: { id: r.id } });
+                          }}
+                          className="p-1.5 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+                          title="Edit invoice"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      {deleteAllowed && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(r);
+                          }}
+                          className="p-1.5 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"
+                          title="Delete invoice"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -413,26 +427,30 @@ function SalesPage() {
               align: "center",
               render: (r) => (
                 <span className="whitespace-nowrap">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigate({ to: "/sales/edit/$id", params: { id: r.id } });
-                    }}
-                    className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
-                    title="Edit invoice"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDelete(r);
-                    }}
-                    className="p-1 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"
-                    title="Delete invoice"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  {editAllowed && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate({ to: "/sales/edit/$id", params: { id: r.id } });
+                      }}
+                      className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+                      title="Edit invoice"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  {deleteAllowed && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete(r);
+                      }}
+                      className="p-1 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"
+                      title="Delete invoice"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </span>
               ),
             },

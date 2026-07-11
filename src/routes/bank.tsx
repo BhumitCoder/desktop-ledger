@@ -20,11 +20,15 @@ import { NumField } from "@/components/NumInput";
 import { fmtMoney, today } from "@/lib/format";
 import { Plus, ArrowDownToLine, ArrowUpFromLine, History, Pencil, Landmark } from "lucide-react";
 import { toast } from "sonner";
+import { usePermissions } from "@/hooks/usePermissions";
 
 export const Route = createFileRoute("/bank")({ component: BankPage });
 
 function BankPage() {
   const navigate = useNavigate();
+  const { isOwner, canEdit, canDelete } = usePermissions();
+  const editAllowed = isOwner || canEdit("cashBank");
+  const deleteAllowed = isOwner || canDelete("cashBank");
   const [rows, setRows] = useState<BankAccount[]>([]);
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<BankAccount | null>(null);
@@ -81,17 +85,19 @@ function BankPage() {
           >
             <History className="h-3.5 w-3.5" />
           </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setEdit(r);
-              setOpen(true);
-            }}
-            className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
-            title="Edit account"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
+          {editAllowed && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setEdit(r);
+                setOpen(true);
+              }}
+              className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+              title="Edit account"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
         </span>
       ),
     },
@@ -113,7 +119,7 @@ function BankPage() {
         icon={<Landmark className="h-5 w-5" />}
         actions={
           <div className="flex flex-wrap gap-1.5 sm:gap-2">
-            {rows.length > 0 && (
+            {rows.length > 0 && editAllowed && (
               <Button
                 size="sm"
                 variant="outline"
@@ -124,15 +130,17 @@ function BankPage() {
                 <span className="hidden sm:inline">Deposit / Withdraw</span>
               </Button>
             )}
-            <Button
-              size="sm"
-              onClick={() => {
-                setEdit(null);
-                setOpen(true);
-              }}
-            >
-              <Plus className="h-3.5 w-3.5" /> New Account
-            </Button>
+            {editAllowed && (
+              <Button
+                size="sm"
+                onClick={() => {
+                  setEdit(null);
+                  setOpen(true);
+                }}
+              >
+                <Plus className="h-3.5 w-3.5" /> New Account
+              </Button>
+            )}
           </div>
         }
       />
@@ -144,6 +152,10 @@ function BankPage() {
           activateOnClick
           onRowActivate={(r) => navigate({ to: "/bank/$id", params: { id: r.id } })}
           onDelete={(r) => {
+            if (!deleteAllowed) {
+              toast.error("You don't have permission to delete bank accounts");
+              return;
+            }
             if (confirm(`Delete ${r.name}?`)) {
               BankRepo.remove(r.id);
               refresh();

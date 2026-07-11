@@ -26,6 +26,7 @@ import {
   Loader2,
   Pencil,
 } from "lucide-react";
+import { usePermissions } from "@/hooks/usePermissions";
 import { toast } from "sonner";
 import { genId } from "@/repositories/base";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -40,6 +41,9 @@ type Tab = "all" | "in" | "out";
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 function PaymentsPage() {
+  const { isOwner, canEdit, canDelete } = usePermissions();
+  const editAllowed = isOwner || canEdit("cashBank");
+  const deleteAllowed = isOwner || canDelete("cashBank");
   const [rows, setRows] = useState<Payment[]>([]);
   const [tab, setTab] = useState<Tab>("all");
   const [search, setSearch] = useState("");
@@ -75,6 +79,10 @@ function PaymentsPage() {
     setOpen(true);
   };
   const handleDelete = (r: Payment) => {
+    if (!deleteAllowed) {
+      toast.error("You don't have permission to delete payments");
+      return;
+    }
     if (!confirm("Delete this payment record? Amounts applied to invoices/bills will be reversed."))
       return;
     const repo = r.type === "in" ? SalesRepo : PurchaseRepo;
@@ -194,26 +202,30 @@ function PaymentsPage() {
       align: "center",
       render: (r) => (
         <span className="inline-flex gap-1">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              openEdit(r);
-            }}
-            className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
-            title="Edit payment"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              handleDelete(r);
-            }}
-            className="p-1 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"
-            title="Delete payment"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          {editAllowed && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                openEdit(r);
+              }}
+              className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+              title="Edit payment"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {deleteAllowed && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDelete(r);
+              }}
+              className="p-1 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"
+              title="Delete payment"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
         </span>
       ),
     },
@@ -259,18 +271,22 @@ function PaymentsPage() {
               />
             </div>
 
-            <button
-              onClick={() => openForm("in")}
-              className="inline-flex items-center gap-1.5 h-9 px-3 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 transition"
-            >
-              <ArrowDownCircle className="h-4 w-4" /> Receive Payment
-            </button>
-            <button
-              onClick={() => openForm("out")}
-              className="inline-flex items-center gap-1.5 h-9 px-3 bg-rose-600 text-white rounded-lg text-sm font-semibold hover:bg-rose-700 transition"
-            >
-              <ArrowUpCircle className="h-4 w-4" /> Make Payment
-            </button>
+            {editAllowed && (
+              <button
+                onClick={() => openForm("in")}
+                className="inline-flex items-center gap-1.5 h-9 px-3 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 transition"
+              >
+                <ArrowDownCircle className="h-4 w-4" /> Receive Payment
+              </button>
+            )}
+            {editAllowed && (
+              <button
+                onClick={() => openForm("out")}
+                className="inline-flex items-center gap-1.5 h-9 px-3 bg-rose-600 text-white rounded-lg text-sm font-semibold hover:bg-rose-700 transition"
+              >
+                <ArrowUpCircle className="h-4 w-4" /> Make Payment
+              </button>
+            )}
           </>
         }
       />

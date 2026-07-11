@@ -23,6 +23,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
+import { usePermissions } from "@/hooks/usePermissions";
 
 /** Bulk import/export columns — kept in lockstep with the New/Edit Item form
  * fields (Name, Category, Purchase/Sale/Wholesale Price, Min/Opening Stock).
@@ -60,6 +61,9 @@ export const Route = createFileRoute("/items")({ component: ItemsPage });
 
 function ItemsPage() {
   const navigate = useNavigate();
+  const { isOwner, canEdit, canDelete } = usePermissions();
+  const editAllowed = isOwner || canEdit("masterData");
+  const deleteAllowed = isOwner || canDelete("masterData");
   const [rows, setRows] = useState<Item[]>([]);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
@@ -185,27 +189,31 @@ function ItemsPage() {
           >
             <History className="h-3.5 w-3.5" />
           </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setEdit(r);
-              setOpen(true);
-            }}
-            className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
-            title="Edit item"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setAdjustItem(r);
-            }}
-            className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
-            title="Adjust stock (damage, counting correction…)"
-          >
-            <ArrowUpDown className="h-3.5 w-3.5" />
-          </button>
+          {editAllowed && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setEdit(r);
+                setOpen(true);
+              }}
+              className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+              title="Edit item"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {editAllowed && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setAdjustItem(r);
+              }}
+              className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+              title="Adjust stock (damage, counting correction…)"
+            >
+              <ArrowUpDown className="h-3.5 w-3.5" />
+            </button>
+          )}
         </span>
       ),
     },
@@ -245,15 +253,17 @@ function ItemsPage() {
             >
               <Upload className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Bulk Import</span>
             </Button>
-            <Button
-              size="sm"
-              onClick={() => {
-                setEdit(null);
-                setOpen(true);
-              }}
-            >
-              <Plus className="h-3.5 w-3.5" /> New Item
-            </Button>
+            {editAllowed && (
+              <Button
+                size="sm"
+                onClick={() => {
+                  setEdit(null);
+                  setOpen(true);
+                }}
+              >
+                <Plus className="h-3.5 w-3.5" /> New Item
+              </Button>
+            )}
           </>
         }
       />
@@ -293,6 +303,10 @@ function ItemsPage() {
           activateOnClick
           onRowActivate={(r) => navigate({ to: "/items/$id", params: { id: r.id } })}
           onDelete={(r) => {
+            if (!deleteAllowed) {
+              toast.error("You don't have permission to delete items");
+              return;
+            }
             if (confirm(`Delete ${r.name}?`)) {
               ItemRepo.remove(r.id);
               refresh();

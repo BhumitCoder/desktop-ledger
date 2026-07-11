@@ -11,11 +11,15 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { Plus, Search, Pencil, FileText, Wallet2 } from "lucide-react";
 import { toast } from "sonner";
+import { usePermissions } from "@/hooks/usePermissions";
 
 export const Route = createFileRoute("/payees")({ component: PayeesPage });
 
 function PayeesPage() {
   const navigate = useNavigate();
+  const { isOwner, canEdit, canDelete } = usePermissions();
+  const editAllowed = isOwner || canEdit("purchaseExpenses");
+  const deleteAllowed = isOwner || canDelete("purchaseExpenses");
   const [rows, setRows] = useState<Payee[]>([]);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
@@ -86,17 +90,19 @@ function PayeesPage() {
           >
             <FileText className="h-3.5 w-3.5" />
           </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setEdit(r);
-              setOpen(true);
-            }}
-            className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
-            title="Edit payee"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
+          {editAllowed && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setEdit(r);
+                setOpen(true);
+              }}
+              className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+              title="Edit payee"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
         </span>
       ),
     },
@@ -120,15 +126,17 @@ function PayeesPage() {
                 className="w-full h-8 pl-8 pr-3 border border-gray-200 rounded-md text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
               />
             </div>
-            <Button
-              size="sm"
-              onClick={() => {
-                setEdit(null);
-                setOpen(true);
-              }}
-            >
-              <Plus className="h-3.5 w-3.5" /> New Payee
-            </Button>
+            {editAllowed && (
+              <Button
+                size="sm"
+                onClick={() => {
+                  setEdit(null);
+                  setOpen(true);
+                }}
+              >
+                <Plus className="h-3.5 w-3.5" /> New Payee
+              </Button>
+            )}
           </>
         }
       />
@@ -147,6 +155,10 @@ function PayeesPage() {
           activateOnClick
           onRowActivate={(r) => navigate({ to: "/payees/$id", params: { id: r.id } })}
           onDelete={(r) => {
+            if (!deleteAllowed) {
+              toast.error("You don't have permission to delete payees");
+              return;
+            }
             // A payee with any expense history must never be removable —
             // old expenses would keep referencing a payeeId that resolves
             // to nothing, making their ledger permanently inaccessible.

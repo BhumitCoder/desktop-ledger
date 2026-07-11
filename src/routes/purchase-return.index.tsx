@@ -7,11 +7,15 @@ import { Plus, CornerUpLeft, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { DataTable } from "@/components/DataTable";
 import { PageHeader } from "@/components/PageHeader";
+import { usePermissions } from "@/hooks/usePermissions";
 
 export const Route = createFileRoute("/purchase-return/")({ component: PurchaseReturnPage });
 
 function PurchaseReturnPage() {
   const navigate = useNavigate();
+  const { isOwner, canEdit, canDelete } = usePermissions();
+  const editAllowed = isOwner || canEdit("purchaseExpenses");
+  const deleteAllowed = isOwner || canDelete("purchaseExpenses");
   const [rows, setRows] = useState<Return[]>([]);
   const refresh = () =>
     setRows(PurchaseReturnRepo.all().sort((a, b) => b.date.localeCompare(a.date)));
@@ -20,6 +24,10 @@ function PurchaseReturnPage() {
   const totalDebit = rows.reduce((s, r) => s + r.total, 0);
 
   const handleDelete = (r: Return) => {
+    if (!deleteAllowed) {
+      toast.error("You don't have permission to delete purchase returns");
+      return;
+    }
     if (!confirm(`Delete return ${r.number}? Returned quantities will be added back to stock.`))
       return;
     // Reverse the stock deduction this purchase return made
@@ -39,12 +47,14 @@ function PurchaseReturnPage() {
         subtitle={`${rows.length} debit notes · Total: ${fmtMoney(totalDebit)}`}
         icon={<CornerUpLeft className="h-5 w-5" />}
         actions={
-          <button
-            onClick={() => navigate({ to: "/purchase-return/new" })}
-            className="inline-flex items-center gap-1.5 h-8 px-4 bg-primary text-primary-foreground rounded-md text-sm font-semibold hover:opacity-90 transition"
-          >
-            <Plus className="h-4 w-4" /> New Purchase Return
-          </button>
+          editAllowed && (
+            <button
+              onClick={() => navigate({ to: "/purchase-return/new" })}
+              className="inline-flex items-center gap-1.5 h-8 px-4 bg-primary text-primary-foreground rounded-md text-sm font-semibold hover:opacity-90 transition"
+            >
+              <Plus className="h-4 w-4" /> New Purchase Return
+            </button>
+          )
         }
       />
 
@@ -89,18 +99,19 @@ function PurchaseReturnPage() {
               key: "action",
               label: "Action",
               align: "center",
-              render: (r) => (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDelete(r);
-                  }}
-                  className="p-1 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"
-                  title="Delete return"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              ),
+              render: (r) =>
+                deleteAllowed && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(r);
+                    }}
+                    className="p-1 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"
+                    title="Delete return"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                ),
             },
           ]}
           rows={rows}

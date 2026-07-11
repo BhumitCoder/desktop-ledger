@@ -16,10 +16,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Field } from "@/components/Field";
 import { Banknote, Search, Calendar, X } from "lucide-react";
 import { toast } from "sonner";
+import { usePermissions } from "@/hooks/usePermissions";
 
 export const Route = createFileRoute("/cash")({ component: CashPage });
 
 function CashPage() {
+  const { isOwner, canEdit } = usePermissions();
+  const editAllowed = isOwner || canEdit("cashBank");
   const [entries, setEntries] = useState<FlowEntry[]>([]);
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -103,9 +106,11 @@ function CashPage() {
                 className="w-full h-9 pl-9 pr-3 rounded-lg border border-gray-200 bg-gray-50/60 text-[13px] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-white transition"
               />
             </div>
-            <Button size="sm" onClick={() => setAdjustOpen(true)}>
-              <Banknote className="h-3.5 w-3.5" /> Adjust Cash
-            </Button>
+            {editAllowed && (
+              <Button size="sm" onClick={() => setAdjustOpen(true)}>
+                <Banknote className="h-3.5 w-3.5" /> Adjust Cash
+              </Button>
+            )}
           </>
         }
       />

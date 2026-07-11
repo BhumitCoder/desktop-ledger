@@ -222,3 +222,36 @@ export interface Company {
    * stable list, unlike Payee which is meant to grow organically. */
   expenseCategories?: string[];
 }
+
+/** Matches the Sidebar's own groupings — permissions are granted per group,
+ * not per individual page and not as fixed roles. Settings/Team management
+ * is deliberately NOT a module here: it's owner-only everywhere, always,
+ * so a staff member can never grant themselves broader access by editing
+ * their own permissions. "reports" has no collection of its own (Reports/
+ * Daybook/GST aggregate reads across the other modules, already protected
+ * by their own rules) — it only gates the aggregated-view pages themselves. */
+export type ModuleKey = "masterData" | "sales" | "purchaseExpenses" | "cashBank" | "reports";
+
+export interface ModulePermission {
+  view: boolean;
+  edit: boolean;
+  delete: boolean;
+}
+
+/** One doc per Firebase Auth UID. The account already using this app in
+ * production becomes `isOwner: true` automatically the first time it loads
+ * after this ships (see hydrateRepos) — existing behavior is unaffected. */
+export interface TeamUser {
+  id: string;
+  email: string;
+  name: string;
+  /** Bypasses every permission check everywhere. Exactly one per business —
+   * cannot be edited or deactivated by anyone, including another owner. */
+  isOwner: boolean;
+  /** false = fully locked out (deactivated, not deleted — see Settings/Team). */
+  active: boolean;
+  /** A module missing from this map means no access at all to it, not
+   * "view only" — every level must be explicitly granted. */
+  permissions: Partial<Record<ModuleKey, ModulePermission>>;
+  createdAt: string;
+}

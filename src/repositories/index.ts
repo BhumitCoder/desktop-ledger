@@ -1,5 +1,5 @@
-import { doc, onSnapshot, setDoc } from "firebase/firestore";
-import { Repository } from "./base";
+import { collection, doc, onSnapshot, setDoc, updateDoc, writeBatch } from "firebase/firestore";
+import { Repository, handlePostHydrationError } from "./base";
 import { db, isBrowser } from "@/lib/firebase";
 import { toast } from "sonner";
 import type {
@@ -15,6 +15,8 @@ import type {
   Company,
   StockAdjustment,
   CashAdjustment,
+  TeamUser,
+  ModuleKey,
 } from "@/types";
 
 export const PartyRepo = new Repository<Party>("parties");
@@ -73,11 +75,11 @@ function hydrateCompany(): Promise<void> {
         }
       },
       (err) => {
-        console.error("Failed to load company settings", err);
         if (first) {
+          console.error("Failed to load company settings", err);
           first = false;
           reject(err);
-        }
+        } else handlePostHydrationError(err, "settings/company");
       },
     );
   });
@@ -96,6 +98,168 @@ export const CompanyRepo = {
         toast.error("Could not save settings to cloud. Check internet & try again.");
       });
     }
+  },
+};
+
+/**
+ * The signed-in user's own permissions doc: teamUsers/{uid}. Every user can
+ * always read their own doc (enforced by Firestore rules) — this is what the
+ * whole permission system, including hydrateRepos below, is built on.
+ *
+ * If the doc doesn't exist yet, this is either (a) the very first login ever
+ * on this business, in which case it self-provisions as owner, or (b) a real
+ * team member whose doc hasn't landed yet (e.g. the admin's create-user call
+ * is still in flight) — those two cases are told apart by a Firestore rule,
+ * not by client logic: a client write of isOwner:true is only ever accepted
+ * once, gated by system/bootstrap.ownerCreated, and that same write flips the
+ * lock atomically so a second, later "doc missing" case can never also
+ * become owner. If the write is rejected, this account just has no
+ * permissions yet — not a crash, not owner access, nothing until the real
+ * admin-created doc appears.
+ */
+let teamUserCache: TeamUser | null = null;
+let teamUserUnsub: (() => void) | undefined;
+
+// Plain pub-sub so React can subscribe to live changes (useSyncExternalStore
+// in usePermissions, see src/hooks/usePermissions.ts) — unlike the rest of
+// this app's repos, permission checks need to react immediately if an
+// owner changes or revokes someone's access mid-session, not just after
+// that page's own next manual refresh.
+const teamUserListeners = new Set<() => void>();
+export function subscribeTeamUser(cb: () => void): () => void {
+  teamUserListeners.add(cb);
+  return () => teamUserListeners.delete(cb);
+}
+function setTeamUserCache(v: TeamUser | null) {
+  teamUserCache = v;
+  teamUserListeners.forEach((cb) => cb());
+}
+
+function attemptOwnerBootstrap(uid: string, email: string): Promise<void> {
+  const batch = writeBatch(db);
+  const now = new Date().toISOString();
+  batch.set(doc(db, "teamUsers", uid), {
+    id: uid,
+    email,
+    name: email.split("@")[0],
+    isOwner: true,
+    active: true,
+    permissions: {},
+    createdAt: now,
+  } satisfies TeamUser);
+  batch.set(doc(db, "system", "bootstrap"), { ownerCreated: true });
+  return batch.commit();
+}
+
+function hydrateCurrentTeamUser(uid: string, email: string): Promise<void> {
+  if (!isBrowser) return Promise.resolve();
+  if (teamUserUnsub) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    let first = true;
+    let bootstrapAttempted = false;
+    teamUserUnsub = onSnapshot(
+      doc(db, "teamUsers", uid),
+      (snap) => {
+        if (snap.exists()) {
+          setTeamUserCache(snap.data() as TeamUser);
+          if (first) {
+            first = false;
+            resolve();
+          }
+          return;
+        }
+        setTeamUserCache(null);
+        if (bootstrapAttempted) {
+          if (first) {
+            first = false;
+            resolve();
+          }
+          return;
+        }
+        bootstrapAttempted = true;
+        attemptOwnerBootstrap(uid, email)
+          .catch(() => {
+            // Not eligible (someone already owns this business) — this
+            // account has no access until an admin creates a real doc for
+            // it. onSnapshot will fire again on its own once that happens.
+          })
+          .finally(() => {
+            if (first) {
+              first = false;
+              resolve();
+            }
+          });
+      },
+      (err) => {
+        if (first) {
+          console.error("Failed to load team user", err);
+          first = false;
+          reject(err);
+        } else handlePostHydrationError(err, "teamUsers");
+      },
+    );
+  });
+}
+
+/** Full team roster — owner-only (Firestore rules deny this list query to
+ * anyone else), used by Settings → Team. Kept separate from the main boot
+ * sequence: only fetched when the Team management page is actually open. */
+let teamRosterCache: TeamUser[] = [];
+let teamRosterUnsub: (() => void) | undefined;
+const teamRosterListeners = new Set<() => void>();
+export function subscribeTeamRoster(cb: () => void): () => void {
+  teamRosterListeners.add(cb);
+  return () => teamRosterListeners.delete(cb);
+}
+
+function hydrateTeamRoster(): Promise<void> {
+  if (!isBrowser) return Promise.resolve();
+  if (teamRosterUnsub) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    let first = true;
+    teamRosterUnsub = onSnapshot(
+      collection(db, "teamUsers"),
+      (snap) => {
+        teamRosterCache = snap.docs.map((d) => d.data() as TeamUser);
+        teamRosterListeners.forEach((cb) => cb());
+        if (first) {
+          first = false;
+          resolve();
+        }
+      },
+      (err) => {
+        if (first) {
+          first = false;
+          reject(err);
+        }
+      },
+    );
+  });
+}
+
+function stopTeamRoster() {
+  teamRosterUnsub?.();
+  teamRosterUnsub = undefined;
+  teamRosterCache = [];
+  teamRosterListeners.forEach((cb) => cb());
+}
+
+export const TeamUserRepo = {
+  /** The signed-in user's own permissions doc, or null if none exists yet. */
+  current(): TeamUser | null {
+    return teamUserCache;
+  },
+  /** Owner-only — see hydrateTeamRoster. */
+  roster(): TeamUser[] {
+    return teamRosterCache;
+  },
+  hydrateRoster: hydrateTeamRoster,
+  stopRoster: stopTeamRoster,
+  /** Update a team member's permissions/active flag — owner-only per
+   * firestore.rules (which also independently blocks ever touching an
+   * isOwner:true doc, including the owner's own, through this same path). */
+  async update(uid: string, patch: Partial<Pick<TeamUser, "active" | "permissions" | "name">>) {
+    await updateDoc(doc(db, "teamUsers", uid), patch);
   },
 };
 
@@ -118,9 +282,40 @@ export const REPO_BY_KEY: Record<string, Repository<{ id: string }>> = {
 
 const ALL_REPOS = Object.values(REPO_BY_KEY);
 
-/** Load everything after login; resolves when every collection has its first snapshot. */
-export async function hydrateRepos(): Promise<void> {
-  await Promise.all([...ALL_REPOS.map((r) => r.hydrate()), hydrateCompany()]);
+/** Which repos back each permission module — used to decide what a
+ * non-owner's device actually downloads. Cross-checked against every real
+ * collection above, not just the Sidebar's page names ("reports" has none of
+ * its own; it only aggregates reads across the others, already covered by
+ * their own module here). */
+const MODULE_REPOS: Record<ModuleKey, Repository<{ id: string }>[]> = {
+  masterData: [PartyRepo, ItemRepo, StockAdjustmentRepo] as Repository<{ id: string }>[],
+  sales: [SalesRepo, SaleReturnRepo] as Repository<{ id: string }>[],
+  purchaseExpenses: [PurchaseRepo, PurchaseReturnRepo, ExpenseRepo, PayeeRepo] as Repository<{
+    id: string;
+  }>[],
+  cashBank: [BankRepo, BankTxnRepo, PaymentRepo, CashAdjustmentRepo] as Repository<{ id: string }>[],
+  reports: [],
+};
+
+/**
+ * Load everything after login. The owner's experience is byte-for-byte
+ * unchanged from before this feature existed: every collection, always. A
+ * non-owner only ever has the repos for modules they hold `view` on
+ * subscribed at all — a module they can't view is never downloaded to this
+ * device's memory or local cache, not just hidden in the UI afterward. That
+ * distinction is the whole point: "View: off" has to mean the data never
+ * arrives, not that it arrives and is merely not displayed.
+ */
+export async function hydrateRepos(uid: string, email: string): Promise<void> {
+  await Promise.all([hydrateCurrentTeamUser(uid, email), hydrateCompany()]);
+  const me = teamUserCache;
+  if (!me || !me.active) return; // no access at all yet — AuthGate handles this state
+  const toHydrate = me.isOwner
+    ? ALL_REPOS
+    : (Object.keys(MODULE_REPOS) as ModuleKey[])
+        .filter((m) => me.permissions[m]?.view)
+        .flatMap((m) => MODULE_REPOS[m]);
+  await Promise.all(toHydrate.map((r) => r.hydrate()));
 }
 
 /** Stop all listeners and clear caches (on logout). */
@@ -130,6 +325,10 @@ export function stopRepos() {
   companyUnsub = undefined;
   companyCache = defaultCompany;
   companyExists = false;
+  teamUserUnsub?.();
+  teamUserUnsub = undefined;
+  setTeamUserCache(null);
+  stopTeamRoster();
 }
 
 /**
