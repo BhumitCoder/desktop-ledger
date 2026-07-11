@@ -54,7 +54,9 @@ export function Topbar() {
       <div className="hidden md:block flex-1" />
 
       {/* Mobile — compact search icon (opens the same global search
-          overlay) + Sale button, grouped on the right of the single row. */}
+          overlay), on the right of the single row. The bottom nav's FAB is
+          now the one and only "Add Sale" entry point on mobile, so a second
+          Sale button up here was redundant clutter. */}
       <div className="md:hidden flex items-center gap-1.5 justify-self-end">
         <button
           onClick={() => setGlobalSearch(true)}
@@ -62,13 +64,6 @@ export function Topbar() {
           title="Search"
         >
           <Search className="h-4 w-4" />
-        </button>
-        <button
-          onClick={() => navigate({ to: "/sales/new" })}
-          className="shrink-0 h-9 px-3.5 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 font-bold text-sm flex items-center gap-1.5 shadow-sm transition"
-        >
-          <Plus className="h-4 w-4" />
-          Sale
         </button>
       </div>
 

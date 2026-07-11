@@ -41,9 +41,21 @@ if (isBrowser) {
   // stricter IndexedDB behavior + background-tab throttling can stall the
   // lease handoff) — single-tab persistence keeps the same offline-cache
   // benefit without that cross-tab coordination surface.
+  //
+  // forceOwnership: true is essential here, not optional — without it, a
+  // freshly opened/reloaded tab WAITS for any other tab already holding the
+  // persistence lock to release it. If that other tab is a backgrounded or
+  // already-closed Safari tab (session restore on relaunch is common on
+  // macOS), the lease handoff can stall indefinitely — the app just hangs
+  // on load with nothing on screen. forceOwnership makes the new tab seize
+  // the lock immediately instead of waiting.
   dbInstance = initializeFirestore(
     app,
-    { localCache: persistentLocalCache({ tabManager: persistentSingleTabManager(undefined) }) },
+    {
+      localCache: persistentLocalCache({
+        tabManager: persistentSingleTabManager({ forceOwnership: true }),
+      }),
+    },
     DATABASE_ID,
   );
 }
