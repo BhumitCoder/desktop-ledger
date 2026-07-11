@@ -33,6 +33,8 @@ import {
   FileText,
   Rows3,
   MessageCircle,
+  Calendar,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -399,20 +401,20 @@ function PartyStatementPage() {
               {balance > 0 ? "receivable" : balance < 0 ? "payable" : ""}
             </p>
             </div>
-            <div className="no-print flex items-center gap-1.5 text-xs text-gray-500">
-              <span>From</span>
+            <div className="no-print flex items-center gap-1.5 h-9 pl-3 pr-2.5 rounded-lg border border-gray-200 bg-gray-50/60 shrink-0">
+              <Calendar className="h-3.5 w-3.5 text-gray-400 shrink-0" />
               <input
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="border border-gray-200 rounded-md text-xs px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+                className="bg-transparent text-xs text-gray-700 focus:outline-none w-[104px]"
               />
-              <span>To</span>
+              <span className="text-gray-300 text-xs">–</span>
               <input
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="border border-gray-200 rounded-md text-xs px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+                className="bg-transparent text-xs text-gray-700 focus:outline-none w-[104px]"
               />
               {(dateFrom || dateTo) && (
                 <button
@@ -420,9 +422,10 @@ function PartyStatementPage() {
                     setDateFrom("");
                     setDateTo("");
                   }}
-                  className="text-gray-400 hover:text-gray-600 font-semibold px-1"
+                  className="text-gray-400 hover:text-gray-600 transition"
+                  title="Clear date range"
                 >
-                  ✕
+                  <X className="h-3.5 w-3.5" />
                 </button>
               )}
             </div>
