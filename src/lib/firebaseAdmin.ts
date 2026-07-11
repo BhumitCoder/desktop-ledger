@@ -57,12 +57,27 @@ export async function getAdminDb() {
       const admin = (await import("firebase-admin")).default;
       const app = await getAdminApp();
       const db = admin.firestore(app);
-      // preferRest is required on Vercel — the Admin SDK's default gRPC
-      // transport (google-gax/@grpc/grpc-js) doesn't survive Vite/Nitro's
-      // serverless bundling and throws "this._gaxModule.GrpcClient is not a
-      // constructor" at runtime. Plain HTTP has no such bundling dependency,
-      // and works identically for the low read/write volume here.
-      db.settings({ databaseId: DATABASE_ID, preferRest: true });
+      try {
+        // preferRest is required on Vercel — the Admin SDK's default gRPC
+        // transport (google-gax/@grpc/grpc-js) doesn't survive Vite/Nitro's
+        // serverless bundling and throws "this._gaxModule.GrpcClient is not
+        // a constructor" at runtime. Plain HTTP has no such bundling
+        // dependency, and works identically for the low read/write volume
+        // here.
+        db.settings({ databaseId: DATABASE_ID, preferRest: true });
+      } catch (err) {
+        // On Vercel, each server function (Team vs. WhatsApp) is very
+        // likely its own separate serverless bundle — each gets its OWN
+        // copy of this module, and thus its own dbPromise, even though
+        // admin.firestore(app) returns the SAME underlying client
+        // (firebase-admin itself is one real shared package). So a
+        // DIFFERENT bundle may have already called settings() on this exact
+        // object before this one ever ran — that's not a bug, just means
+        // it's already configured the way we want, so it's safe to ignore.
+        // Anything else is a real error and must still surface.
+        const already = err instanceof Error && /already.*initialized/i.test(err.message);
+        if (!already) throw err;
+      }
       return db;
     })();
   }
