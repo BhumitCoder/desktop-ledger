@@ -843,6 +843,17 @@ function StatCard({
   );
 }
 
+// Cells here are already display-formatted strings (₹1,200.00, dates, plain
+// numbers, dashes for empty) shared across every report table — this strips
+// currency/comma formatting to compare numerically when it can, and falls
+// back to plain string comparison for text columns and "—" placeholders.
+function smartCompare(a: string, b: string): number {
+  const na = parseFloat(a.replace(/[₹,]/g, ""));
+  const nb = parseFloat(b.replace(/[₹,]/g, ""));
+  if (!isNaN(na) && !isNaN(nb)) return na - nb;
+  return a.localeCompare(b);
+}
+
 function TableReport({
   label,
   cols,
@@ -854,6 +865,25 @@ function TableReport({
   rows: string[][];
   totalRows: [string, string][];
 }) {
+  const [sortCol, setSortCol] = useState<number | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  const toggleSort = (i: number) => {
+    if (sortCol === i) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortCol(i);
+      setSortDir("asc");
+    }
+  };
+
+  const sortedRows =
+    sortCol == null
+      ? rows
+      : [...rows].sort((a, b) => {
+          const cmp = smartCompare(a[sortCol] ?? "", b[sortCol] ?? "");
+          return sortDir === "asc" ? cmp : -cmp;
+        });
+
   if (rows.length === 0) {
     return (
       <div>
@@ -872,7 +902,7 @@ function TableReport({
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-base font-bold text-gray-800">{label}</h2>
           <button
-            onClick={() => downloadCsv(label, cols, rows)}
+            onClick={() => downloadCsv(label, cols, sortedRows)}
             className="no-print inline-flex items-center gap-1.5 h-8 px-3 bg-white border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 hover:bg-gray-50 hover:shadow-sm transition"
           >
             <Download className="h-3.5 w-3.5" /> Export CSV
@@ -885,14 +915,22 @@ function TableReport({
             <thead>
               <tr>
                 {cols.map((c, i) => (
-                  <th key={c} style={{ textAlign: i > 0 ? "right" : "left" }}>
+                  <th
+                    key={c}
+                    onClick={() => toggleSort(i)}
+                    style={{ textAlign: i > 0 ? "right" : "left" }}
+                    className="cursor-pointer select-none"
+                  >
                     {c}
+                    {sortCol === i && (
+                      <span className="ml-1">{sortDir === "asc" ? "↑" : "↓"}</span>
+                    )}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, ri) => (
+              {sortedRows.map((row, ri) => (
                 <tr key={ri}>
                   {row.map((cell, ci) => (
                     <td
