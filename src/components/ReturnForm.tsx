@@ -59,6 +59,18 @@ export function ReturnForm({ mode }: Props) {
   const gstOn = ret.gstEnabled !== false;
   const [allParties] = useState(() => PartyRepo.all());
   const items = useMemo(() => ItemRepo.all(), []);
+  // After an item is picked, focus goes to THAT line's Qty field (id
+  // "qty-<lineId>") so the returned quantity can be typed immediately —
+  // matching Sales' invoice form — not back into the search box.
+  const focusQtyId = useRef<string | null>(null);
+  useEffect(() => {
+    if (focusQtyId.current) {
+      const el = document.getElementById(`qty-${focusQtyId.current}`) as HTMLInputElement | null;
+      el?.focus();
+      el?.select();
+      focusQtyId.current = null;
+    }
+  }, [ret.lineItems]);
   const partyRef = useRef<HTMLInputElement>(null);
   const [partyQ, setPartyQ] = useState("");
   const [partyOpen, setPartyOpen] = useState(false);
@@ -155,6 +167,7 @@ export function ReturnForm({ mode }: Props) {
     if (existingLine) {
       updateLine(existingLine.id, { qty: existingLine.qty + 1 });
       toast.info(`${it.name} — quantity increased to ${existingLine.qty + 1}`);
+      focusQtyId.current = existingLine.id;
       return;
     }
     const line: LineItem = {
@@ -173,6 +186,7 @@ export function ReturnForm({ mode }: Props) {
     line.amount = r2(r2(line.qty * line.price) * gstMult);
     const lines = [...ret.lineItems, line];
     setRet({ ...ret, lineItems: lines, ...recalc(lines) });
+    focusQtyId.current = line.id;
   };
 
   const updateLine = (id: string, patch: Partial<LineItem>) => {
@@ -583,6 +597,7 @@ export function ReturnForm({ mode }: Props) {
                     <td className="px-3 py-1.5 font-medium">{l.name}</td>
                     <td className="py-1.5 px-1">
                       <NumInput
+                        id={`qty-${l.id}`}
                         value={l.qty}
                         onValue={(n) => updateLine(l.id, { qty: n })}
                         className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
@@ -742,12 +757,14 @@ function ReturnItemSearchRow({
         .slice(0, 8)
     : items.slice(0, 8);
 
+  // No self-refocus here — the parent moves focus to the newly added line's
+  // Qty field instead (see focusQtyId in ReturnForm), matching Sales' flow:
+  // pick an item, land straight on Qty to type how much actually came back.
   const pick = (it: Item) => {
     onAdd(it);
     setQ("");
     setOpen(false);
     setIdx(0);
-    setTimeout(() => inputRef.current?.focus(), 30);
   };
 
   return (
