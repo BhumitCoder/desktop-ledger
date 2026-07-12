@@ -39,14 +39,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [pathname]);
 
   return (
-    <div className="h-screen w-screen flex bg-background text-foreground overflow-hidden">
+    <div className="h-dvh w-screen flex bg-background text-foreground overflow-hidden overscroll-none">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
         <Topbar />
         <WorkspaceTabs />
         <main
           ref={mainRef}
-          className="flex-1 overflow-auto bg-[#f5f6fa] pb-[calc(60px_+_env(safe-area-inset-bottom,_0px))] md:pb-0"
+          className="flex-1 overflow-auto overscroll-contain bg-[#f5f6fa] pb-[calc(60px_+_env(safe-area-inset-bottom,_0px))] md:pb-0"
         >
           {children}
         </main>

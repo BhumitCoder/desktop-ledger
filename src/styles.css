@@ -138,6 +138,16 @@
   body,
   #root {
     height: 100%;
+    /* AppShell's own `<main>` (and each page's own inner overflow-auto
+       region) is the only thing that should ever scroll — the outer
+       page/body must not be independently scrollable at all. Without this,
+       mobile Safari's dynamic address bar (100vh not matching the real
+       visible viewport) or an elastic overscroll bounce could occasionally
+       let the whole page — header included, since it's normal-flow content
+       sitting above `<main>`, not actually pinned — drift with a scroll
+       gesture that was meant to only scroll the content underneath it. */
+    overflow: hidden;
+    overscroll-behavior: none;
   }
   body {
     background-color: var(--color-background);
