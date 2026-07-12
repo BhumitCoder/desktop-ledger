@@ -162,21 +162,31 @@ export function Sidebar() {
           collapsed && "md:w-14",
         )}
       >
-        {/* Brand */}
-        <div className="h-14 flex items-center gap-2.5 bg-sidebar border-b border-sidebar-border shrink-0 px-3">
-          <div className="h-8 w-8 rounded-md bg-primary-soft text-primary flex items-center justify-center ring-1 ring-primary/10 shrink-0">
-            <Sparkles className="h-4 w-4" />
-          </div>
-          {!collapsed && (
-            <div className="flex flex-col leading-tight overflow-hidden">
-              <span className="font-bold tracking-tight text-[15px] text-sidebar-foreground">
-                AIM
-              </span>
-              <span className="text-[10px] uppercase tracking-widest text-sidebar-muted">
-                Billing · Inventory
-              </span>
+        {/* Brand — installed on the home screen (standalone mode), iOS
+            draws the status bar translucent right over the page instead of
+            pushing it down, and this drawer spans the full viewport height
+            (fixed inset-y-0), so without this top padding for the
+            notch/status-bar's safe area, the logo renders partly hidden
+            underneath it, same issue Topbar.tsx had before its own fix. */}
+        <div
+          className="bg-sidebar border-b border-sidebar-border shrink-0"
+          style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
+        >
+          <div className="h-14 flex items-center gap-2.5 px-3">
+            <div className="h-8 w-8 rounded-md bg-primary-soft text-primary flex items-center justify-center ring-1 ring-primary/10 shrink-0">
+              <Sparkles className="h-4 w-4" />
             </div>
-          )}
+            {!collapsed && (
+              <div className="flex flex-col leading-tight overflow-hidden">
+                <span className="font-bold tracking-tight text-[15px] text-sidebar-foreground">
+                  AIM
+                </span>
+                <span className="text-[10px] uppercase tracking-widest text-sidebar-muted">
+                  Billing · Inventory
+                </span>
+              </div>
+            )}
+          </div>
         </div>
 
         <nav className="flex-1 overflow-y-auto overflow-x-hidden py-2 text-[13px]">
@@ -242,7 +252,9 @@ export function Sidebar() {
           })}
         </nav>
 
-        {/* Logout — mobile drawer only; desktop keeps it in the Topbar */}
+        {/* Logout — mobile drawer only; desktop keeps it in the Topbar.
+            Extra bottom padding for phones with a home indicator, same
+            reasoning as the Brand section's top padding above. */}
         <button
           onClick={async () => {
             if (!confirm("Logout from AIM?")) return;
@@ -254,6 +266,7 @@ export function Sidebar() {
             }
           }}
           className="md:hidden border-t border-sidebar-border h-11 flex items-center justify-center gap-2 text-[12px] font-medium text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition"
+          style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
         >
           <LogOut className="h-4 w-4" /> Logout
         </button>

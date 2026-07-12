@@ -304,42 +304,34 @@ function PartyStatementPage() {
   return (
     <div className="flex flex-col h-full bg-[#f5f6fa]">
       {/* Header */}
-      <div className="no-print bg-white border-b px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <button
-            onClick={() => navigate({ to: "/parties" })}
-            className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 flex items-center justify-center text-gray-600 transition shadow-sm"
-            title="Back to Parties"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </button>
-          <div className="h-8 w-8 shrink-0 rounded-full bg-primary-soft text-primary flex items-center justify-center font-bold text-[13px] uppercase">
-            {party.name.trim().charAt(0) || "?"}
+      <div className="no-print bg-white border-b px-5 py-3 flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <button
+              onClick={() => navigate({ to: "/parties" })}
+              className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 flex items-center justify-center text-gray-600 transition shadow-sm"
+              title="Back to Parties"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+            <div className="h-8 w-8 shrink-0 rounded-full bg-primary-soft text-primary flex items-center justify-center font-bold text-[13px] uppercase">
+              {party.name.trim().charAt(0) || "?"}
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-[15px] font-bold text-gray-800 truncate leading-tight">
+                {party.name}
+              </h1>
+              <p className="text-[11px] text-gray-400 flex items-center gap-1 whitespace-nowrap">
+                {party.phone ? (
+                  <>
+                    <Phone className="h-3 w-3" /> {party.phone}
+                  </>
+                ) : (
+                  "No phone saved"
+                )}
+              </p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <h1 className="text-[15px] font-bold text-gray-800 truncate leading-tight">
-              {party.name}
-            </h1>
-            <p className="text-[11px] text-gray-400 flex items-center gap-1 whitespace-nowrap">
-              {party.phone ? (
-                <>
-                  <Phone className="h-3 w-3" /> {party.phone}
-                </>
-              ) : (
-                "No phone saved"
-              )}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 ml-auto">
-          <StatementCard icon={Receipt} label="Total Billed" value={totalBilled} tone="gray" />
-          <StatementCard icon={CheckCircle2} label="Received / Paid" value={totalReceived} tone="emerald" />
-          <StatementCard
-            icon={AlertCircle}
-            label={balance > 0 ? "They Owe You" : balance < 0 ? "You Owe Them" : "Settled"}
-            value={Math.abs(balance)}
-            tone={balance > 0 ? "rose" : balance < 0 ? "amber" : "emerald"}
-          />
           {editAllowed && (
             <button
               onClick={() => setEditOpen(true)}
@@ -349,6 +341,23 @@ function PartyStatementPage() {
               <Pencil className="h-4 w-4" />
             </button>
           )}
+        </div>
+
+        {/* Balance summary — its own row, evenly split, instead of three
+            fixed-width cards competing with the action buttons for space. */}
+        <div className="grid grid-cols-3 gap-2">
+          <StatementCard icon={Receipt} label="Total Billed" value={totalBilled} tone="gray" />
+          <StatementCard icon={CheckCircle2} label="Received / Paid" value={totalReceived} tone="emerald" />
+          <StatementCard
+            icon={AlertCircle}
+            label={balance > 0 ? "They Owe You" : balance < 0 ? "You Owe Them" : "Settled"}
+            value={Math.abs(balance)}
+            tone={balance > 0 ? "rose" : balance < 0 ? "amber" : "emerald"}
+          />
+        </div>
+
+        {/* Export/share actions */}
+        <div className="flex items-center gap-2">
           <button
             onClick={downloadExcel}
             className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition"
@@ -386,7 +395,7 @@ function PartyStatementPage() {
           </button>
           <button
             onClick={() => promptFormat("print")}
-            className="inline-flex items-center gap-1.5 h-8 px-3 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition"
+            className="flex-1 inline-flex items-center justify-center gap-1.5 h-8 px-3 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition"
             title="Print"
           >
             <Printer className="h-4 w-4" /> Print
@@ -412,7 +421,7 @@ function PartyStatementPage() {
           {ledgerFormat === "full" && (
             <style>{`@media print { @page { size: A4 landscape; margin: 0; } }`}</style>
           )}
-          <div className="px-5 py-3 border-b flex items-center justify-between gap-3 flex-wrap">
+          <div className="px-5 py-3 border-b flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
             <p className="text-sm font-bold text-gray-800">Party Statement — {party.name}</p>
             <p className="text-[11px] text-gray-400">
@@ -421,20 +430,20 @@ function PartyStatementPage() {
               {balance > 0 ? "receivable" : balance < 0 ? "payable" : ""}
             </p>
             </div>
-            <div className="no-print flex items-center gap-1.5 h-9 pl-3 pr-2.5 rounded-lg border border-gray-200 bg-gray-50/60 shrink-0">
+            <div className="no-print flex items-center gap-1.5 h-9 pl-3 pr-2.5 rounded-lg border border-gray-200 bg-gray-50/60 w-full sm:w-auto sm:shrink-0">
               <Calendar className="h-3.5 w-3.5 text-gray-400 shrink-0" />
               <input
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="bg-transparent text-xs text-gray-700 focus:outline-none w-[104px]"
+                className="flex-1 sm:flex-none bg-transparent text-xs text-gray-700 focus:outline-none sm:w-[104px] min-w-0"
               />
               <span className="text-gray-300 text-xs">–</span>
               <input
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="bg-transparent text-xs text-gray-700 focus:outline-none w-[104px]"
+                className="flex-1 sm:flex-none bg-transparent text-xs text-gray-700 focus:outline-none sm:w-[104px] min-w-0"
               />
               {(dateFrom || dateTo) && (
                 <button
@@ -442,7 +451,7 @@ function PartyStatementPage() {
                     setDateFrom("");
                     setDateTo("");
                   }}
-                  className="text-gray-400 hover:text-gray-600 transition"
+                  className="text-gray-400 hover:text-gray-600 transition shrink-0"
                   title="Clear date range"
                 >
                   <X className="h-3.5 w-3.5" />
@@ -699,15 +708,15 @@ function StatementCard({
 }) {
   const t = STATEMENT_TONES[tone];
   return (
-    <div className="shrink-0 flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg border border-gray-100 bg-white">
-      <div className={`h-8 w-8 rounded-md flex items-center justify-center shrink-0 ${t.bg} ${t.text}`}>
+    <div className="flex items-center gap-1.5 sm:gap-2.5 px-2 sm:px-3.5 py-2 sm:py-2.5 rounded-lg border border-gray-100 bg-white min-w-0">
+      <div className={`hidden sm:flex h-8 w-8 rounded-md items-center justify-center shrink-0 ${t.bg} ${t.text}`}>
         <Icon className="h-4 w-4" />
       </div>
       <div className="min-w-0">
-        <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide mb-0.5 whitespace-nowrap">
+        <p className="text-[9px] sm:text-[10px] text-gray-400 font-medium uppercase tracking-wide mb-0.5 leading-tight">
           {label}
         </p>
-        <p className={`text-[14px] font-bold tabular-nums whitespace-nowrap ${t.text}`}>
+        <p className={`text-[12px] sm:text-[14px] font-bold tabular-nums truncate ${t.text}`}>
           {fmtMoney(value)}
         </p>
       </div>
