@@ -204,7 +204,57 @@ function BankStatementPage() {
               )}
             </div>
           </div>
-          <table className="w-full text-[12.5px] border-collapse">
+          {/* The mobile/desktop split below is screen-only — print must
+              always show the real table regardless of the device it's
+              triggered from (a phone's own Print button included), so this
+              overrides both sides of the split back for @media print
+              rather than trusting how a given browser resolves `md:` during
+              an actual print render. */}
+          <style>{`@media print {
+            .bank-ledger-mobile-cards { display: none !important; }
+            .bank-ledger-table { display: table !important; }
+          }`}</style>
+          {/* Mobile card list — a 6-column table doesn't fit a phone; this
+              is the same data as one tappable card per row instead. */}
+          <div className="md:hidden bank-ledger-mobile-cards">
+            {rows.length === 0 ? (
+              <div className="text-center py-14 text-gray-400">
+                No transactions in this account yet
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {rows.map((e, i) => (
+                  <div
+                    key={i}
+                    onClick={e.docId ? () => openRow(e) : undefined}
+                    title={e.docId ? "Open this bill" : undefined}
+                    className={`bg-white p-4 ${e.docId ? "cursor-pointer active:bg-gray-50" : ""}`}
+                  >
+                    <div className="flex items-start justify-between gap-3 mb-1">
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-800 truncate">{e.type}</p>
+                        <p className="text-xs text-gray-400 mt-0.5 truncate">
+                          {e.date ? fmtDate(e.date) : "—"}
+                        </p>
+                      </div>
+                      <p
+                        className={`font-bold tabular-nums shrink-0 ${e.debit ? "text-rose-600" : e.credit ? "text-emerald-600" : "text-gray-800"}`}
+                      >
+                        {e.debit ? fmtMoney(e.debit) : e.credit ? fmtMoney(e.credit) : "—"}
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-mono text-blue-600 truncate">{e.ref}</span>
+                      <span className="text-xs font-semibold text-gray-500 shrink-0">
+                        Bal: {fmtMoney(e.balance)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <table className="hidden md:table bank-ledger-table w-full text-[12.5px] border-collapse">
             <thead>
               <tr className="bg-gray-50">
                 {["Date", "Type", "Ref #", "Debit (−)", "Credit (+)", "Balance"].map((h, i) => (

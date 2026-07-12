@@ -234,7 +234,7 @@ function SettingsPage() {
           </ul>
         </nav>
         <div className="flex-1 min-w-0 overflow-auto">
-          <div className="p-6 space-y-4 max-w-3xl mx-auto">
+          <div className="p-4 sm:p-6 space-y-4 max-w-3xl mx-auto">
             <form
               ref={companyRef}
               onSubmit={save}
@@ -245,7 +245,7 @@ function SettingsPage() {
                 title="Company Details"
                 description="Shown on every invoice, bill, and printed document"
               />
-              <div className="p-5 grid grid-cols-2 gap-4">
+              <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="col-span-2">
                   <Field
                     label="Company Name *"
@@ -413,8 +413,14 @@ function SettingsPage() {
                     </p>
                   </div>
                 )}
-                <div className="flex gap-2 flex-wrap">
-                  <Button type="button" variant="outline" disabled={busy} onClick={exportData}>
+                <div className="flex flex-col sm:flex-row gap-2 sm:flex-wrap">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={exportData}
+                    className="w-full sm:w-auto"
+                  >
                     <Download className="h-3.5 w-3.5" /> Export Backup (JSON)
                   </Button>
                   <Button
@@ -422,6 +428,7 @@ function SettingsPage() {
                     variant="outline"
                     disabled={busy}
                     onClick={() => importRef.current?.click()}
+                    className="w-full sm:w-auto"
                   >
                     <Upload className="h-3.5 w-3.5" /> Import Backup
                   </Button>
@@ -436,7 +443,13 @@ function SettingsPage() {
                       e.target.value = "";
                     }}
                   />
-                  <Button type="button" variant="destructive" disabled={busy} onClick={clearAll}>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    disabled={busy}
+                    onClick={clearAll}
+                    className="w-full sm:w-auto"
+                  >
                     <Trash2 className="h-3.5 w-3.5" /> Clear All Data
                   </Button>
                 </div>
@@ -452,7 +465,7 @@ function SettingsPage() {
               className="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden scroll-mt-6"
             >
               <SectionHeader icon={<Keyboard className="h-4 w-4" />} title="Keyboard Shortcuts" />
-              <div className="p-5 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
+              <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
                 {[
                   ["Ctrl+F", "Global search"],
                   ["Ctrl+N", "New sale"],

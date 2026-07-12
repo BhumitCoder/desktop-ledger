@@ -212,7 +212,55 @@ function ItemDetailPage() {
               {soldQty}
             </p>
           </div>
-          <table className="w-full text-[12.5px] border-collapse">
+          {/* Mobile card list — a table of 7 columns doesn't fit a phone;
+              this is the same history as one tappable card per entry instead. */}
+          <div className="md:hidden">
+            {rows.length === 0 ? (
+              <p className="text-center py-14 text-gray-400">No transactions for this item yet</p>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {pg.paged.map((e, i) => (
+                  <div
+                    key={i}
+                    onClick={() => openRow(e)}
+                    className={`p-4 ${e.docId ? "cursor-pointer active:bg-gray-50" : ""}`}
+                  >
+                    <div className="flex items-start justify-between gap-3 mb-1.5">
+                      <div className="min-w-0">
+                        <span
+                          className={`inline-block text-[11px] font-semibold px-2 py-0.5 rounded-full border ${e.qtyIn > 0 ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-rose-50 text-rose-700 border-rose-200"}`}
+                        >
+                          {e.type}
+                        </span>
+                        <p className="text-xs text-gray-400 mt-1 truncate">
+                          {fmtDate(e.date)} · {e.party}
+                        </p>
+                      </div>
+                      {e.ref && <p className="font-mono text-xs text-blue-600 shrink-0">{e.ref}</p>}
+                    </div>
+                    <div className="flex items-center gap-4 text-xs">
+                      <span className="text-gray-500">
+                        Rate {e.rate != null ? fmtMoney(e.rate) : "—"}
+                      </span>
+                      {e.qtyIn > 0 && (
+                        <span className="text-emerald-600 font-semibold tabular-nums">
+                          +{e.qtyIn} in
+                        </span>
+                      )}
+                      {e.qtyOut > 0 && (
+                        <span className="text-rose-600 font-semibold tabular-nums">
+                          −{e.qtyOut} out
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Table (desktop) */}
+          <table className="hidden md:table w-full text-[12.5px] border-collapse">
             <thead>
               <tr className="bg-gray-50">
                 {["Date", "Type", "Ref #", "Party", "Rate", "Qty In", "Qty Out"].map((h, i) => (

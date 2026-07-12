@@ -571,7 +571,64 @@ function DaybookPage() {
           className="print-visible flex-1 min-h-0 flex flex-col bg-white border border-gray-200/80 rounded-xl shadow-card overflow-hidden print:shadow-none print:border-none print:rounded-none print:p-6"
         >
           <div className="data-table flex-1 overflow-auto">
-            <table className="w-full min-w-max text-[12.5px]">
+            {/* The mobile/desktop split below is screen-only — print must
+                always show the real table regardless of the device it's
+                triggered from (a phone's own Print button included), so
+                this overrides both sides of the split back for @media
+                print rather than trusting how a given browser resolves
+                `md:` during an actual print render. */}
+            <style>{`@media print {
+              .daybook-mobile-cards { display: none !important; }
+              .daybook-table { display: table !important; }
+            }`}</style>
+            {/* Mobile card list — an 8-column table doesn't fit a phone;
+                this is the same day's transactions as one tappable card per
+                entry instead. */}
+            <div className="md:hidden daybook-mobile-cards">
+              {pg.paged.length === 0 ? (
+                <p className="text-center py-14 text-gray-400">
+                  {rows.length === 0 ? "No transactions on this day" : "No matches for your search"}
+                </p>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {pg.paged.map((r, i) => (
+                    <div
+                      key={i}
+                      onClick={() => openRow(r)}
+                      className={`p-4 ${r.docId ? "cursor-pointer active:bg-gray-50" : ""}`}
+                    >
+                      <div className="flex items-start justify-between gap-3 mb-1">
+                        <div className="min-w-0">
+                          <p className="font-medium text-gray-800 truncate">{r.party}</p>
+                          <p className="text-xs text-gray-400 mt-0.5 truncate">
+                            {r.type} · {modeLabel(r)}
+                            {r.ref ? ` · ${r.ref}` : ""}
+                          </p>
+                        </div>
+                        <p className="font-bold tabular-nums shrink-0 text-gray-800">
+                          {fmtMoney(Math.abs(r.amount))}
+                        </p>
+                      </div>
+                      {(r.cash !== 0) && (
+                        <p
+                          className={`text-xs font-semibold ${r.cash > 0 ? "text-emerald-600" : "text-rose-600"}`}
+                        >
+                          {r.cash > 0 ? `+${fmtMoney(r.cash)} in` : `−${fmtMoney(Math.abs(r.cash))} out`}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {filteredRows.length > 0 && (
+                <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-t text-xs font-bold text-gray-600">
+                  <span>Total ({filteredRows.length})</span>
+                  <span className="tabular-nums">{fmtMoney(net)}</span>
+                </div>
+              )}
+            </div>
+
+            <table className="hidden md:table daybook-table w-full min-w-max text-[12.5px]">
               <thead>
                 <tr>
                   {["#", "Name", "Ref No", "Type", "Payment Type", "Total", "Money In", "Money Out"].map(

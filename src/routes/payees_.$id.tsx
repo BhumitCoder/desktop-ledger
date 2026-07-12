@@ -217,7 +217,53 @@ function PayeeLedgerPage() {
               </p>
             </div>
           </div>
-          <div className="overflow-x-auto rounded-b-lg">
+          {/* The mobile/desktop split below is screen-only — print must
+              always show the real table regardless of the device it's
+              triggered from (a phone's own Print button included), so this
+              overrides both sides of the split back for @media print
+              rather than trusting how a given browser resolves `md:` during
+              an actual print render. */}
+          <style>{`@media print {
+            .payee-ledger-mobile-cards { display: none !important; }
+            .payee-ledger-table { display: block !important; }
+          }`}</style>
+          {/* Mobile card list — a 6-column table doesn't fit a phone; this
+              is the same read-only data as one row-card per payment instead
+              (no click action here either, same as the desktop table). */}
+          <div className="md:hidden payee-ledger-mobile-cards">
+            {rows.length === 0 ? (
+              <div className="text-center py-14 text-gray-400">No payments to {payee.name} yet</div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {rows.map((r) => (
+                  <div key={r.id} className="bg-white p-4">
+                    <div className="flex items-start justify-between gap-3 mb-1">
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-800 truncate">{r.category}</p>
+                        <p className="text-xs text-gray-400 mt-0.5 truncate">
+                          {fmtDate(r.date)} ·{" "}
+                          {r.paymentMode === "bank"
+                            ? `Bank — ${bankNameById.get(r.bankId ?? "") ?? "unspecified"}`
+                            : fmtMode(r.paymentMode)}
+                        </p>
+                      </div>
+                      <p className="font-bold tabular-nums shrink-0 text-gray-800">
+                        {fmtMoney(r.amount)}
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs text-gray-400 truncate">{r.notes ?? "—"}</span>
+                      <span className="text-xs font-semibold text-gray-500 shrink-0">
+                        Total: {fmtMoney(r.running)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="hidden md:block overflow-x-auto rounded-b-lg payee-ledger-table">
             <table className="w-full text-[12px] border-collapse min-w-[640px]">
               <thead>
                 <tr className="bg-gray-50">

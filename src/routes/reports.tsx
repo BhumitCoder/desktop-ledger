@@ -19,7 +19,7 @@ import { downloadXlsx } from "@/lib/xlsx";
 import { downloadElementAsPdf } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { partyStatementSheet } from "@/lib/partySheet";
-import { PartyStatementRowBlock } from "./parties_.$id";
+import { PartyStatementRowBlock, PartyStatementCardBlock } from "./parties_.$id";
 import { fmtMode } from "@/components/ModePills";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
@@ -742,7 +742,34 @@ function ReportView({
                     Closing: {fmtBal(closing)}
                   </span>
                 </div>
-                <table className="w-full text-[12px] border-collapse">
+                {/* The mobile/desktop split below is screen-only — print
+                    must always show the real table regardless of the
+                    device it's triggered from (a phone's own Print button
+                    included), so this overrides both sides of the split
+                    back for @media print rather than trusting how a given
+                    browser resolves `md:` during an actual print render. */}
+                <style>{`@media print {
+                  .party-ledger-mobile-cards { display: none !important; }
+                  .party-ledger-table { display: table !important; }
+                }`}</style>
+                <div className="md:hidden party-ledger-mobile-cards divide-y divide-gray-100">
+                  {ledger.rows.map((r, i) => (
+                    <PartyStatementCardBlock key={i} row={r} onOpen={() => openRow(r)} />
+                  ))}
+                  <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50 border-t text-[10px] font-bold uppercase text-gray-500">
+                    <span>Closing Balance</span>
+                    <span
+                      className={closing > 0 ? "text-rose-600" : closing < 0 ? "text-amber-600" : "text-gray-500"}
+                    >
+                      {closing > 0
+                        ? `${fmtMoney(closing)} Dr`
+                        : closing < 0
+                          ? `${fmtMoney(-closing)} Cr`
+                          : "Settled"}
+                    </span>
+                  </div>
+                </div>
+                <table className="hidden md:table party-ledger-table w-full text-[12px] border-collapse">
                   <thead>
                     <tr className="bg-gray-50/60">
                       {[
@@ -1019,7 +1046,46 @@ function TableReport({
         </div>
       )}
       <div className="bg-white border border-gray-200/80 rounded-xl shadow-card overflow-hidden">
-        <div className="data-table overflow-auto max-h-[calc(100vh-300px)]">
+        {/* The mobile/desktop split below is screen-only — print must
+            always show the real table regardless of the device it's
+            triggered from (a phone's own Print button included), so this
+            overrides both sides of the split back for @media print rather
+            than trusting how a given browser resolves `md:` during an
+            actual print render. */}
+        <style>{`@media print {
+          .table-report-mobile-cards { display: none !important; }
+          .table-report-table { display: table !important; }
+        }`}</style>
+        {/* Mobile card list — this report's column count varies (up to 8+
+            for some reports) and never fits a phone; this shows every
+            column as a label:value pair per row instead, generically,
+            since this one component renders many differently-shaped
+            reports. */}
+        <div className="md:hidden table-report-mobile-cards">
+          <div className="divide-y divide-gray-100">
+            {sortedRows.map((row, ri) => (
+              <div key={ri} className="p-4">
+                <p className="font-semibold text-gray-800 mb-1">{row[0]}</p>
+                <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500">
+                  {cols.slice(1, -1).map((c, i) => (
+                    <span key={c}>
+                      <span className="text-gray-400">{c}:</span> {row[i + 1]}
+                    </span>
+                  ))}
+                </div>
+                {cols.length > 1 && (
+                  <p className="mt-1.5 text-right font-bold text-gray-800 tabular-nums">
+                    <span className="text-xs font-normal text-gray-400 mr-1">
+                      {cols[cols.length - 1]}:
+                    </span>
+                    {row[row.length - 1]}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="hidden md:block data-table table-report-table overflow-auto max-h-[calc(100vh-300px)]">
           <table className="w-full text-[12.5px] min-w-max">
             <thead>
               <tr>

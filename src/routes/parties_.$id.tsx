@@ -450,7 +450,49 @@ function PartyStatementPage() {
               )}
             </div>
           </div>
-          <div className="overflow-x-auto rounded-b-lg">
+          {/* The mobile/desktop split below is screen-only — print must
+              always show the real table regardless of the device it's
+              triggered from (a phone's own Print button included), so this
+              overrides both sides of the split back for @media print
+              rather than trusting how a given browser resolves `md:` during
+              an actual print render. */}
+          <style>{`@media print {
+            .party-statement-mobile-cards { display: none !important; }
+            .party-statement-table { display: block !important; }
+          }`}</style>
+          {/* Mobile card list — a 9-column table doesn't fit a phone; this
+              is the same statement as one tappable card per transaction
+              instead (item-level breakdown is left for the full bill, one
+              tap away). */}
+          <div className="md:hidden party-statement-mobile-cards">
+            {rows.length === 0 ? (
+              <div className="text-center py-14 text-gray-400">
+                No transactions with this party yet
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {rows.map((e, i) => (
+                  <PartyStatementCardBlock key={i} row={e} onOpen={() => openRow(e)} />
+                ))}
+              </div>
+            )}
+            {rows.length > 0 && (
+              <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-t text-xs font-bold uppercase text-gray-500">
+                <span>Closing Balance</span>
+                <span
+                  className={balance > 0 ? "text-rose-600" : balance < 0 ? "text-amber-600" : "text-gray-500"}
+                >
+                  {balance > 0
+                    ? `${fmtMoney(balance)} Dr`
+                    : balance < 0
+                      ? `${fmtMoney(-balance)} Cr`
+                      : "Settled"}
+                </span>
+              </div>
+            )}
+          </div>
+
+          <div className="hidden md:block overflow-x-auto rounded-b-lg party-statement-table">
             <table className="w-full text-[12px] border-collapse min-w-[980px]">
               <thead>
                 <tr className="bg-gray-50">
@@ -789,5 +831,69 @@ export function PartyStatementRowBlock({
         </tr>
       )}
     </>
+  );
+}
+
+/** Mobile-card counterpart to PartyStatementRowBlock, used the same way in
+ * both the Party Statement page and the Reports page's Party Ledger report
+ * — one card per transaction row instead of a 9-column table that doesn't
+ * fit a phone. The nested item-breakdown table PartyStatementRowBlock shows
+ * per transaction is left out here; tapping the card opens the full
+ * bill/return where that detail is always available. */
+export function PartyStatementCardBlock({
+  row: e,
+  onOpen,
+}: {
+  row: PartyStatementRow;
+  onOpen: () => void;
+}) {
+  const isBalanceRow = e.type === "Beginning Balance" || e.type === "Balance b/f";
+  return (
+    <div
+      onClick={e.docId ? onOpen : undefined}
+      className={`p-4 ${e.docId ? "cursor-pointer active:bg-gray-50" : ""} ${isBalanceRow ? "bg-gray-50/40" : ""}`}
+    >
+      <div className="flex items-start justify-between gap-3 mb-1.5">
+        <div className="min-w-0">
+          <p className={`text-gray-800 truncate ${isBalanceRow ? "font-semibold" : "font-medium"}`}>
+            {e.type}
+          </p>
+          <p className="text-xs text-gray-400 mt-0.5 truncate">
+            {e.date ? fmtDate(e.date) : ""}
+            {e.ref ? ` · ${e.ref}` : ""}
+          </p>
+        </div>
+        {e.status && (
+          <span
+            className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+              e.status === "Paid"
+                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                : e.status === "Partial"
+                  ? "bg-amber-50 text-amber-700 border-amber-200"
+                  : "bg-rose-50 text-rose-700 border-rose-200"
+            }`}
+          >
+            {e.status}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-3 text-xs flex-wrap">
+        {!!e.total && <span className="text-gray-500">Total {fmtMoney(e.total)}</span>}
+        {!!e.receivedOrPaid && (
+          <span className="text-emerald-600 font-semibold">
+            Received/Paid {fmtMoney(e.receivedOrPaid)}
+          </span>
+        )}
+        <span
+          className={`ml-auto font-semibold tabular-nums ${e.balance > 0 ? "text-rose-600" : e.balance < 0 ? "text-amber-600" : "text-gray-500"}`}
+        >
+          {e.balance > 0
+            ? `${fmtMoney(e.balance)} Dr`
+            : e.balance < 0
+              ? `${fmtMoney(-e.balance)} Cr`
+              : "Settled"}
+        </span>
+      </div>
+    </div>
   );
 }

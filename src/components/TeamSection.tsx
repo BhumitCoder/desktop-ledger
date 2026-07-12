@@ -80,7 +80,7 @@ export function TeamSection() {
         {roster.map((u) => (
           <div
             key={u.id}
-            className="w-full flex items-center justify-between gap-3 border border-gray-100 rounded-md px-3.5 py-2.5"
+            className="w-full flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border border-gray-100 rounded-md px-3.5 py-2.5"
           >
             <div className="min-w-0">
               <p className="text-sm font-semibold text-gray-800 truncate flex items-center gap-1.5">
@@ -100,20 +100,21 @@ export function TeamSection() {
             </div>
             {!u.isOwner && (
               <div className="flex items-center gap-1.5 shrink-0">
-                <Button size="sm" variant="outline" onClick={() => setEditing(u)}>
+                <Button size="sm" variant="outline" onClick={() => setEditing(u)} className="flex-1 sm:flex-none">
                   <UserCog className="h-3.5 w-3.5" /> Permissions
                 </Button>
                 <Button
                   size="sm"
                   variant={u.active ? "destructive" : "outline"}
                   onClick={() => toggleActive(u)}
+                  className="flex-1 sm:flex-none"
                 >
                   {u.active ? "Deactivate" : "Reactivate"}
                 </Button>
                 <Button
                   size="sm"
                   variant="outline"
-                  className="text-destructive hover:text-destructive"
+                  className="text-destructive hover:text-destructive shrink-0"
                   disabled={deletingId === u.id}
                   onClick={() => deleteMember(u)}
                   title="Permanently delete this login"
