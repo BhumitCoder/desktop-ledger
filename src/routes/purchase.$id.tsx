@@ -6,6 +6,7 @@ import { fmtMoney } from "@/lib/format";
 import { printWithName } from "@/lib/print";
 import { downloadElementAsPdf } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
+import { useFitScale } from "@/hooks/useFitScale";
 import { fmtMode } from "@/components/ModePills";
 import { PrintableInvoice } from "@/components/PrintableInvoice";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -30,6 +31,12 @@ export const Route = createFileRoute("/purchase/$id")({
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
+// Native pixel size of the printable A4 sheet — the preview scales down to
+// fit whatever width it's actually given (see useFitScale) instead of
+// forcing horizontal scroll/pan on a phone.
+const A4_W = 794;
+const A4_H = 1123;
+
 function BillDetailPage() {
   const { id } = Route.useParams();
   const { print } = Route.useSearch();
@@ -40,6 +47,7 @@ function BillDetailPage() {
   const [co, setCo] = useState<Company | null>(null);
   const [pdfBusy, setPdfBusy] = useState<"download" | "share" | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
+  const { containerRef: previewRef, scale: previewScale } = useFitScale(A4_W);
 
   useEffect(() => {
     setInv(PurchaseRepo.get(id) ?? null);
@@ -167,14 +175,24 @@ function BillDetailPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto py-6 px-4 flex justify-center bg-gray-100">
+      <div ref={previewRef} className="flex-1 overflow-auto py-6 px-4 flex justify-center bg-gray-100">
         {co && (
           <div
-            ref={printRef}
-            className="bg-white w-full max-w-[794px] shadow-lg print:shadow-none print:m-0 p-6"
-            style={{ minHeight: "1123px" }}
+            className="shrink-0"
+            style={{ width: A4_W * previewScale, height: A4_H * previewScale }}
           >
-            <PrintableInvoice inv={inv} company={co} mode="purchase" className="print-visible" />
+            <div
+              ref={printRef}
+              className="preview-fit-scale bg-white w-full max-w-[794px] shadow-lg print:shadow-none print:m-0 p-6"
+              style={{
+                width: A4_W,
+                minHeight: A4_H,
+                transform: `scale(${previewScale})`,
+                transformOrigin: "top left",
+              }}
+            >
+              <PrintableInvoice inv={inv} company={co} mode="purchase" className="print-visible" />
+            </div>
           </div>
         )}
       </div>

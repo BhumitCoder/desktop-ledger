@@ -265,8 +265,8 @@ export function Sidebar() {
               toast.error("Logout failed — check your connection");
             }
           }}
-          className="md:hidden border-t border-sidebar-border h-11 flex items-center justify-center gap-2 text-[12px] font-medium text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition"
-          style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+          className="md:hidden border-t border-sidebar-border min-h-11 flex items-center justify-center gap-2 text-[12px] font-medium text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition"
+          style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)" }}
         >
           <LogOut className="h-4 w-4" /> Logout
         </button>

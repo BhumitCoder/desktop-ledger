@@ -6,6 +6,7 @@ import { fmtMoney } from "@/lib/format";
 import { printWithName } from "@/lib/print";
 import { downloadElementAsPdf } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
+import { useFitScale } from "@/hooks/useFitScale";
 import { sendElementViaWhatsApp } from "@/lib/whatsappSend";
 import { fmtMode } from "@/components/ModePills";
 import { ThermalReceipt } from "@/components/ThermalReceipt";
@@ -40,6 +41,15 @@ const FORMATS: { value: PrintFormat; label: string }[] = [
   { value: "thermal58", label: "58mm" },
 ];
 
+// Native pixel size of each printable sheet — the preview scales down to fit
+// whatever width it's actually given (see useFitScale) instead of forcing
+// horizontal scroll/pan on a phone, which reads as a broken layout (content
+// flush against one edge, dead space on the other) rather than "zoomed to fit".
+const A4_W = 794;
+const A4_H = 1123;
+const A4_2UP_W = 1120;
+const A4_2UP_H = 793;
+
 function InvoiceDetailPage() {
   const { id } = Route.useParams();
   const { print } = Route.useSearch();
@@ -51,6 +61,9 @@ function InvoiceDetailPage() {
   const [fmt, setFmt] = useState<PrintFormat>("a4");
   const [pdfBusy, setPdfBusy] = useState<"download" | "share" | "whatsapp" | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
+  const previewNativeWidth = fmt === "a4-2up" ? A4_2UP_W : fmt === "a4" ? A4_W : null;
+  const { containerRef: previewRef, scale: fitScale } = useFitScale(previewNativeWidth ?? 1);
+  const previewScale = previewNativeWidth ? fitScale : 1;
 
   useEffect(() => {
     setInv(SalesRepo.get(id) ?? null);
@@ -240,45 +253,65 @@ function InvoiceDetailPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto py-6 px-4 flex justify-center bg-gray-100">
+      <div ref={previewRef} className="flex-1 overflow-auto py-6 px-4 flex justify-center bg-gray-100">
         {(fmt === "thermal80" || fmt === "thermal58") && co ? (
           <div ref={printRef} className="bg-white shadow-lg p-5 h-fit rounded-sm">
             <ThermalReceipt inv={inv} company={co} width={fmt === "thermal80" ? 80 : 58} />
           </div>
         ) : fmt === "a4-2up" && co ? (
           <div
-            ref={printRef}
-            className="print-visible a4-2up-sheet bg-white w-full max-w-[1120px] shadow-lg print:shadow-none print:m-0 p-6"
-            style={{ minHeight: "793px" }}
+            className="shrink-0"
+            style={{ width: A4_2UP_W * previewScale, height: A4_2UP_H * previewScale }}
           >
-            {/* Landscape A4 is only 210mm tall — a full invoice at a scale
-                that "looks" like it fits can still overflow onto a second
-                page once real margins are counted. Scale is deliberately
-                conservative (with reclaimed print margin) so a normal-length
-                bill fits on one page instead of silently spilling over. */}
-            <style>{`@media print {
-              @page { size: A4 landscape; margin: 0; }
-              .a4-2up-sheet { padding: 6mm !important; }
-            }`}</style>
-            <div className="flex">
-              <div className="flex-1 pr-3">
-                <PrintableInvoice inv={inv} company={co} mode="sale" className="" scale={0.62} />
-              </div>
-              <div className="shrink-0" style={{ borderLeft: "1px dashed #999", margin: "0 4px" }} />
-              <div className="flex-1 pl-3">
-                <PrintableInvoice inv={inv} company={co} mode="sale" className="" scale={0.62} />
+            <div
+              ref={printRef}
+              className="preview-fit-scale print-visible a4-2up-sheet bg-white w-full max-w-[1120px] shadow-lg print:shadow-none print:m-0 p-6"
+              style={{
+                width: A4_2UP_W,
+                minHeight: A4_2UP_H,
+                transform: `scale(${previewScale})`,
+                transformOrigin: "top left",
+              }}
+            >
+              {/* Landscape A4 is only 210mm tall — a full invoice at a scale
+                  that "looks" like it fits can still overflow onto a second
+                  page once real margins are counted. Scale is deliberately
+                  conservative (with reclaimed print margin) so a normal-length
+                  bill fits on one page instead of silently spilling over. */}
+              <style>{`@media print {
+                @page { size: A4 landscape; margin: 0; }
+                .a4-2up-sheet { padding: 6mm !important; }
+              }`}</style>
+              <div className="flex">
+                <div className="flex-1 pr-3">
+                  <PrintableInvoice inv={inv} company={co} mode="sale" className="" scale={0.62} />
+                </div>
+                <div className="shrink-0" style={{ borderLeft: "1px dashed #999", margin: "0 4px" }} />
+                <div className="flex-1 pl-3">
+                  <PrintableInvoice inv={inv} company={co} mode="sale" className="" scale={0.62} />
+                </div>
               </div>
             </div>
           </div>
         ) : (
           co && (
             <div
-              ref={printRef}
-              id="print-invoice"
-              className="bg-white w-full max-w-[794px] shadow-lg print:shadow-none print:m-0 p-6"
-              style={{ minHeight: "1123px" }}
+              className="shrink-0"
+              style={{ width: A4_W * previewScale, height: A4_H * previewScale }}
             >
-              <PrintableInvoice inv={inv} company={co} mode="sale" className="print-visible" />
+              <div
+                ref={printRef}
+                id="print-invoice"
+                className="preview-fit-scale bg-white w-full max-w-[794px] shadow-lg print:shadow-none print:m-0 p-6"
+                style={{
+                  width: A4_W,
+                  minHeight: A4_H,
+                  transform: `scale(${previewScale})`,
+                  transformOrigin: "top left",
+                }}
+              >
+                <PrintableInvoice inv={inv} company={co} mode="sale" className="print-visible" />
+              </div>
             </div>
           )
         )}

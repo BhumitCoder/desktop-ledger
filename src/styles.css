@@ -314,6 +314,18 @@
   .no-print {
     display: none !important;
   }
+  /* useFitScale's mobile "shrink to fit" wrapper must not survive into
+     print — a transform on an ancestor creates a new containing block for
+     .print-visible's position:absolute, which would position the printed
+     page relative to this wrapper's (scaled, on-screen-only) box instead of
+     the real page. Verified directly with an isolated Puppeteer check
+     across the PDF pipeline's own render and native print triggered from a
+     narrow phone viewport — this override wins in both. */
+  .preview-fit-scale {
+    transform: none !important;
+    width: auto !important;
+    height: auto !important;
+  }
 }
 .print-area {
   display: none;

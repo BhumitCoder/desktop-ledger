@@ -432,19 +432,39 @@ function PartyStatementPage() {
             </div>
             <div className="no-print flex items-center gap-1.5 h-9 pl-3 pr-2.5 rounded-lg border border-gray-200 bg-gray-50/60 w-full sm:w-auto sm:shrink-0">
               <Calendar className="h-3.5 w-3.5 text-gray-400 shrink-0" />
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="flex-1 sm:flex-none bg-transparent text-xs text-gray-700 focus:outline-none sm:w-[104px] min-w-0"
-              />
+              {/* iOS Safari renders an empty type="date" input as literally
+                  blank — no "dd/mm/yyyy"-style hint the way desktop browsers
+                  show one — so a cleared/unset date here just looks broken.
+                  This label sits on top (pointer-events-none, so the tap
+                  still opens the real native picker underneath) only while
+                  the value is empty. */}
+              <div className="relative flex-1 sm:flex-none sm:w-[104px] min-w-0">
+                {!dateFrom && (
+                  <span className="absolute inset-0 flex items-center text-xs text-gray-400 pointer-events-none">
+                    From
+                  </span>
+                )}
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="w-full bg-transparent text-xs text-gray-700 focus:outline-none"
+                />
+              </div>
               <span className="text-gray-300 text-xs">–</span>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="flex-1 sm:flex-none bg-transparent text-xs text-gray-700 focus:outline-none sm:w-[104px] min-w-0"
-              />
+              <div className="relative flex-1 sm:flex-none sm:w-[104px] min-w-0">
+                {!dateTo && (
+                  <span className="absolute inset-0 flex items-center text-xs text-gray-400 pointer-events-none">
+                    To
+                  </span>
+                )}
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="w-full bg-transparent text-xs text-gray-700 focus:outline-none"
+                />
+              </div>
               {(dateFrom || dateTo) && (
                 <button
                   onClick={() => {
