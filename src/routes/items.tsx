@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
 import { usePagination } from "@/components/Pagination";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { useAutoFocusOnDesktop } from "@/hooks/use-mobile";
 import { ItemRepo, StockAdjustmentRepo } from "@/repositories";
 import { newBatch, commitBatch } from "@/repositories/base";
 import type { Item } from "@/types";
@@ -63,7 +63,8 @@ export const Route = createFileRoute("/items")({ component: ItemsPage });
 
 function ItemsPage() {
   const navigate = useNavigate();
-  const isMobile = useIsMobile();
+  const searchRef = useRef<HTMLInputElement>(null);
+  useAutoFocusOnDesktop(searchRef);
   const { isOwner, canEdit, canDelete } = usePermissions();
   const editAllowed = isOwner || canEdit("masterData");
   const deleteAllowed = isOwner || canDelete("masterData");
@@ -235,7 +236,7 @@ function ItemsPage() {
             <div className="relative w-full sm:w-44 lg:w-56">
               <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
-                autoFocus={!isMobile}
+                ref={searchRef}
                 placeholder="Search items by name..."
                 value={q}
                 onChange={(e) => setQ(e.target.value)}

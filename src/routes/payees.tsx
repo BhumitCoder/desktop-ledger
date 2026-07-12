@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
 import { usePagination } from "@/components/Pagination";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { useAutoFocusOnDesktop } from "@/hooks/use-mobile";
 import { PayeeRepo, ExpenseRepo, CompanyRepo } from "@/repositories";
 import type { Payee } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,8 @@ export const Route = createFileRoute("/payees")({ component: PayeesPage });
 
 function PayeesPage() {
   const navigate = useNavigate();
-  const isMobile = useIsMobile();
+  const searchRef = useRef<HTMLInputElement>(null);
+  useAutoFocusOnDesktop(searchRef);
   const { isOwner, canEdit, canDelete } = usePermissions();
   const editAllowed = isOwner || canEdit("purchaseExpenses");
   const deleteAllowed = isOwner || canDelete("purchaseExpenses");
@@ -124,7 +125,7 @@ function PayeesPage() {
             <div className="relative w-full sm:w-44 lg:w-56">
               <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
-                autoFocus={!isMobile}
+                ref={searchRef}
                 placeholder="Search payees..."
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
