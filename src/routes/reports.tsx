@@ -684,30 +684,39 @@ function ReportView({
             breakdown — too wide for portrait A4, so it gets cut off at the
             right edge when printed. Landscape gives it room to fit. */}
         <style>{`@media print { @page { size: A4 landscape; margin: 12mm; } }`}</style>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-base font-bold text-gray-800">{label}</h2>
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <h2 className="text-base font-bold text-gray-800 truncate">{label}</h2>
           <button
             onClick={() => downloadXlsx("Party Ledger", sheets)}
-            className="no-print inline-flex items-center gap-1.5 h-8 px-3 bg-white border border-gray-200 rounded-md text-xs font-semibold text-gray-600 hover:bg-gray-50 transition"
+            title="Export Excel (one sheet per party)"
+            className="no-print shrink-0 inline-flex items-center gap-1.5 h-8 px-3 bg-white border border-gray-200 rounded-md text-xs font-semibold text-gray-600 hover:bg-gray-50 transition"
           >
-            <Download className="h-3.5 w-3.5" /> Export Excel (one sheet per party)
+            <Download className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Export Excel (one sheet per party)</span>
+            <span className="sm:hidden">Export Excel</span>
           </button>
         </div>
-        <div className="mb-4 flex flex-wrap items-center gap-x-8 gap-y-2 bg-white border rounded-lg px-5 py-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-gray-500">Total Receivable:</span>
-            <span className="text-sm font-bold text-rose-600 tabular-nums">
-              {fmtMoney(totalReceivable)}
-            </span>
+        <div className="mb-4 space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="bg-white border rounded-lg px-4 py-3">
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">
+                Total Receivable
+              </p>
+              <p className="text-base font-bold text-rose-600 tabular-nums">
+                {fmtMoney(totalReceivable)}
+              </p>
+            </div>
+            <div className="bg-white border rounded-lg px-4 py-3">
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">
+                Total Payable
+              </p>
+              <p className="text-base font-bold text-amber-600 tabular-nums">
+                {fmtMoney(totalPayable)}
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-gray-500">Total Payable:</span>
-            <span className="text-sm font-bold text-amber-600 tabular-nums">
-              {fmtMoney(totalPayable)}
-            </span>
-          </div>
-          <div className="no-print flex items-center gap-1.5 border border-gray-200 rounded-md px-2.5 py-1.5 bg-white flex-1 max-w-xs ml-auto">
-            <Search className="h-3.5 w-3.5 text-gray-400" />
+          <div className="no-print flex items-center gap-1.5 border border-gray-200 rounded-lg px-3 py-2 bg-white">
+            <Search className="h-3.5 w-3.5 text-gray-400 shrink-0" />
             <input
               value={partySearch}
               onChange={(e) => setPartySearch(e.target.value)}
@@ -1022,9 +1031,9 @@ function TableReport({
     sortCol == null
       ? rows
       : [...rows].sort((a, b) => {
-          const cmp = smartCompare(a[sortCol] ?? "", b[sortCol] ?? "");
-          return sortDir === "asc" ? cmp : -cmp;
-        });
+        const cmp = smartCompare(a[sortCol] ?? "", b[sortCol] ?? "");
+        return sortDir === "asc" ? cmp : -cmp;
+      });
 
   if (rows.length === 0) {
     return (

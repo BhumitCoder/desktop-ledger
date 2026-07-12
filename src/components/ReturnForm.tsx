@@ -385,46 +385,21 @@ export function ReturnForm({ mode }: Props) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-5 py-3 border-b bg-card flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-md flex items-center justify-center bg-primary-soft text-primary">
-            {isSaleReturn ? (
-              <CornerDownLeft className="h-5 w-5" />
-            ) : (
-              <CornerUpLeft className="h-5 w-5" />
-            )}
-          </div>
-          <div>
-            <h1 className="text-[17px] font-bold tracking-tight">
-              New {isSaleReturn ? "Sale Return" : "Purchase Return"}
-            </h1>
-            <p className="text-[11px] text-muted-foreground">
-              <span className="font-mono font-semibold text-foreground">{ret.number}</span> · Ctrl+S
-              save · Esc cancel
-            </p>
-          </div>
+      <div className="px-5 py-3 border-b bg-card flex items-center gap-3">
+        <div className="h-10 w-10 rounded-md flex items-center justify-center bg-primary-soft text-primary shrink-0">
+          {isSaleReturn ? (
+            <CornerDownLeft className="h-5 w-5" />
+          ) : (
+            <CornerUpLeft className="h-5 w-5" />
+          )}
         </div>
-        <div className="flex items-center gap-2">
-          <label className="flex items-center gap-2 h-9 px-3 rounded-md border bg-background cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={gstOn}
-              onChange={toggleGst}
-              className="accent-primary"
-            />
-            <span className="text-[12px] font-semibold">GST</span>
-          </label>
-          <Button variant="outline" size="sm" onClick={() => navigate({ to: backPath })}>
-            <X className="h-3.5 w-3.5" /> Cancel
-          </Button>
-          <Button size="sm" onClick={save} disabled={saving}>
-            {saving ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Save className="h-3.5 w-3.5" />
-            )}
-            {saving ? "Saving…" : "Save"}
-          </Button>
+        <div className="min-w-0">
+          <h1 className="text-[17px] font-bold tracking-tight leading-tight">
+            New {isSaleReturn ? "Sale Return" : "Purchase Return"}
+          </h1>
+          <p className="text-[11px] text-muted-foreground">
+            <span className="font-mono font-semibold text-foreground">{ret.number}</span>
+          </p>
         </div>
       </div>
 
@@ -691,6 +666,32 @@ export function ReturnForm({ mode }: Props) {
             </p>
           </div>
         </div>
+      </div>
+
+      <div className="px-4 md:px-5 py-3 border-t bg-card flex items-center gap-2">
+        <span className="hidden md:inline text-[11px] text-muted-foreground mr-auto">
+          Tab/Enter to move · Ctrl+S save · Esc cancel
+        </span>
+        <label className="shrink-0 flex items-center gap-2 h-9 px-3 rounded-md border bg-background cursor-pointer select-none">
+          <input type="checkbox" checked={gstOn} onChange={toggleGst} className="accent-primary" />
+          <span className="text-[12px] font-semibold">GST</span>
+        </label>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => navigate({ to: backPath })}
+          className="shrink-0"
+        >
+          <X className="h-3.5 w-3.5" /> Cancel
+        </Button>
+        <Button size="sm" onClick={save} disabled={saving} className="flex-1 md:flex-none">
+          {saving ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Save className="h-3.5 w-3.5" />
+          )}
+          {saving ? "Saving…" : "Save"}
+        </Button>
       </div>
       <QuickAddPartyDialog
         draft={quickAddParty}

@@ -771,7 +771,9 @@ export function InvoiceForm({ mode, existing }: Props) {
                 <span className="text-[12px] font-semibold whitespace-nowrap">International Purchase</span>
               </label>
             )}
-            <label className="sm:hidden flex items-center justify-center gap-2 h-9 px-3 rounded-md border bg-background cursor-pointer select-none">
+            <label
+              className={`sm:hidden flex items-center justify-center gap-2 h-9 px-3 rounded-md border bg-background cursor-pointer select-none ${isSale ? "flex-1" : ""}`}
+            >
               <input type="checkbox" checked={gstOn} onChange={toggleGst} className="accent-primary" />
               <span className="text-[12px] font-semibold">GST Bill</span>
             </label>

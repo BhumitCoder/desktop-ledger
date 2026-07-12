@@ -798,7 +798,7 @@ function ReceivePaymentDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto overflow-x-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             {isIn ? (
@@ -874,9 +874,9 @@ function ReceivePaymentDialog({
             <div
               className={`rounded-lg border-2 p-4 ${isIn ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50"}`}
             >
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide truncate">
                     {isIn ? "Outstanding Receivable from" : "Outstanding Payable to"}{" "}
                     {selectedParty.name}
                   </p>
@@ -887,16 +887,16 @@ function ReceivePaymentDialog({
                   </p>
                 </div>
                 {applyRows.length > 0 && (
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 shrink-0">
                     <button
                       onClick={applyAll}
-                      className="text-xs px-2 py-1 rounded bg-white border font-medium text-gray-700 hover:bg-gray-50"
+                      className="flex-1 sm:flex-none text-xs px-3 py-1.5 rounded-md bg-white border font-medium text-gray-700 hover:bg-gray-50 transition"
                     >
                       Apply All
                     </button>
                     <button
                       onClick={clearAll}
-                      className="text-xs px-2 py-1 rounded bg-white border font-medium text-gray-700 hover:bg-gray-50"
+                      className="flex-1 sm:flex-none text-xs px-3 py-1.5 rounded-md bg-white border font-medium text-gray-700 hover:bg-gray-50 transition"
                     >
                       Clear
                     </button>
@@ -921,56 +921,60 @@ function ReceivePaymentDialog({
                     {applyRows.map((row, idx) => (
                       <div
                         key={row.invoice.id}
-                        className={`flex items-center gap-3 px-3 py-2.5 border-b border-gray-100 last:border-0 transition ${row.checked ? (isIn ? "bg-emerald-50/50" : "bg-rose-50/50") : ""}`}
+                        className={`flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 px-3 py-2.5 border-b border-gray-100 last:border-0 transition ${row.checked ? (isIn ? "bg-emerald-50/50" : "bg-rose-50/50") : ""}`}
                       >
-                        <button
-                          type="button"
-                          onClick={() => toggleRow(idx)}
-                          className="shrink-0 mt-0.5"
-                        >
-                          {row.checked ? (
-                            <CheckCircle2
-                              className={`h-5 w-5 ${isIn ? "text-emerald-600" : "text-rose-500"}`}
-                            />
-                          ) : (
-                            <Circle className="h-5 w-5 text-gray-300" />
-                          )}
-                        </button>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono font-semibold text-xs text-blue-600">
-                              {row.invoice.number}
-                            </span>
-                            <span className="text-xs text-gray-400">
-                              {fmtDate(row.invoice.date)}
-                            </span>
-                            {row.invoice.paid > 0 && (
-                              <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">
-                                Partial
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-xs text-gray-500 mt-0.5">
-                            Total {fmtMoney(row.invoice.total)} · Already paid{" "}
-                            {fmtMoney(row.invoice.paid)}
-                          </div>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <p className="text-[10px] text-gray-400 mb-1">Due</p>
-                          <p
-                            className={`text-sm font-bold tabular-nums ${isIn ? "text-emerald-700" : "text-rose-700"}`}
+                        <div className="flex items-start gap-3 sm:flex-1 min-w-0">
+                          <button
+                            type="button"
+                            onClick={() => toggleRow(idx)}
+                            className="shrink-0 mt-0.5"
                           >
-                            {fmtMoney(row.due)}
-                          </p>
+                            {row.checked ? (
+                              <CheckCircle2
+                                className={`h-5 w-5 ${isIn ? "text-emerald-600" : "text-rose-500"}`}
+                              />
+                            ) : (
+                              <Circle className="h-5 w-5 text-gray-300" />
+                            )}
+                          </button>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-mono font-semibold text-xs text-blue-600">
+                                {row.invoice.number}
+                              </span>
+                              <span className="text-xs text-gray-400 whitespace-nowrap">
+                                {fmtDate(row.invoice.date)}
+                              </span>
+                              {row.invoice.paid > 0 && (
+                                <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">
+                                  Partial
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-gray-500 mt-0.5">
+                              Total {fmtMoney(row.invoice.total)} · Already paid{" "}
+                              {fmtMoney(row.invoice.paid)}
+                            </div>
+                          </div>
                         </div>
-                        <div className="shrink-0 w-24">
-                          <p className="text-[10px] text-gray-400 mb-1 text-right">Apply (₹)</p>
-                          <NumInput
-                            value={row.apply}
-                            onValue={(n) => setApply(idx, n)}
-                            placeholder="0.00"
-                            className={`w-full h-7 px-2 text-right text-xs border rounded outline-none focus:ring-1 ${row.checked ? (isIn ? "border-emerald-400 focus:ring-emerald-300 bg-white" : "border-rose-400 focus:ring-rose-300 bg-white") : "border-gray-200 bg-gray-50"} tabular-nums`}
-                          />
+                        <div className="flex items-center justify-between sm:justify-end gap-4 sm:shrink-0">
+                          <div className="text-left sm:text-right">
+                            <p className="text-[10px] text-gray-400 mb-1">Due</p>
+                            <p
+                              className={`text-sm font-bold tabular-nums ${isIn ? "text-emerald-700" : "text-rose-700"}`}
+                            >
+                              {fmtMoney(row.due)}
+                            </p>
+                          </div>
+                          <div className="shrink-0 w-24">
+                            <p className="text-[10px] text-gray-400 mb-1 text-right">Apply (₹)</p>
+                            <NumInput
+                              value={row.apply}
+                              onValue={(n) => setApply(idx, n)}
+                              placeholder="0.00"
+                              className={`w-full h-7 px-2 text-right text-xs border rounded outline-none focus:ring-1 ${row.checked ? (isIn ? "border-emerald-400 focus:ring-emerald-300 bg-white" : "border-rose-400 focus:ring-rose-300 bg-white") : "border-gray-200 bg-gray-50"} tabular-nums`}
+                            />
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -1102,7 +1106,7 @@ function ReceivePaymentDialog({
 
           {/* Total + Actions */}
           <div
-            className={`rounded-lg border-2 p-4 flex items-center justify-between ${isIn ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50"}`}
+            className={`rounded-lg border-2 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 ${isIn ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50"}`}
           >
             <div>
               <p className="text-xs text-gray-500 font-medium">
@@ -1117,17 +1121,22 @@ function ReceivePaymentDialog({
               </p>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" disabled={saving} onClick={() => onOpenChange(false)}>
+              <Button
+                variant="outline"
+                disabled={saving}
+                onClick={() => onOpenChange(false)}
+                className="flex-1 sm:flex-none"
+              >
                 Cancel
               </Button>
               <Button
                 onClick={save}
                 disabled={saving}
-                className={
+                className={`flex-1 sm:flex-none ${
                   isIn
                     ? "bg-emerald-600 hover:bg-emerald-700 text-white"
                     : "bg-rose-600 hover:bg-rose-700 text-white"
-                }
+                }`}
               >
                 {saving ? (
                   <>
