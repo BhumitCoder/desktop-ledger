@@ -45,6 +45,11 @@ export interface LineItem {
   amount: number;
   /** Snapshot of the item's purchase price when the line was created — used for stock-based COGS in P&L */
   costPrice?: number;
+  /** Price in the foreign currency, before conversion — only set on
+   * international purchases. `price` (INR) is auto-derived from this via
+   * the parent Invoice's exchangeRate/carryCostPerUnit, but stays a normal
+   * editable field so a cashier can still override the computed value. */
+  foreignPrice?: number;
 }
 
 export type PaymentMode = "cash" | "bank" | "credit" | "upi" | "cheque";
@@ -73,6 +78,18 @@ export interface Invoice {
   /** Snapshot of `paid` at the moment it was attributed to bankId, so an edit can
    * reverse exactly that amount even if `paid` later grows via Payment allocations. */
   bankPaidAmount?: number;
+  /** Purchase bills only — each line's `foreignPrice` (in the supplier's
+   * currency) gets converted to INR as `foreignPrice * exchangeRate +
+   * carryCostPerUnit`, so the landed per-unit cost (currency conversion +
+   * freight/customs, per piece) is baked into the same `price` field
+   * everything else (GST, discount, stock costing) already works off. */
+  isInternational?: boolean;
+  /** 1 unit of the foreign currency, in INR. */
+  exchangeRate?: number;
+  /** Flat per-piece freight/customs/handling cost, in INR, added on top of
+   * the converted price — distinct from `shippingCharge` (a whole-bill
+   * flat charge) since this applies per unit, before qty is multiplied in. */
+  carryCostPerUnit?: number;
   notes?: string;
   createdAt: string;
 }

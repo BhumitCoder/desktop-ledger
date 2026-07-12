@@ -34,7 +34,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { PrintableInvoice } from "@/components/PrintableInvoice";
-import { NumInput } from "@/components/NumInput";
+import { NumInput, NumField } from "@/components/NumInput";
 import { ModePills } from "@/components/ModePills";
 import { QuickAddPartyDialog, type QuickAddPartyDetails } from "@/components/QuickAddPartyDialog";
 import { genId, newBatch, commitBatch } from "@/repositories/base";
@@ -339,6 +339,12 @@ export function InvoiceForm({ mode, existing }: Props) {
     toast.success(`New item added: ${newItem.name}`);
   };
 
+  // Landed per-unit cost for an international purchase: convert the foreign
+  // price to INR, then add the flat per-piece freight/customs cost — e.g.
+  // 44 (foreign) * 14 (rate) + 10 (carry) = ₹636/pc.
+  const landedPrice = (foreignPrice: number) =>
+    r2(foreignPrice * (inv.exchangeRate ?? 0) + (inv.carryCostPerUnit ?? 0));
+
   const updateLine = (id: string, patch: Partial<LineItem>) => {
     const lines = inv.lineItems.map((l) => {
       if (l.id !== id) return l;
@@ -347,11 +353,38 @@ export function InvoiceForm({ mode, existing }: Props) {
       // GST rate can never flip the line amount negative.
       nl.discountPct = Math.min(100, Math.max(0, nl.discountPct));
       nl.gstRate = Math.max(0, nl.gstRate);
+      // Auto-fill the INR price whenever the foreign price changes — still
+      // a normal editable field afterward, so a cashier can override it.
+      if (inv.isInternational && "foreignPrice" in patch && nl.foreignPrice != null) {
+        nl.price = landedPrice(nl.foreignPrice);
+      }
       const gstMult = gstOn ? 1 + nl.gstRate / 100 : 1;
       nl.amount = r2(r2(nl.qty * nl.price * (1 - nl.discountPct / 100)) * gstMult);
       return nl;
     });
     setInv({ ...inv, lineItems: lines, ...recalc(lines) });
+  };
+
+  // Changing the exchange rate or per-piece carry cost after items are
+  // already on the bill should re-price every line that has a foreign price
+  // set — otherwise "auto-fill" would only ever apply retroactively to the
+  // next item typed, leaving already-added rows silently stale.
+  const updateInternational = (patch: {
+    isInternational?: boolean;
+    exchangeRate?: number;
+    carryCostPerUnit?: number;
+  }) => {
+    const merged = { ...inv, ...patch };
+    const rate = merged.exchangeRate ?? 0;
+    const carry = merged.carryCostPerUnit ?? 0;
+    const lines = inv.lineItems.map((l) => {
+      if (l.foreignPrice == null) return l;
+      const price = r2(l.foreignPrice * rate + carry);
+      const gstMult = gstOn ? 1 + l.gstRate / 100 : 1;
+      const amount = r2(r2(l.qty * price * (1 - l.discountPct / 100)) * gstMult);
+      return { ...l, price, amount };
+    });
+    setInv({ ...merged, lineItems: lines, ...recalc(lines) });
   };
 
   const removeLine = (id: string) => {
@@ -722,7 +755,42 @@ export function InvoiceForm({ mode, existing }: Props) {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {!isSale && (
+            <label className="flex items-center gap-2 h-9 px-3 rounded-md border bg-background cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={!!inv.isInternational}
+                onChange={(e) => updateInternational({ isInternational: e.target.checked })}
+                className="accent-primary"
+              />
+              <span className="text-[12px] font-semibold">International Purchase</span>
+            </label>
+          )}
+          {!isSale && inv.isInternational && (
+            <>
+              <label
+                className="flex items-center gap-1.5 h-9 px-2.5 rounded-md border bg-background text-[12px]"
+                title="How many rupees 1 unit of the supplier's currency is worth"
+              >
+                <span className="text-muted-foreground whitespace-nowrap">Exchange Rate (₹)</span>
+                <NumInput
+                  value={inv.exchangeRate ?? 0}
+                  onValue={(n) => updateInternational({ exchangeRate: n })}
+                  className="w-16 h-6 px-1 text-right border rounded bg-background focus:border-primary outline-none"
+                />
+              </label>
+              <label className="flex items-center gap-1.5 h-9 px-2.5 rounded-md border bg-background text-[12px]">
+                <span className="text-muted-foreground whitespace-nowrap">Carry cost/pc</span>
+                <NumInput
+                  value={inv.carryCostPerUnit ?? 0}
+                  onValue={(n) => updateInternational({ carryCostPerUnit: n })}
+                  className="w-16 h-6 px-1 text-right border rounded bg-background focus:border-primary outline-none"
+                />
+                <span className="text-muted-foreground">₹</span>
+              </label>
+            </>
+          )}
           {/* GST toggle */}
           <label className="flex items-center gap-2 h-9 px-3 rounded-md border bg-background cursor-pointer select-none">
             <input
@@ -930,6 +998,9 @@ export function InvoiceForm({ mode, existing }: Props) {
                   <th className="text-left px-3 py-2">Item</th>
                   <th className="text-right w-20 py-2 px-2">Qty</th>
                   <th className="text-left w-20 py-2 px-2">Unit</th>
+                  {inv.isInternational && (
+                    <th className="text-right w-28 py-2 px-2 whitespace-nowrap">Foreign Price</th>
+                  )}
                   <th className="text-right w-24 py-2 px-2">Price</th>
                   <th className="text-right w-20 py-2 px-2">Disc%</th>
                   {gstOn && <th className="text-right w-20 py-2 px-2">GST%</th>}
@@ -971,6 +1042,15 @@ export function InvoiceForm({ mode, existing }: Props) {
                         className="w-full h-7 px-1.5 border rounded bg-background focus:border-primary outline-none"
                       />
                     </td>
+                    {inv.isInternational && (
+                      <td className="py-1.5 px-1">
+                        <NumInput
+                          value={l.foreignPrice ?? 0}
+                          onValue={(n) => updateLine(l.id, { foreignPrice: n })}
+                          className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
+                        />
+                      </td>
+                    )}
                     <td className="py-1.5 px-1 relative">
                       {inv.partyId ? (
                         <PriceHistoryCell
@@ -1024,6 +1104,7 @@ export function InvoiceForm({ mode, existing }: Props) {
                     items={items}
                     gstOn={gstOn}
                     isSale={isSale}
+                    isInternational={!!inv.isInternational}
                     onAdd={(it) => {
                       focusQtyId.current = addLineItem(it);
                       completePendingRow(id);
@@ -1167,7 +1248,13 @@ export function InvoiceForm({ mode, existing }: Props) {
                   <div className="flex items-center gap-1.5">
                     <button
                       type="button"
-                      onClick={() => setInv({ ...inv, paid: inv.total })}
+                      onClick={(e) => {
+                        // Safari doesn't focus a clicked <button> by default
+                        // (Chrome/Firefox do) — force it so Tab/Enter still
+                        // continues the form flow from here on Safari too.
+                        e.currentTarget.focus();
+                        setInv({ ...inv, paid: inv.total });
+                      }}
                       className="h-8 px-2.5 rounded-md border bg-success-soft text-success text-[11px] font-semibold hover:opacity-80 focus:ring-2 focus:ring-ring/20 outline-none transition"
                       title="Received full amount"
                     >
@@ -1284,6 +1371,7 @@ function ItemEntryRow({
   onAddNew,
   gstOn,
   isSale,
+  isInternational,
   registerInput,
 }: {
   items: Item[];
@@ -1291,6 +1379,7 @@ function ItemEntryRow({
   onAddNew: (name: string) => void;
   gstOn: boolean;
   isSale: boolean;
+  isInternational: boolean;
   registerInput: (el: HTMLInputElement | null) => void;
 }) {
   const [q, setQ] = useState("");
@@ -1459,6 +1548,14 @@ function ItemEntryRow({
           className="w-full h-7 px-1.5 border rounded bg-muted/40 text-muted-foreground/50 outline-none cursor-not-allowed"
         />
       </td>
+      {isInternational && (
+        <td className="py-1.5 px-1">
+          <input
+            disabled
+            className="w-full h-7 px-1.5 text-right border rounded bg-muted/40 text-muted-foreground/50 outline-none cursor-not-allowed"
+          />
+        </td>
+      )}
       <td className="py-1.5 px-1">
         <input
           disabled
@@ -1853,28 +1950,25 @@ function QuickAddItemDialog({
             )}
           </div>
           <Field label="Unit" value={unit} onChange={(e) => setUnit(e.target.value)} />
-          <Field
+          <NumField
             label="GST Rate (%)"
-            type="number"
             value={gstRate}
-            onChange={(e) => setGstRate(Math.max(0, parseFloat(e.target.value) || 0))}
+            onValue={(n) => setGstRate(Math.max(0, n))}
           />
-          <Field
+          <NumField
             label={isSale ? "Sale Price *" : "Purchase Price *"}
-            type="number"
             value={isSale ? salePrice : purchasePrice}
-            onChange={(e) => {
-              const v = Math.max(0, parseFloat(e.target.value) || 0);
+            onValue={(n) => {
+              const v = Math.max(0, n);
               if (isSale) setSalePrice(v);
               else setPurchasePrice(v);
             }}
           />
-          <Field
+          <NumField
             label={isSale ? "Purchase Price" : "Sale Price"}
-            type="number"
             value={isSale ? purchasePrice : salePrice}
-            onChange={(e) => {
-              const v = Math.max(0, parseFloat(e.target.value) || 0);
+            onValue={(n) => {
+              const v = Math.max(0, n);
               if (isSale) setPurchasePrice(v);
               else setSalePrice(v);
             }}

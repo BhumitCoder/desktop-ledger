@@ -16,10 +16,12 @@ import { printWithName } from "@/lib/print";
 import { computeCogs, buildPartyStatement } from "@/lib/ledger";
 import { downloadCsv } from "@/lib/csv";
 import { downloadXlsx } from "@/lib/xlsx";
-import { downloadElementAsPdf, shareElementAsPdf } from "@/lib/pdf";
+import { downloadElementAsPdf } from "@/lib/pdf";
+import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { partyStatementSheet } from "@/lib/partySheet";
 import { PartyStatementRowBlock } from "./parties_.$id";
 import { fmtMode } from "@/components/ModePills";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
   FileText,
@@ -34,6 +36,8 @@ import {
   Share2,
   Search,
   Calendar,
+  ChevronLeft,
+  SlidersHorizontal,
 } from "lucide-react";
 
 export const Route = createFileRoute("/reports")({
@@ -68,20 +72,45 @@ const REPORTS = [
   { key: "daily", label: "Today's Summary", icon: BarChart3, desc: "Today's activity" },
 ];
 
+// Keeps the tab/range selected everywhere — across leaving to view a linked
+// invoice/party, across leaving to a different page entirely and coming
+// back, anything short of an actual page reload (which starts fresh again).
+let activeReportCache: string | null = null;
+let dateCache: { dateFrom: string; dateTo: string } | null = null;
+
 function ReportsPage() {
   const { r } = Route.useSearch();
-  const [active, setActive] = useState(REPORTS.some((x) => x.key === r) ? (r as string) : "pl");
-  const [dateFrom, setDateFrom] = useState(monthStart);
-  const [dateTo, setDateTo] = useState(today);
+  const [active, setActive] = useState(() =>
+    REPORTS.some((x) => x.key === r) ? (r as string) : (activeReportCache ?? "pl"),
+  );
+  const [dateFrom, setDateFrom] = useState(() => dateCache?.dateFrom ?? monthStart());
+  const [dateTo, setDateTo] = useState(() => dateCache?.dateTo ?? today());
   const [pdfBusy, setPdfBusy] = useState<"download" | "share" | null>(null);
+  // Mobile-only: the report list and the report content don't fit side by
+  // side on a phone the way they do on desktop's two-pane layout, so mobile
+  // shows one at a time — the list first (like picking from a menu), then
+  // the chosen report full-width with a way back. Arriving via a direct
+  // link (?r=sales) skips straight to that report instead of the menu.
+  const [mobileShowReport, setMobileShowReport] = useState(() => REPORTS.some((x) => x.key === r));
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    activeReportCache = active;
+  }, [active]);
+  useEffect(() => {
+    dateCache = { dateFrom, dateTo };
+  }, [dateFrom, dateTo]);
 
   const current = REPORTS.find((r) => r.key === active);
   const reportFilename = () =>
     `${(current?.label ?? "Report").replace(/\s+/g, "-")}-${dateFrom}-to-${dateTo}`;
 
+  const { shareReady, share, resetShare } = useShareablePdf("Report");
+
   const handleDownloadPdf = async () => {
     if (!printRef.current || pdfBusy) return;
+    resetShare();
     setPdfBusy("download");
     try {
       await downloadElementAsPdf(printRef.current, reportFilename(), "landscape");
@@ -97,10 +126,7 @@ function ReportsPage() {
     if (!printRef.current || pdfBusy) return;
     setPdfBusy("share");
     try {
-      const result = await shareElementAsPdf(printRef.current, reportFilename(), "landscape");
-      if (result === "shared") toast.success("Report shared");
-      else if (result === "downloaded")
-        toast.info("Sharing isn't supported here — PDF downloaded instead");
+      await share(printRef.current, reportFilename(), "landscape");
     } catch {
       toast.error("Could not share report — try Download PDF instead");
     } finally {
@@ -110,16 +136,30 @@ function ReportsPage() {
 
   return (
     <div className="flex flex-col h-full bg-[#f7f7f9]">
-      <div className="bg-white border-b px-5 py-3.5 flex items-center justify-between gap-3 flex-wrap no-print">
-        <div className="flex items-center gap-2.5">
-          <BarChart3 className="h-5 w-5 text-primary shrink-0" />
-          <div>
-            <h1 className="text-[17px] font-bold text-gray-800 leading-tight">Reports</h1>
-            <p className="text-[12px] text-gray-400 leading-tight">{current?.desc}</p>
+      <div className="bg-white border-b px-5 py-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 no-print">
+        <div className="flex items-center justify-between sm:justify-start gap-2.5">
+          <div className="flex items-center gap-2.5">
+            <BarChart3 className="h-5 w-5 text-primary shrink-0" />
+            <div>
+              <h1 className="text-[17px] font-bold text-gray-800 leading-tight">Reports</h1>
+              <p className="text-[12px] text-gray-400 leading-tight">{current?.desc}</p>
+            </div>
           </div>
+          {/* Date Range moves into the Filters sheet on mobile — its own
+              inline row next to Download/Share/Print doesn't fit a phone. */}
+          <button
+            onClick={() => setMobileFiltersOpen(true)}
+            className="sm:hidden relative h-9 w-9 shrink-0 flex items-center justify-center rounded-lg border border-gray-200 bg-gray-50/60 text-gray-600"
+            title="Filters"
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            {(dateFrom !== monthStart() || dateTo !== today()) && (
+              <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-primary" />
+            )}
+          </button>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 h-9 pl-3 pr-2.5 rounded-lg border border-gray-200 bg-gray-50/60">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="hidden sm:flex items-center gap-1.5 h-9 pl-3 pr-2.5 rounded-lg border border-gray-200 bg-gray-50/60">
             <Calendar className="h-3.5 w-3.5 text-gray-400 shrink-0" />
             <input
               type="date"
@@ -146,14 +186,14 @@ function ReportsPage() {
           <button
             onClick={handleShare}
             disabled={pdfBusy !== null}
-            className="h-9 w-9 shrink-0 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 hover:shadow-sm text-gray-600 flex items-center justify-center transition disabled:opacity-50"
-            title="Share report PDF"
+            className={`h-9 w-9 shrink-0 rounded-lg border bg-white hover:bg-gray-50 hover:shadow-sm text-gray-600 flex items-center justify-center transition disabled:opacity-50 ${shareReady ? "border-primary ring-2 ring-primary animate-pulse" : "border-gray-200"}`}
+            title={shareReady ? "PDF ready — tap again to share" : "Share report PDF"}
           >
             <Share2 className="h-4 w-4" />
           </button>
           <button
             onClick={() => printWithName(reportFilename())}
-            className="inline-flex items-center gap-1.5 h-9 px-3.5 bg-white border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 hover:bg-gray-50 hover:shadow-sm transition"
+            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 h-9 px-3.5 bg-white border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 hover:bg-gray-50 hover:shadow-sm transition"
             title="Print"
           >
             <Printer className="h-3.5 w-3.5" /> Print
@@ -161,16 +201,75 @@ function ReportsPage() {
         </div>
       </div>
 
+      {/* Mobile filter sheet — Date Range doesn't fit inline next to
+          Download/Share/Print on a phone, so it lives here behind the
+          header's Filters button instead, same state as the desktop
+          inline control. */}
+      <Dialog open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Filters</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-semibold text-gray-500 block mb-1.5">Date Range</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="flex-1 h-9 px-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+                <span className="text-gray-300">–</span>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="flex-1 h-9 px-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between pt-1">
+              {(dateFrom !== monthStart() || dateTo !== today()) ? (
+                <button
+                  onClick={() => {
+                    setDateFrom(monthStart());
+                    setDateTo(today());
+                  }}
+                  className="text-xs text-gray-400 hover:text-gray-600 transition flex items-center gap-1"
+                >
+                  Reset to this month
+                </button>
+              ) : (
+                <span />
+              )}
+              <button
+                onClick={() => setMobileFiltersOpen(false)}
+                className="h-8 px-4 bg-primary text-primary-foreground rounded-md text-sm font-semibold hover:opacity-90 transition"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <div className="flex-1 flex min-h-0">
-        {/* Sidebar */}
-        <aside className="w-56 border-r bg-white overflow-y-auto shrink-0 no-print p-2">
+        {/* Sidebar — full-width report menu on mobile until one is picked;
+            a fixed 224px rail sitting alongside the content on desktop. */}
+        <aside
+          className={`${mobileShowReport ? "hidden" : "flex"} md:flex flex-col w-full md:w-56 border-r bg-white overflow-y-auto shrink-0 no-print p-2`}
+        >
           {REPORTS.map((r) => {
             const Icon = r.icon;
             const isActive = active === r.key;
             return (
               <button
                 key={r.key}
-                onClick={() => setActive(r.key)}
+                onClick={() => {
+                  setActive(r.key);
+                  setMobileShowReport(true);
+                }}
                 className={`w-full text-left mb-0.5 px-3 py-2.5 rounded-lg flex items-center gap-2.5 transition ${isActive ? "bg-primary-soft text-primary font-semibold" : "hover:bg-gray-50 text-gray-600"}`}
               >
                 <Icon
@@ -182,8 +281,18 @@ function ReportsPage() {
           })}
         </aside>
 
-        {/* Report content (print-area so Print/PDF/Share all capture exactly this) */}
-        <div ref={printRef} className="flex-1 overflow-auto p-6 print-visible print:p-6">
+        {/* Report content (print-area so Print/PDF/Share all capture exactly
+            this) — hidden on mobile until a report is picked from the menu. */}
+        <div
+          ref={printRef}
+          className={`${mobileShowReport ? "flex" : "hidden"} md:flex flex-1 flex-col overflow-auto p-6 print-visible print:p-6`}
+        >
+          <button
+            onClick={() => setMobileShowReport(false)}
+            className="md:hidden no-print flex items-center gap-1 text-sm font-medium text-gray-500 hover:text-gray-700 mb-3 -mt-1"
+          >
+            <ChevronLeft className="h-4 w-4" /> All Reports
+          </button>
           <ReportView which={active} dateFrom={dateFrom} dateTo={dateTo} />
         </div>
       </div>

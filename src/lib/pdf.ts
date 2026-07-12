@@ -32,13 +32,19 @@ function buildPrintableHtml(el: HTMLElement): string {
 
 /** Renders a DOM node to a real, vector-quality PDF server-side (headless
  * Chromium), rather than rasterizing a screenshot — text stays crisp at any
- * zoom and the file is far smaller. */
+ * zoom and the file is far smaller.
+ *
+ * `pageWidthMm` is for thermal receipts (80mm/58mm rolls) — pass it instead
+ * of relying on the printed element's own `@page` CSS rule, since Puppeteer
+ * ignores `@page`'s "auto" height keyword and silently falls back to full
+ * A4 without it. */
 async function elementToPdfBlob(
   el: HTMLElement,
   orientation: "portrait" | "landscape" = "landscape",
+  pageWidthMm?: number,
 ): Promise<Blob> {
   const res = await renderPdfServerFn({
-    data: { html: buildPrintableHtml(el), landscape: orientation === "landscape" },
+    data: { html: buildPrintableHtml(el), landscape: orientation === "landscape", pageWidthMm },
   });
   return res.blob();
 }
@@ -48,9 +54,10 @@ async function elementToPdfBlob(
 export async function elementToPdfBase64(
   el: HTMLElement,
   orientation: "portrait" | "landscape" = "landscape",
+  pageWidthMm?: number,
 ): Promise<string> {
   const { pdfBase64 } = await renderPdfBase64ServerFn({
-    data: { html: buildPrintableHtml(el), landscape: orientation === "landscape" },
+    data: { html: buildPrintableHtml(el), landscape: orientation === "landscape", pageWidthMm },
   });
   return pdfBase64;
 }
@@ -76,39 +83,58 @@ export async function downloadElementAsPdf(
   el: HTMLElement,
   filename: string,
   orientation?: "portrait" | "landscape",
+  pageWidthMm?: number,
 ) {
-  const blob = await elementToPdfBlob(el, orientation);
+  const blob = await elementToPdfBlob(el, orientation, pageWidthMm);
   triggerDownload(blob, pdfFilename(filename));
 }
 
-/** Opens the OS share sheet (WhatsApp/Mail/AirDrop/...) with the PDF
- * attached. Falls back to a plain download when the browser can't share
- * files (most desktop browsers besides recent Safari/Chrome-on-mobile). */
-export async function shareElementAsPdf(
+export function canShareFile(file: File): boolean {
+  const nav = navigator as Navigator & { canShare?: (data: { files: File[] }) => boolean };
+  return typeof nav.share === "function" && !!nav.canShare?.({ files: [file] });
+}
+
+/** Renders the PDF and wraps it as a shareable File — but does NOT open the
+ * share sheet yet. Generating the PDF is an async server round trip, and
+ * Safari silently refuses navigator.share() once too much time has passed
+ * since the click that triggered it, so calling share() right after this
+ * await (like the old single-step shareElementAsPdf used to) works some of
+ * the time and silently fails the rest, depending on how long the render
+ * happened to take. Split in two so the caller can react to a second, truly
+ * immediate click — see shareFileNow. */
+export async function prepareShareFile(
   el: HTMLElement,
   filename: string,
   orientation?: "portrait" | "landscape",
-): Promise<"shared" | "cancelled" | "downloaded"> {
+  pageWidthMm?: number,
+): Promise<File> {
   const name = pdfFilename(filename);
-  const blob = await elementToPdfBlob(el, orientation);
-  const file = new File([blob], name, { type: "application/pdf" });
-  const nav = navigator as Navigator & { canShare?: (data: { files: File[] }) => boolean };
+  const blob = await elementToPdfBlob(el, orientation, pageWidthMm);
+  return new File([blob], name, { type: "application/pdf" });
+}
 
-  if (nav.share && nav.canShare?.({ files: [file] })) {
-    try {
-      // `text` is a no-op for targets that accept files, but for a target
-      // that only registers as a text share handler (e.g. WhatsApp Desktop
-      // on Windows) it's the only part of this call that actually arrives —
-      // the OS hands the share off silently, so the web page can't detect
-      // or prevent a target dropping the attachment.
-      await nav.share({ files: [file], title: name, text: name });
-      return "shared";
-    } catch (err) {
-      if ((err as DOMException)?.name === "AbortError") return "cancelled";
-      // Any other failure (e.g. share sheet rejected the file type) — fall
-      // through to a plain download so the user still gets the PDF.
-    }
+/** Opens the OS share sheet (WhatsApp/Mail/AirDrop/...) with the given file.
+ * MUST be called directly inside a click handler with no `await` before it
+ * in that same handler — this needs to be the immediate result of a user
+ * gesture or Safari blocks it. Use with a file from prepareShareFile that
+ * was already generated (from an earlier click), not one being awaited
+ * right now. */
+export async function shareFileNow(file: File): Promise<"shared" | "cancelled" | "failed"> {
+  const nav = navigator as Navigator & { share?: (data: ShareData) => Promise<void> };
+  try {
+    // `text` is a no-op for targets that accept files, but for a target
+    // that only registers as a text share handler (e.g. WhatsApp Desktop
+    // on Windows) it's the only part of this call that actually arrives —
+    // the OS hands the share off silently, so the web page can't detect
+    // or prevent a target dropping the attachment.
+    await nav.share!({ files: [file], title: file.name, text: file.name });
+    return "shared";
+  } catch (err) {
+    if ((err as DOMException)?.name === "AbortError") return "cancelled";
+    return "failed";
   }
-  triggerDownload(blob, name);
-  return "downloaded";
+}
+
+export function downloadFile(file: File) {
+  triggerDownload(file, file.name);
 }

@@ -10,16 +10,26 @@ import { ArrowLeft, Printer, Download, Landmark, AlertCircle } from "lucide-reac
 
 export const Route = createFileRoute("/bank_/$id")({ component: BankStatementPage });
 
+// Keeps the date range selected everywhere — across leaving to view a
+// linked sale/purchase, across switching to a different bank account
+// entirely, anything short of an actual page reload (which starts fresh
+// again).
+let dateCache: { dateFrom: string; dateTo: string } | null = null;
+
 function BankStatementPage() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
   const [bank, setBank] = useState<BankAccount | null | undefined>(undefined);
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateFrom, setDateFrom] = useState(() => dateCache?.dateFrom ?? "");
+  const [dateTo, setDateTo] = useState(() => dateCache?.dateTo ?? "");
 
   useEffect(() => {
     setBank(BankRepo.get(id) ?? null);
   }, [id]);
+
+  useEffect(() => {
+    dateCache = { dateFrom, dateTo };
+  }, [dateFrom, dateTo]);
 
   const { rows } = useMemo(() => {
     if (!bank) return { rows: [] as BankLedgerRow[] };

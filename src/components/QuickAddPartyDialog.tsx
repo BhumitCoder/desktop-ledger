@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/Field";
+import { NumField } from "@/components/NumInput";
 import type { Party } from "@/types";
 
 export interface QuickAddPartyDetails {
@@ -137,23 +138,18 @@ export function QuickAddPartyDialog({
             onChange={(e) => setPhone(e.target.value)}
             inputMode="numeric"
           />
-          <Field
+          <NumField
             label="Opening Balance"
-            type="number"
             value={openingBalance}
-            onChange={(e) => setOpeningBalance(parseFloat(e.target.value) || 0)}
+            onValue={setOpeningBalance}
+            allowNegative
           />
           <Field
             label="GSTIN"
             value={gstin}
             onChange={(e) => setGstin(e.target.value.toUpperCase())}
           />
-          <Field
-            label="Credit Limit"
-            type="number"
-            value={creditLimit}
-            onChange={(e) => setCreditLimit(parseFloat(e.target.value) || 0)}
-          />
+          <NumField label="Credit Limit" value={creditLimit} onValue={setCreditLimit} />
           <div className="col-span-2 flex justify-end gap-2 mt-2">
             <Button type="button" variant="outline" onClick={onCancel}>
               Cancel

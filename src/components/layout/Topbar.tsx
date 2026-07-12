@@ -23,7 +23,16 @@ export function Topbar() {
   });
 
   return (
-    <header className="h-14 bg-card text-foreground shrink-0 border-b border-border grid grid-cols-[auto_1fr_auto] md:flex items-center px-3 md:px-4 gap-2 md:gap-3">
+    // Installed on the home screen (standalone mode), iOS draws the status
+    // bar translucent right over the page instead of pushing it down — so
+    // without this top padding for the notch/status-bar's safe area, the
+    // header (menu button included) renders partly underneath it: only the
+    // bottom sliver peeks out below the status bar, out of reach of taps.
+    <div
+      className="bg-card border-b border-border shrink-0"
+      style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
+    >
+    <header className="h-14 text-foreground grid grid-cols-[auto_1fr_auto] md:flex items-center px-3 md:px-4 gap-2 md:gap-3">
       <button
         onClick={toggleMobileNav}
         className="md:hidden h-8 w-8 rounded-md hover:bg-accent flex items-center justify-center text-muted-foreground"
@@ -127,5 +136,6 @@ export function Topbar() {
         <LogOut className="h-4 w-4" />
       </button>
     </header>
+    </div>
   );
 }

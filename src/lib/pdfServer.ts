@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { existsSync } from "node:fs";
 
-type RenderPdfInput = { html: string; landscape: boolean };
+type RenderPdfInput = { html: string; landscape: boolean; pageWidthMm?: number };
 
 const LOCAL_CHROME_CANDIDATES = [
   process.env.CHROME_PATH,
@@ -19,7 +19,7 @@ const LOCAL_CHROME_CANDIDATES = [
  * Chromium and renders `html` to raw PDF bytes. Not exported: callers only
  * ever want one of the two response shapes below (Blob for download/share,
  * base64 for the WhatsApp send), never these raw bytes directly. */
-async function renderPdfBuffer(html: string, landscape: boolean): Promise<Buffer> {
+async function renderPdfBuffer(html: string, landscape: boolean, pageWidthMm?: number): Promise<Buffer> {
   const chromium = (await import("@sparticuz/chromium")).default;
   const { launch } = await import("puppeteer-core");
 
@@ -41,12 +41,70 @@ async function renderPdfBuffer(html: string, landscape: boolean): Promise<Buffer
     const page = await browser.newPage();
     await page.emulateMediaType("print");
     await page.setContent(html, { waitUntil: "load" });
-    const pdf = await page.pdf({
-      format: "a4",
-      landscape,
-      printBackground: true,
-      margin: { top: "0", right: "0", bottom: "0", left: "0" },
-    });
+
+    let pdf: Buffer | Uint8Array;
+    if (pageWidthMm) {
+      // Thermal receipts (80mm/58mm rolls) use `@page { size: Xmm auto }` —
+      // "auto" tells a real printer to cut after the content ends. Puppeteer
+      // silently ignores that keyword and falls back to full A4 regardless
+      // of `preferCSSPageSize`, so instead of relying on the CSS @page size
+      // at all here, measure the actually-rendered content height ourselves
+      // and pass explicit page dimensions — the one thing that reliably
+      // works, verified directly against this exact Puppeteer version.
+      //
+      // document.body.scrollHeight doesn't work for this: the printed
+      // element carries the `.print-visible`/`.print-area` class, and
+      // styles.css's @media print rules force it to `position: absolute`
+      // (a standard print-CSS technique — hide everything, absolutely
+      // position just the printable content). An absolutely positioned
+      // element doesn't contribute to its static parent's scrollHeight, so
+      // body's height came back unrelated to the actual content — measure
+      // the printed element itself instead.
+      // Leftover @page rules (the thermal one, and styles.css's global A4
+      // default) still confuse Chromium's print pipeline even though
+      // `width`/`height` below are passed explicitly and preferCSSPageSize
+      // is off — verified directly: with these rules left in place, content
+      // renders correctly in isolation but the page.pdf() output leaves the
+      // bottom ~70% of the page blank; deleting them via the CSSOM before
+      // calling page.pdf() is what actually fixes it.
+      await page.evaluate(() => {
+        const scan = (owner: CSSStyleSheet | CSSMediaRule) => {
+          try {
+            const rules = owner.cssRules;
+            for (let i = rules.length - 1; i >= 0; i--) {
+              const rule = rules[i];
+              if (rule.type === CSSRule.PAGE_RULE) owner.deleteRule(i);
+              else if (rule.type === CSSRule.MEDIA_RULE) scan(rule as unknown as CSSMediaRule);
+            }
+          } catch {
+            // Cross-origin stylesheet — can't touch its rules, skip it.
+          }
+        };
+        for (const sheet of Array.from(document.styleSheets)) scan(sheet);
+      });
+
+      const heightPx = await page.evaluate(() => {
+        const el = document.querySelector<HTMLElement>(".print-visible, .print-area");
+        return (el ?? document.body).getBoundingClientRect().height;
+      });
+      // Small buffer only — the measurement itself is precise (verified
+      // directly against real output), a big cushion here just reintroduces
+      // the dead-space-at-the-bottom look this was meant to eliminate.
+      const heightMm = Math.ceil((heightPx * 25.4) / 96) + 2;
+      pdf = await page.pdf({
+        width: `${pageWidthMm}mm`,
+        height: `${heightMm}mm`,
+        printBackground: true,
+        margin: { top: "0", right: "0", bottom: "0", left: "0" },
+      });
+    } else {
+      pdf = await page.pdf({
+        format: "a4",
+        landscape,
+        printBackground: true,
+        margin: { top: "0", right: "0", bottom: "0", left: "0" },
+      });
+    }
     return Buffer.from(pdf);
   } finally {
     await browser.close();
@@ -56,7 +114,11 @@ async function renderPdfBuffer(html: string, landscape: boolean): Promise<Buffer
 const validateRenderInput = (data: unknown): RenderPdfInput => {
   const d = data as Partial<RenderPdfInput>;
   if (typeof d?.html !== "string" || !d.html) throw new Error("html is required");
-  return { html: d.html, landscape: !!d.landscape };
+  return {
+    html: d.html,
+    landscape: !!d.landscape,
+    pageWidthMm: typeof d.pageWidthMm === "number" ? d.pageWidthMm : undefined,
+  };
 };
 
 /** Renders a self-contained HTML document (markup + inlined CSS, no scripts)
@@ -66,7 +128,7 @@ const validateRenderInput = (data: unknown): RenderPdfInput => {
 export const renderPdfServerFn = createServerFn({ method: "POST" })
   .validator(validateRenderInput)
   .handler(async ({ data }) => {
-    const pdf = await renderPdfBuffer(data.html, data.landscape);
+    const pdf = await renderPdfBuffer(data.html, data.landscape, data.pageWidthMm);
     return new Response(new Blob([new Uint8Array(pdf)], { type: "application/pdf" }), {
       headers: { "Content-Type": "application/pdf" },
     });
@@ -78,6 +140,6 @@ export const renderPdfServerFn = createServerFn({ method: "POST" })
 export const renderPdfBase64ServerFn = createServerFn({ method: "POST" })
   .validator(validateRenderInput)
   .handler(async ({ data }) => {
-    const pdf = await renderPdfBuffer(data.html, data.landscape);
+    const pdf = await renderPdfBuffer(data.html, data.landscape, data.pageWidthMm);
     return { pdfBase64: pdf.toString("base64") };
   });

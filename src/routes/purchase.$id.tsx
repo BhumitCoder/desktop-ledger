@@ -4,9 +4,11 @@ import { PurchaseRepo, CompanyRepo } from "@/repositories";
 import type { Invoice, Company } from "@/types";
 import { fmtMoney } from "@/lib/format";
 import { printWithName } from "@/lib/print";
-import { downloadElementAsPdf, shareElementAsPdf } from "@/lib/pdf";
+import { downloadElementAsPdf } from "@/lib/pdf";
+import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { fmtMode } from "@/components/ModePills";
 import { PrintableInvoice } from "@/components/PrintableInvoice";
+import { usePermissions } from "@/hooks/usePermissions";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -32,6 +34,8 @@ function BillDetailPage() {
   const { id } = Route.useParams();
   const { print } = Route.useSearch();
   const navigate = useNavigate();
+  const { isOwner, canEdit } = usePermissions();
+  const editAllowed = isOwner || canEdit("purchaseExpenses");
   const [inv, setInv] = useState<Invoice | null>(null);
   const [co, setCo] = useState<Company | null>(null);
   const [pdfBusy, setPdfBusy] = useState<"download" | "share" | null>(null);
@@ -50,8 +54,11 @@ function BillDetailPage() {
     }
   }, [print, inv]);
 
+  const { shareReady, share, resetShare } = useShareablePdf("Bill");
+
   const handleDownloadPdf = async () => {
     if (!inv || !printRef.current || pdfBusy) return;
+    resetShare();
     setPdfBusy("download");
     try {
       await downloadElementAsPdf(printRef.current, inv.number, "portrait");
@@ -67,10 +74,7 @@ function BillDetailPage() {
     if (!inv || !printRef.current || pdfBusy) return;
     setPdfBusy("share");
     try {
-      const result = await shareElementAsPdf(printRef.current, inv.number, "portrait");
-      if (result === "shared") toast.success("Bill shared");
-      else if (result === "downloaded")
-        toast.info("Sharing isn't supported here — PDF downloaded instead");
+      await share(printRef.current, inv.number, "portrait");
     } catch {
       toast.error("Could not share bill — try Download PDF instead");
     } finally {
@@ -98,7 +102,7 @@ function BillDetailPage() {
 
   return (
     <div className="flex flex-col h-full bg-gray-100">
-      <div className="no-print bg-white border-b px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
+      <div className="no-print bg-white border-b px-5 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={() => navigate({ to: "/purchase" })}
@@ -128,13 +132,15 @@ function BillDetailPage() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={() => navigate({ to: "/purchase/edit/$id", params: { id: inv.id } })}
-            className="inline-flex items-center gap-1.5 h-8 px-4 bg-white border border-gray-200 text-gray-700 rounded-md text-sm font-semibold hover:bg-gray-50 transition"
-          >
-            <Pencil className="h-4 w-4" /> Edit
-          </button>
+        <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+          {editAllowed && (
+            <button
+              onClick={() => navigate({ to: "/purchase/edit/$id", params: { id: inv.id } })}
+              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 h-8 px-4 bg-white border border-gray-200 text-gray-700 rounded-md text-sm font-semibold hover:bg-gray-50 transition"
+            >
+              <Pencil className="h-4 w-4" /> Edit
+            </button>
+          )}
           <button
             onClick={handleDownloadPdf}
             disabled={pdfBusy !== null}
@@ -146,14 +152,14 @@ function BillDetailPage() {
           <button
             onClick={handleShare}
             disabled={pdfBusy !== null}
-            className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50"
-            title="Share bill PDF"
+            className={`h-8 w-8 shrink-0 rounded-md border bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50 ${shareReady ? "border-primary ring-2 ring-primary animate-pulse" : "border-gray-200"}`}
+            title={shareReady ? "PDF ready — tap again to share" : "Share bill PDF"}
           >
             <Share2 className="h-4 w-4" />
           </button>
           <button
             onClick={() => printWithName(inv.number)}
-            className="inline-flex items-center gap-1.5 h-8 px-4 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition"
+            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 h-8 px-4 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition"
             title="Print"
           >
             <Printer className="h-4 w-4" /> Print

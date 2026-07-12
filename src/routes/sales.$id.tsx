@@ -4,11 +4,13 @@ import { SalesRepo, CompanyRepo } from "@/repositories";
 import type { Invoice, Company, PrintFormat } from "@/types";
 import { fmtMoney } from "@/lib/format";
 import { printWithName } from "@/lib/print";
-import { downloadElementAsPdf, shareElementAsPdf } from "@/lib/pdf";
+import { downloadElementAsPdf } from "@/lib/pdf";
+import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { sendElementViaWhatsApp } from "@/lib/whatsappSend";
 import { fmtMode } from "@/components/ModePills";
 import { ThermalReceipt } from "@/components/ThermalReceipt";
 import { PrintableInvoice } from "@/components/PrintableInvoice";
+import { usePermissions } from "@/hooks/usePermissions";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -42,6 +44,8 @@ function InvoiceDetailPage() {
   const { id } = Route.useParams();
   const { print } = Route.useSearch();
   const navigate = useNavigate();
+  const { isOwner, canEdit } = usePermissions();
+  const editAllowed = isOwner || canEdit("sales");
   const [inv, setInv] = useState<Invoice | null>(null);
   const [co, setCo] = useState<Company | null>(null);
   const [fmt, setFmt] = useState<PrintFormat>("a4");
@@ -68,11 +72,23 @@ function InvoiceDetailPage() {
     if (co) CompanyRepo.save({ ...co, printFormat: f }); // remember for next time
   };
 
+  // Thermal receipts need an explicit page width passed to the PDF
+  // renderer — see elementToPdfBase64's comment for why.
+  const thermalWidthMm = fmt === "thermal80" ? 80 : fmt === "thermal58" ? 58 : undefined;
+
+  const { shareReady, share, resetShare } = useShareablePdf("Invoice");
+
   const handleDownloadPdf = async () => {
     if (!inv || !printRef.current || pdfBusy) return;
+    resetShare();
     setPdfBusy("download");
     try {
-      await downloadElementAsPdf(printRef.current, inv.number, fmt === "a4-2up" ? "landscape" : "portrait");
+      await downloadElementAsPdf(
+        printRef.current,
+        inv.number,
+        fmt === "a4-2up" ? "landscape" : "portrait",
+        thermalWidthMm,
+      );
       toast.success("Invoice downloaded as PDF");
     } catch {
       toast.error("Could not generate PDF — try Print instead");
@@ -85,14 +101,7 @@ function InvoiceDetailPage() {
     if (!inv || !printRef.current || pdfBusy) return;
     setPdfBusy("share");
     try {
-      const result = await shareElementAsPdf(
-        printRef.current,
-        inv.number,
-        fmt === "a4-2up" ? "landscape" : "portrait",
-      );
-      if (result === "shared") toast.success("Invoice shared");
-      else if (result === "downloaded")
-        toast.info("Sharing isn't supported here — PDF downloaded instead");
+      await share(printRef.current, inv.number, fmt === "a4-2up" ? "landscape" : "portrait", thermalWidthMm);
     } catch {
       toast.error("Could not share invoice — try Download PDF instead");
     } finally {
@@ -112,6 +121,7 @@ function InvoiceDetailPage() {
           `${co ? ` from ${co.name}` : ""} — Total ${fmtMoney(inv.total)}. Thank you!`,
         fileName: inv.number,
         orientation: fmt === "a4-2up" ? "landscape" : "portrait",
+        pageWidthMm: thermalWidthMm,
       });
       toast.success("Invoice sent on WhatsApp");
     } catch (err) {
@@ -141,7 +151,7 @@ function InvoiceDetailPage() {
 
   return (
     <div className="flex flex-col h-full bg-gray-100">
-      <div className="no-print bg-white border-b px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
+      <div className="no-print bg-white border-b px-5 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={() => navigate({ to: "/sales" })}
@@ -171,56 +181,62 @@ function InvoiceDetailPage() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Print format selector */}
-          <div className="flex items-center rounded-md border border-gray-200 overflow-hidden h-8 shrink-0">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center w-full sm:w-auto">
+          {/* Print format selector — its own full-width row on mobile, each
+              option sharing the width evenly, instead of a shrink-wrapped
+              pill squeezed in next to every other button. */}
+          <div className="flex items-center rounded-md border border-gray-200 overflow-hidden h-8 w-full sm:w-auto">
             {FORMATS.map((f) => (
               <button
                 key={f.value}
                 onClick={() => changeFormat(f.value)}
-                className={`h-8 px-2.5 text-xs font-semibold transition ${fmt === f.value ? "bg-primary text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}
+                className={`flex-1 sm:flex-none h-8 px-2.5 text-xs font-semibold transition ${fmt === f.value ? "bg-primary text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}
               >
                 {f.label}
               </button>
             ))}
           </div>
-          <button
-            onClick={() => navigate({ to: "/sales/edit/$id", params: { id: inv.id } })}
-            className="inline-flex items-center gap-1.5 h-8 px-4 bg-white border border-gray-200 text-gray-700 rounded-md text-sm font-semibold hover:bg-gray-50 transition"
-          >
-            <Pencil className="h-4 w-4" /> Edit
-          </button>
-          <button
-            onClick={handleDownloadPdf}
-            disabled={pdfBusy !== null}
-            className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50"
-            title="Download invoice as PDF"
-          >
-            <FileDown className="h-4 w-4" />
-          </button>
-          <button
-            onClick={handleShare}
-            disabled={pdfBusy !== null}
-            className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50"
-            title="Share invoice PDF"
-          >
-            <Share2 className="h-4 w-4" />
-          </button>
-          <button
-            onClick={handleSendWhatsApp}
-            disabled={pdfBusy !== null}
-            className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50"
-            title="Send invoice on WhatsApp"
-          >
-            <MessageCircle className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => printWithName(inv.number)}
-            className="inline-flex items-center gap-1.5 h-8 px-4 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition"
-            title="Print"
-          >
-            <Printer className="h-4 w-4" /> Print
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {editAllowed && (
+              <button
+                onClick={() => navigate({ to: "/sales/edit/$id", params: { id: inv.id } })}
+                className="inline-flex items-center gap-1.5 h-8 px-4 bg-white border border-gray-200 text-gray-700 rounded-md text-sm font-semibold hover:bg-gray-50 transition"
+              >
+                <Pencil className="h-4 w-4" /> Edit
+              </button>
+            )}
+            <button
+              onClick={handleDownloadPdf}
+              disabled={pdfBusy !== null}
+              className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50"
+              title="Download invoice as PDF"
+            >
+              <FileDown className="h-4 w-4" />
+            </button>
+            <button
+              onClick={handleShare}
+              disabled={pdfBusy !== null}
+              className={`h-8 w-8 shrink-0 rounded-md border bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50 ${shareReady ? "border-primary ring-2 ring-primary animate-pulse" : "border-gray-200"}`}
+              title={shareReady ? "PDF ready — tap again to share" : "Share invoice PDF"}
+            >
+              <Share2 className="h-4 w-4" />
+            </button>
+            <button
+              onClick={handleSendWhatsApp}
+              disabled={pdfBusy !== null}
+              className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50"
+              title="Send invoice on WhatsApp"
+            >
+              <MessageCircle className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => printWithName(inv.number)}
+              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 h-8 px-4 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition"
+              title="Print"
+            >
+              <Printer className="h-4 w-4" /> Print
+            </button>
+          </div>
         </div>
       </div>
 

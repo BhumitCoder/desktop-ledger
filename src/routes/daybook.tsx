@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
   SalesRepo,
@@ -16,10 +16,12 @@ import {
 import { buildBankLedger, paidViaPayments } from "@/lib/ledger";
 import { fmtMoney, fmtDate, today, ymd } from "@/lib/format";
 import { printWithName } from "@/lib/print";
-import { downloadElementAsPdf, shareElementAsPdf } from "@/lib/pdf";
+import { downloadElementAsPdf } from "@/lib/pdf";
+import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { usePagination, PaginationBar } from "@/components/Pagination";
 import { downloadCsv } from "@/lib/csv";
 import { fmtMode } from "@/components/ModePills";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   BookOpen,
   Printer,
@@ -36,9 +38,16 @@ import {
   Landmark,
   FileDown,
   Share2,
+  SlidersHorizontal,
 } from "lucide-react";
 
 export const Route = createFileRoute("/daybook")({ component: DaybookPage });
+
+// Keeps the picked date selected everywhere — across leaving to view a
+// linked sale/purchase/return, across leaving to a different page entirely
+// and coming back, anything short of an actual page reload (which starts
+// fresh again).
+let dateCache: string | null = null;
 
 interface DayRow {
   created: string;
@@ -55,10 +64,15 @@ interface DayRow {
 
 function DaybookPage() {
   const navigate = useNavigate();
-  const [date, setDate] = useState(today());
+  const [date, setDate] = useState(() => dateCache ?? today());
   const [q, setQ] = useState("");
   const [pdfBusy, setPdfBusy] = useState<"download" | "share" | null>(null);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    dateCache = date;
+  }, [date]);
 
   const rows = useMemo<DayRow[]>(() => {
     const list: DayRow[] = [];
@@ -314,8 +328,11 @@ function DaybookPage() {
     downloadCsv(`Daybook-${date}`, allRows[0], allRows.slice(1));
   };
 
+  const { shareReady, share, resetShare } = useShareablePdf("Daybook");
+
   const handleDownloadPdf = async () => {
     if (!printRef.current || pdfBusy) return;
+    resetShare();
     setPdfBusy("download");
     try {
       await downloadElementAsPdf(printRef.current, `Daybook-${date}`, "portrait");
@@ -331,10 +348,7 @@ function DaybookPage() {
     if (!printRef.current || pdfBusy) return;
     setPdfBusy("share");
     try {
-      const result = await shareElementAsPdf(printRef.current, `Daybook-${date}`, "portrait");
-      if (result === "shared") toast.success("Daybook shared");
-      else if (result === "downloaded")
-        toast.info("Sharing isn't supported here — PDF downloaded instead");
+      await share(printRef.current, `Daybook-${date}`, "portrait");
     } catch {
       toast.error("Could not share daybook — try Download PDF instead");
     } finally {
@@ -344,86 +358,172 @@ function DaybookPage() {
 
   return (
     <div className="flex flex-col h-full bg-[#f5f6fa]">
-      <div className="no-print bg-white border-b px-5 py-3 flex items-center gap-3 flex-wrap">
-        <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-md bg-primary-soft text-primary flex items-center justify-center">
-            <BookOpen className="h-4 w-4" />
+      <div className="no-print bg-white border-b px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex items-center justify-between sm:justify-start gap-3">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-md bg-primary-soft text-primary flex items-center justify-center">
+              <BookOpen className="h-4 w-4" />
+            </div>
+            <div>
+              <h1 className="text-[17px] font-bold text-gray-800">Daybook</h1>
+              <p className="text-[12px] text-gray-400">
+                {rows.length} transactions on {fmtDate(date)}
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-[17px] font-bold text-gray-800">Daybook</h1>
-            <p className="text-[12px] text-gray-400">
-              {rows.length} transactions on {fmtDate(date)}
-            </p>
-          </div>
+          {/* Date navigation + Search move into the Filters sheet on
+              mobile — they don't fit inline next to the export/print icons
+              on a phone. */}
+          <button
+            onClick={() => setMobileFiltersOpen(true)}
+            className="sm:hidden relative h-9 w-9 shrink-0 flex items-center justify-center rounded-lg border border-gray-200 bg-gray-50/60 text-gray-600"
+            title="Filters"
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            {(date !== today() || q) && (
+              <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-primary" />
+            )}
+          </button>
         </div>
-        <div className="flex items-center gap-2 ml-auto">
-          <button
-            onClick={() => shiftDay(-1)}
-            className="h-8 w-8 rounded-md border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center text-gray-500"
-            title="Previous day"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="border border-gray-200 rounded-md text-sm px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
-          />
-          <button
-            onClick={() => shiftDay(1)}
-            className="h-8 w-8 rounded-md border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center text-gray-500"
-            title="Next day"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => setDate(today())}
-            className="h-8 px-3 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-xs font-semibold text-gray-600"
-          >
-            Today
-          </button>
-          <button
-            onClick={downloadExcel}
-            className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition"
-            title="Download daybook as Excel"
-          >
-            <Download className="h-4 w-4" />
-          </button>
-          <button
-            onClick={handleDownloadPdf}
-            disabled={pdfBusy !== null}
-            className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50"
-            title="Download daybook as PDF"
-          >
-            <FileDown className="h-4 w-4" />
-          </button>
-          <button
-            onClick={handleShare}
-            disabled={pdfBusy !== null}
-            className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50"
-            title="Share daybook PDF"
-          >
-            <Share2 className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => printWithName(`Daybook-${date}`)}
-            className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition"
-            title="Print"
-          >
-            <Printer className="h-4 w-4" />
-          </button>
-          <div className="relative w-44 lg:w-56">
+        <div className="flex items-center gap-2 sm:ml-auto w-full sm:w-auto">
+          <div className="hidden sm:flex items-center gap-2">
+            <button
+              onClick={() => shiftDay(-1)}
+              className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center text-gray-500"
+              title="Previous day"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="border border-gray-200 rounded-md text-sm px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+            />
+            <button
+              onClick={() => shiftDay(1)}
+              className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center text-gray-500"
+              title="Next day"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => setDate(today())}
+              className="h-8 px-3 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-xs font-semibold text-gray-600"
+            >
+              Today
+            </button>
+          </div>
+          {/* Export/print actions — kept inline on every screen size,
+              compact enough not to need a sheet of their own. */}
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <button
+              onClick={downloadExcel}
+              className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition"
+              title="Download daybook as Excel"
+            >
+              <Download className="h-4 w-4" />
+            </button>
+            <button
+              onClick={handleDownloadPdf}
+              disabled={pdfBusy !== null}
+              className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50"
+              title="Download daybook as PDF"
+            >
+              <FileDown className="h-4 w-4" />
+            </button>
+            <button
+              onClick={handleShare}
+              disabled={pdfBusy !== null}
+              className={`h-8 w-8 shrink-0 rounded-md border bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50 ${shareReady ? "border-primary ring-2 ring-primary animate-pulse" : "border-gray-200"}`}
+              title={shareReady ? "PDF ready — tap again to share" : "Share daybook PDF"}
+            >
+              <Share2 className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => printWithName(`Daybook-${date}`)}
+              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 h-8 px-3.5 bg-white border border-gray-200 rounded-md text-xs font-semibold text-gray-600 hover:bg-gray-50 transition"
+              title="Print"
+            >
+              <Printer className="h-4 w-4" /> Print
+            </button>
+          </div>
+          <div className="hidden sm:block relative w-full sm:w-44 lg:w-56">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search name, ref no, type…"
-              className="w-full h-8 pl-8 pr-3 border border-gray-200 rounded-md text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+              className="w-full h-8 pl-8 pr-3 border border-gray-200 rounded-md text-base sm:text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
             />
           </div>
         </div>
       </div>
+
+      {/* Mobile filter sheet — Date navigation and Search don't fit inline
+          next to the export/print icons on a phone, so they live here
+          behind the header's Filters button instead, same state as the
+          desktop inline controls. */}
+      <Dialog open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Filters</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-semibold text-gray-500 block mb-1.5">Date</label>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => shiftDay(-1)}
+                  className="h-9 w-9 shrink-0 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center text-gray-500"
+                  title="Previous day"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  className="flex-1 h-9 border border-gray-200 rounded-lg text-sm px-2 bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+                <button
+                  onClick={() => shiftDay(1)}
+                  className="h-9 w-9 shrink-0 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center text-gray-500"
+                  title="Next day"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => setDate(today())}
+                  className="h-9 px-3 shrink-0 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-semibold text-gray-600"
+                >
+                  Today
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-500 block mb-1.5">Search</label>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Search name, ref no, type…"
+                  className="w-full h-9 pl-8 pr-3 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end pt-1">
+              <button
+                onClick={() => setMobileFiltersOpen(false)}
+                className="h-8 px-4 bg-primary text-primary-foreground rounded-md text-sm font-semibold hover:opacity-90 transition"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Summary — day totals and every cash/bank account as compact KPI
           cards in one row, so the table below gets the space instead of two

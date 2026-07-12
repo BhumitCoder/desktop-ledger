@@ -3,7 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { PayeeRepo, ExpenseRepo, BankRepo, CompanyRepo } from "@/repositories";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { printWithName } from "@/lib/print";
-import { downloadElementAsPdf, shareElementAsPdf } from "@/lib/pdf";
+import { downloadElementAsPdf } from "@/lib/pdf";
+import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { downloadXlsx } from "@/lib/xlsx";
 import { fmtMode } from "@/components/ModePills";
 import type { Payee } from "@/types";
@@ -14,18 +15,27 @@ export const Route = createFileRoute("/payees_/$id")({ component: PayeeLedgerPag
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
+// Keeps the date range selected everywhere — across switching to a
+// different payee entirely, anything short of an actual page reload (which
+// starts fresh again).
+let dateCache: { dateFrom: string; dateTo: string } | null = null;
+
 function PayeeLedgerPage() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
   const [payee, setPayee] = useState<Payee | null | undefined>(undefined);
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateFrom, setDateFrom] = useState(() => dateCache?.dateFrom ?? "");
+  const [dateTo, setDateTo] = useState(() => dateCache?.dateTo ?? "");
   const [pdfBusy, setPdfBusy] = useState<"download" | "share" | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setPayee(PayeeRepo.get(id) ?? null);
   }, [id]);
+
+  useEffect(() => {
+    dateCache = { dateFrom, dateTo };
+  }, [dateFrom, dateTo]);
 
   const bankNameById = useMemo(() => new Map(BankRepo.all().map((b) => [b.id, b.name])), []);
 
@@ -57,8 +67,11 @@ function PayeeLedgerPage() {
 
   const pdfName = () => `Payee-Ledger-${(payee?.name ?? "Payee").replace(/\s+/g, "-")}`;
 
+  const { shareReady, share, resetShare } = useShareablePdf("Ledger");
+
   const handleDownloadPdf = async () => {
     if (!printRef.current || pdfBusy) return;
+    resetShare();
     setPdfBusy("download");
     try {
       await downloadElementAsPdf(printRef.current, pdfName(), "portrait");
@@ -74,10 +87,7 @@ function PayeeLedgerPage() {
     if (!printRef.current || pdfBusy) return;
     setPdfBusy("share");
     try {
-      const result = await shareElementAsPdf(printRef.current, pdfName(), "portrait");
-      if (result === "shared") toast.success("Ledger shared");
-      else if (result === "downloaded")
-        toast.info("Sharing isn't supported here — PDF downloaded instead");
+      await share(printRef.current, pdfName(), "portrait");
     } catch {
       toast.error("Could not share ledger — try Download PDF instead");
     } finally {
@@ -177,8 +187,8 @@ function PayeeLedgerPage() {
           <button
             onClick={handleShare}
             disabled={pdfBusy !== null}
-            className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50"
-            title="Share PDF"
+            className={`h-8 w-8 shrink-0 rounded-md border bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50 ${shareReady ? "border-primary ring-2 ring-primary animate-pulse" : "border-gray-200"}`}
+            title={shareReady ? "PDF ready — tap again to share" : "Share PDF"}
           >
             <Share2 className="h-4 w-4" />
           </button>

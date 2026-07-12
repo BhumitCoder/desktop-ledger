@@ -159,9 +159,8 @@ export function ReturnForm({ mode }: Props) {
     setRet({ ...ret, partyId: p.id, partyName: p.name, partyPhone: p.phone ?? "" });
     setPartyQ(p.name);
     setPartyOpen(false);
-    // Straight to adding items next — the natural next step once the
-    // customer/supplier is picked.
-    setTimeout(() => document.getElementById("return-item-search")?.focus(), 30);
+    // Matches Sales' invoice form — party picked, land on Date next.
+    setTimeout(() => document.getElementById("ret-date")?.focus(), 30);
   };
 
   const addLineItem = (it: Item) => {
@@ -503,6 +502,7 @@ export function ReturnForm({ mode }: Props) {
               )}
             </div>
             <Field
+              id="ret-date"
               label="Return Date"
               type="date"
               value={ret.date}

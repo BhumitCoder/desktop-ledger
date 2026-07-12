@@ -52,6 +52,28 @@ function moduleForPath(pathname: string): ModuleKey | null {
   return null;
 }
 
+/** Create/edit forms need `edit`, not just `view` — a view-only team member
+ * could otherwise type /sales/new or /purchase/edit/<id> straight into the
+ * URL bar and fully create or edit bills, completely bypassing the
+ * correctly-gated buttons on the list pages (which only hide the button,
+ * they don't stop direct navigation). Checked separately from moduleForPath
+ * above since most of that map's routes only ever need `view`. */
+const EDIT_ONLY_PATHS: { re: RegExp; module: ModuleKey }[] = [
+  { re: /^\/sales\/new$/, module: "sales" },
+  { re: /^\/sales\/edit\/[^/]+$/, module: "sales" },
+  { re: /^\/purchase\/new$/, module: "purchaseExpenses" },
+  { re: /^\/purchase\/edit\/[^/]+$/, module: "purchaseExpenses" },
+  { re: /^\/sale-return\/new$/, module: "sales" },
+  { re: /^\/purchase-return\/new$/, module: "purchaseExpenses" },
+];
+
+function editModuleForPath(pathname: string): ModuleKey | null {
+  for (const { re, module } of EDIT_ONLY_PATHS) {
+    if (re.test(pathname)) return module;
+  }
+  return null;
+}
+
 /** Remembers whether someone was signed in on this device, so the very first
  * paint can go straight to the right screen (login vs splash) with no blink. */
 const AUTH_HINT_KEY = "bz.authHint";
@@ -175,7 +197,7 @@ function AuthGate() {
   const [dataReady, setDataReady] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [mounted, setMounted] = useState(false);
-  const { isOwner, canView } = usePermissions();
+  const { isOwner, canView, canEdit } = usePermissions();
 
   useEffect(() => {
     setMounted(true);
@@ -285,7 +307,12 @@ function AuthGate() {
   // broader access through it.
   const isSettingsPath = pathname === "/settings" || pathname.startsWith("/settings/");
   const module = moduleForPath(pathname);
-  const blocked = !isOwner && (isSettingsPath || (module !== null && !canView(module)));
+  const editModule = editModuleForPath(pathname);
+  const blocked =
+    !isOwner &&
+    (isSettingsPath ||
+      (module !== null && !canView(module)) ||
+      (editModule !== null && !canEdit(editModule)));
 
   return (
     <AppShell>

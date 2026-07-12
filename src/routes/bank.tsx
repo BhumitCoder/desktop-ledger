@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
+import { usePagination } from "@/components/Pagination";
 import {
   BankRepo,
   SalesRepo,
@@ -35,6 +36,8 @@ function BankPage() {
   const [txnOpen, setTxnOpen] = useState(false);
   const refresh = () => setRows(BankRepo.all());
   useEffect(refresh, []);
+
+  const pg = usePagination(rows);
 
   const columns: Column<BankAccount>[] = [
     {
@@ -118,16 +121,16 @@ function BankPage() {
         subtitle={`${rows.length} accounts · Opening: ${fmtMoney(openingTotal)} · Bank transactions: ${bankActivity >= 0 ? "+" : "−"}${fmtMoney(Math.abs(bankActivity))} · Total: ${fmtMoney(totalBalance)}`}
         icon={<Landmark className="h-5 w-5" />}
         actions={
-          <div className="flex flex-wrap gap-1.5 sm:gap-2">
+          <div className="flex flex-col sm:flex-row gap-1.5 sm:gap-2 w-full sm:w-auto">
             {rows.length > 0 && editAllowed && (
               <Button
                 size="sm"
                 variant="outline"
                 onClick={() => setTxnOpen(true)}
                 title="Deposit / Withdraw"
+                className="w-full sm:w-auto"
               >
-                <ArrowDownToLine className="h-3.5 w-3.5" />{" "}
-                <span className="hidden sm:inline">Deposit / Withdraw</span>
+                <ArrowDownToLine className="h-3.5 w-3.5" /> Deposit / Withdraw
               </Button>
             )}
             {editAllowed && (
@@ -137,6 +140,7 @@ function BankPage() {
                   setEdit(null);
                   setOpen(true);
                 }}
+                className="w-full sm:w-auto"
               >
                 <Plus className="h-3.5 w-3.5" /> New Account
               </Button>
@@ -144,7 +148,72 @@ function BankPage() {
           </div>
         }
       />
-      <div className="p-6 flex-1 min-h-0 flex">
+      {/* Mobile card list — a table of 5 columns doesn't fit a phone; this
+          is the same data as one tappable card per account instead. */}
+      <div className="md:hidden flex-1 overflow-auto">
+        {rows.length === 0 ? (
+          <div className="text-center py-16 text-gray-400">
+            <Landmark className="h-10 w-10 mx-auto mb-3 text-gray-200" />
+            <p className="font-medium">No bank accounts found</p>
+            <p className="text-xs mt-1">Add a bank account to get started</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {pg.paged.map((r) => (
+              <div
+                key={r.id}
+                onClick={() => navigate({ to: "/bank/$id", params: { id: r.id } })}
+                className="bg-white p-4 active:bg-gray-50"
+              >
+                <div className="flex items-start justify-between gap-3 mb-1.5">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-gray-800 truncate">{r.name}</p>
+                    <p className="text-xs text-gray-400 mt-0.5 truncate font-mono">
+                      {r.accountNumber ?? "—"} · {r.ifsc ?? "—"}
+                    </p>
+                  </div>
+                  <p className="font-bold text-gray-800 tabular-nums shrink-0">
+                    {fmtMoney(r.balance)}
+                  </p>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-semibold text-gray-500">
+                    Opening: {fmtMoney(r.openingBalance)}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate({ to: "/bank/$id", params: { id: r.id } });
+                      }}
+                      className="p-1.5 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+                      title="View passbook / transaction history"
+                    >
+                      <History className="h-3.5 w-3.5" />
+                    </button>
+                    {editAllowed && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEdit(r);
+                          setOpen(true);
+                        }}
+                        className="p-1.5 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+                        title="Edit account"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Table (desktop) */}
+      <div className="hidden md:flex flex-1 min-h-0 p-6">
         <DataTable
           columns={columns}
           rows={rows}
@@ -182,7 +251,7 @@ function BankTxnDialog({
 }) {
   const [bankId, setBankId] = useState("");
   const [type, setType] = useState<"deposit" | "withdraw">("deposit");
-  const [amount, setAmount] = useState("");
+  const [amount, setAmount] = useState(0);
   const [date, setDate] = useState(today());
   const [notes, setNotes] = useState("");
   const [linkCash, setLinkCash] = useState(true);
@@ -192,7 +261,7 @@ function BankTxnDialog({
     if (open) {
       setBankId(accounts[0]?.id ?? "");
       setType("deposit");
-      setAmount("");
+      setAmount(0);
       setDate(today());
       setNotes("");
       setLinkCash(true);
@@ -203,7 +272,7 @@ function BankTxnDialog({
   const save = (e: React.FormEvent) => {
     e.preventDefault();
     if (saving) return;
-    const n = parseFloat(amount) || 0;
+    const n = amount;
     const bank = accounts.find((b) => b.id === bankId);
     if (!bank) {
       toast.error("Select a bank account");
@@ -278,12 +347,7 @@ function BankTxnDialog({
             </button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field
-              label="Amount (₹) *"
-              type="number"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-            />
+            <NumField label="Amount (₹) *" value={amount} onValue={setAmount} />
             <Field
               label="Date"
               type="date"

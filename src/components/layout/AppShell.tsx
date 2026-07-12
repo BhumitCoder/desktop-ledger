@@ -14,7 +14,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="flex-1 flex flex-col min-w-0">
         <Topbar />
         <WorkspaceTabs />
-        <main className="flex-1 overflow-auto bg-[#f5f6fa] pb-[60px] md:pb-0">{children}</main>
+        <main className="flex-1 overflow-auto bg-[#f5f6fa] pb-[calc(60px_+_env(safe-area-inset-bottom,_0px))] md:pb-0">
+          {children}
+        </main>
       </div>
       <MobileBottomNav />
       <GlobalSearch />

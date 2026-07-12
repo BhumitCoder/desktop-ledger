@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { TeamUserRepo, subscribeTeamUser } from "@/repositories";
 import type { ModuleKey } from "@/types";
 
@@ -19,17 +19,24 @@ export function usePermissions() {
   const me = useSyncExternalStore(subscribeTeamUser, TeamUserRepo.current, () => null);
 
   const isOwner = me?.isOwner === true && me.active;
-  const can = (module: ModuleKey, level: "view" | "edit" | "delete"): boolean => {
-    if (!me || !me.active) return false;
-    if (me.isOwner) return true;
-    return me.permissions[module]?.[level] === true;
-  };
 
-  return {
-    me,
-    isOwner,
-    canView: (module: ModuleKey) => can(module, "view"),
-    canEdit: (module: ModuleKey) => can(module, "edit"),
-    canDelete: (module: ModuleKey) => can(module, "delete"),
-  };
+  // Stable references across renders (only changing when `me` itself
+  // changes) — a fresh closure every render, as this used to return, looks
+  // "changed" to any useEffect/useMemo dependency array that includes it,
+  // even though nothing real changed. GlobalSearch's own effect depends on
+  // canView, which turned that into an unconditional infinite render loop
+  // the moment search was opened ("Maximum update depth exceeded").
+  const can = useCallback(
+    (module: ModuleKey, level: "view" | "edit" | "delete"): boolean => {
+      if (!me || !me.active) return false;
+      if (me.isOwner) return true;
+      return me.permissions[module]?.[level] === true;
+    },
+    [me],
+  );
+  const canView = useCallback((module: ModuleKey) => can(module, "view"), [can]);
+  const canEdit = useCallback((module: ModuleKey) => can(module, "edit"), [can]);
+  const canDelete = useCallback((module: ModuleKey) => can(module, "delete"), [can]);
+
+  return { me, isOwner, canView, canEdit, canDelete };
 }

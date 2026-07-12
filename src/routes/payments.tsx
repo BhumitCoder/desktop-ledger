@@ -25,6 +25,7 @@ import {
   ChevronRight,
   Loader2,
   Pencil,
+  SlidersHorizontal,
 } from "lucide-react";
 import { usePermissions } from "@/hooks/usePermissions";
 import { toast } from "sonner";
@@ -32,6 +33,8 @@ import { genId } from "@/repositories/base";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { DataTable, type Column } from "@/components/DataTable";
+import { usePagination } from "@/components/Pagination";
+import { NumInput } from "@/components/NumInput";
 import { ModePills, fmtMode } from "@/components/ModePills";
 import { PageHeader } from "@/components/PageHeader";
 
@@ -50,6 +53,7 @@ function PaymentsPage() {
   const [open, setOpen] = useState(false);
   const [formType, setFormType] = useState<"in" | "out">("in");
   const [editing, setEditing] = useState<Payment | null>(null);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   const refresh = () => setRows(PaymentRepo.all().sort((a, b) => b.date.localeCompare(a.date)));
   useEffect(refresh, []);
@@ -63,6 +67,8 @@ function PaymentsPage() {
     }
     return true;
   });
+
+  const pg = usePagination(filtered);
 
   const totalIn = rows.filter((r) => r.type === "in").reduce((s, r) => s + r.amount, 0);
   const totalOut = rows.filter((r) => r.type === "out").reduce((s, r) => s + r.amount, 0);
@@ -237,10 +243,23 @@ function PaymentsPage() {
         title="Payments"
         subtitle={`${rows.length} records`}
         icon={<Wallet className="h-5 w-5" />}
+        mobileAction={
+          <button
+            onClick={() => setMobileFiltersOpen(true)}
+            className="relative h-9 w-9 flex items-center justify-center rounded-lg border border-gray-200 bg-gray-50/60 text-gray-600"
+            title="Filters"
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            {tab !== "all" && (
+              <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-primary" />
+            )}
+          </button>
+        }
         actions={
           <>
-            {/* Tabs */}
-            <div className="flex items-center gap-0.5 h-9 border border-gray-200 rounded-lg p-0.5 bg-gray-50/60">
+            {/* Tabs — its own filter sheet on mobile (see Filters button
+                above); this inline row is desktop only. */}
+            <div className="hidden sm:flex items-center gap-0.5 h-9 border border-gray-200 rounded-lg p-0.5 bg-gray-50/60">
               {(["all", "in", "out"] as Tab[]).map((t) => (
                 <button
                   key={t}
@@ -260,21 +279,21 @@ function PaymentsPage() {
               ))}
             </div>
 
-            {/* Search */}
-            <div className="relative w-48">
+            {/* Search — kept inline on every screen size */}
+            <div className="relative w-full sm:w-48">
               <Search className="h-3.5 w-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search party, reference…"
-                className="w-full h-9 pl-9 pr-3 rounded-lg border border-gray-200 bg-gray-50/60 text-[13px] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-white transition"
+                className="w-full h-9 pl-9 pr-3 rounded-lg border border-gray-200 bg-gray-50/60 text-base md:text-[13px] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-white transition"
               />
             </div>
 
             {editAllowed && (
               <button
                 onClick={() => openForm("in")}
-                className="inline-flex items-center gap-1.5 h-9 px-3 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 transition"
+                className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 h-9 px-3 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 transition"
               >
                 <ArrowDownCircle className="h-4 w-4" /> Receive Payment
               </button>
@@ -282,7 +301,7 @@ function PaymentsPage() {
             {editAllowed && (
               <button
                 onClick={() => openForm("out")}
-                className="inline-flex items-center gap-1.5 h-9 px-3 bg-rose-600 text-white rounded-lg text-sm font-semibold hover:bg-rose-700 transition"
+                className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 h-9 px-3 bg-rose-600 text-white rounded-lg text-sm font-semibold hover:bg-rose-700 transition"
               >
                 <ArrowUpCircle className="h-4 w-4" /> Make Payment
               </button>
@@ -291,7 +310,122 @@ function PaymentsPage() {
         }
       />
 
-      <div className="p-6 flex-1 min-h-0 flex">
+      {/* Mobile filter sheet — the In/Out tabs don't fit inline next to
+          Search on a phone, so they live here behind the header's Filters
+          button instead, same state as the desktop inline tabs. */}
+      <Dialog open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Filters</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-semibold text-gray-500 block mb-1.5">Type</label>
+              <div className="flex items-center gap-1 border border-gray-200 rounded-lg p-1 bg-gray-50/60">
+                {(["all", "in", "out"] as Tab[]).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setTab(t)}
+                    className={`flex-1 h-8 rounded-md text-xs font-semibold transition ${
+                      tab === t
+                        ? t === "in"
+                          ? "bg-emerald-50 text-emerald-700"
+                          : t === "out"
+                            ? "bg-rose-50 text-rose-700"
+                            : "bg-primary text-primary-foreground"
+                        : "text-gray-500 hover:bg-gray-100"
+                    }`}
+                  >
+                    {t === "all" ? "All" : t === "in" ? "Received" : "Paid Out"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center justify-end pt-1">
+              <button
+                onClick={() => setMobileFiltersOpen(false)}
+                className="h-8 px-4 bg-primary text-primary-foreground rounded-md text-sm font-semibold hover:opacity-90 transition"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Mobile card list — a table of 8 columns doesn't fit a phone; this
+          is the same data as one tappable card per payment instead. */}
+      <div className="md:hidden flex-1 overflow-auto">
+        {filtered.length === 0 ? (
+          <div className="text-center py-16 text-gray-400">
+            <Wallet className="h-10 w-10 mx-auto mb-3 text-gray-200" />
+            <p className="font-medium">No payments found</p>
+            <p className="text-xs mt-1">Try adjusting filters or use the buttons above to record one</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {pg.paged.map((r) => (
+              <div
+                key={r.id}
+                onClick={() => openEdit(r)}
+                className="bg-white p-4 active:bg-gray-50"
+              >
+                <div className="flex items-start justify-between gap-3 mb-1.5">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-gray-800 truncate">{r.partyName}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {fmtDate(r.date)} · {r.type === "in" ? "Received" : "Paid Out"} ·{" "}
+                      {fmtMode(r.mode)}
+                    </p>
+                  </div>
+                  <p className="font-bold text-gray-800 tabular-nums shrink-0">
+                    {r.type === "out" ? "−" : "+"}
+                    {fmtMoney(r.amount)}
+                  </p>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-mono text-xs text-gray-400 truncate">
+                    {r.allocations?.length
+                      ? r.allocations.map((a) => a.number).join(", ")
+                      : r.ref && r.ref.match(/^(INV|PUR)-/)
+                        ? r.ref
+                        : "—"}
+                  </span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {editAllowed && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEdit(r);
+                        }}
+                        className="p-1.5 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+                        title="Edit payment"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    {deleteAllowed && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(r);
+                        }}
+                        className="p-1.5 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"
+                        title="Delete payment"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Table (desktop) */}
+      <div className="hidden md:flex flex-1 min-h-0 p-6">
         <DataTable
           activateOnClick
           columns={columns}
@@ -374,7 +508,7 @@ function ReceivePaymentDialog({
   const [bankOpen, setBankOpen] = useState(false);
   const [bankIdx, setBankIdx] = useState(0);
   const [applyRows, setApplyRows] = useState<ApplyRow[]>([]);
-  const [manualAmount, setManualAmount] = useState("");
+  const [manualAmount, setManualAmount] = useState(0);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
 
@@ -407,7 +541,7 @@ function ReceivePaymentDialog({
         setMode(editing.mode);
         setBankId(editing.bankId ?? "");
         setBankQ(BankRepo.all().find((b) => b.id === editing.bankId)?.name ?? "");
-        setManualAmount(editing.allocations?.length ? "" : String(editing.amount));
+        setManualAmount(editing.allocations?.length ? 0 : editing.amount);
       } else {
         setPartyQ("");
         setSelectedParty(null);
@@ -415,7 +549,7 @@ function ReceivePaymentDialog({
         setMode("cash");
         setBankId("");
         setBankQ("");
-        setManualAmount("");
+        setManualAmount(0);
         setTimeout(() => partyRef.current?.focus(), 60);
       }
       setApplyRows([]);
@@ -489,7 +623,7 @@ function ReceivePaymentDialog({
   // invoices would populate an all-unchecked list, drive this to 0, hide the
   // manual amount field (it was only shown when applyRows.length===0), and
   // permanently block saving.
-  const effectiveAmount = totalApplied > 0 ? totalApplied : parseFloat(manualAmount) || 0;
+  const effectiveAmount = totalApplied > 0 ? totalApplied : manualAmount;
 
   const toggleRow = (idx: number) => {
     setApplyRows((rows) =>
@@ -501,8 +635,7 @@ function ReceivePaymentDialog({
     );
   };
 
-  const setApply = (idx: number, val: string) => {
-    const num = parseFloat(val) || 0;
+  const setApply = (idx: number, num: number) => {
     setApplyRows((rows) =>
       rows.map((r, i) =>
         i === idx ? { ...r, apply: Math.min(r.due, Math.max(0, num)), checked: num > 0 } : r,
@@ -832,14 +965,9 @@ function ReceivePaymentDialog({
                         </div>
                         <div className="shrink-0 w-24">
                           <p className="text-[10px] text-gray-400 mb-1 text-right">Apply (₹)</p>
-                          <input
-                            type="number"
-                            value={row.apply || ""}
-                            min={0}
-                            max={row.due}
-                            step="0.01"
-                            onWheel={(e) => e.currentTarget.blur()}
-                            onChange={(e) => setApply(idx, e.target.value)}
+                          <NumInput
+                            value={row.apply}
+                            onValue={(n) => setApply(idx, n)}
                             placeholder="0.00"
                             className={`w-full h-7 px-2 text-right text-xs border rounded outline-none focus:ring-1 ${row.checked ? (isIn ? "border-emerald-400 focus:ring-emerald-300 bg-white" : "border-rose-400 focus:ring-rose-300 bg-white") : "border-gray-200 bg-gray-50"} tabular-nums`}
                           />
@@ -857,13 +985,9 @@ function ReceivePaymentDialog({
                   <label className="text-[12px] font-semibold text-gray-600 block mb-1">
                     {applyRows.length > 0 ? "Or record as advance (₹)" : "Amount (₹) *"}
                   </label>
-                  <input
-                    type="number"
+                  <NumInput
                     value={manualAmount}
-                    min={0}
-                    step="0.01"
-                    onWheel={(e) => e.currentTarget.blur()}
-                    onChange={(e) => setManualAmount(e.target.value)}
+                    onValue={setManualAmount}
                     className={`w-full h-9 px-3 border-2 rounded-md text-right font-bold text-lg outline-none focus:border-primary ${isIn ? "text-emerald-700" : "text-rose-700"}`}
                     placeholder="0.00"
                   />
@@ -878,13 +1002,9 @@ function ReceivePaymentDialog({
               <label className="text-[12px] font-semibold text-gray-600 block mb-1">
                 Amount (₹) *
               </label>
-              <input
-                type="number"
+              <NumInput
                 value={manualAmount}
-                min={0}
-                step="0.01"
-                onWheel={(e) => e.currentTarget.blur()}
-                onChange={(e) => setManualAmount(e.target.value)}
+                onValue={setManualAmount}
                 className={`w-full h-9 px-3 border-2 rounded-md text-right font-bold text-lg outline-none focus:border-primary ${isIn ? "text-emerald-700" : "text-rose-700"}`}
                 placeholder="0.00"
               />

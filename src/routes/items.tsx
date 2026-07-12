@@ -2,6 +2,8 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
+import { usePagination } from "@/components/Pagination";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { ItemRepo, StockAdjustmentRepo } from "@/repositories";
 import { newBatch, commitBatch } from "@/repositories/base";
 import type { Item } from "@/types";
@@ -61,6 +63,7 @@ export const Route = createFileRoute("/items")({ component: ItemsPage });
 
 function ItemsPage() {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const { isOwner, canEdit, canDelete } = usePermissions();
   const editAllowed = isOwner || canEdit("masterData");
   const deleteAllowed = isOwner || canDelete("masterData");
@@ -99,6 +102,8 @@ function ItemsPage() {
       r.barcode?.includes(s)
     );
   });
+
+  const pg = usePagination(filtered);
 
   const allFilteredSelected = filtered.length > 0 && filtered.every((r) => selectedIds.has(r.id));
   const toggleAllFiltered = () => {
@@ -227,31 +232,38 @@ function ItemsPage() {
         icon={<Package className="h-5 w-5" />}
         actions={
           <>
-            <div className="relative w-44 lg:w-56">
+            <div className="relative w-full sm:w-44 lg:w-56">
               <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
-                autoFocus
+                autoFocus={!isMobile}
                 placeholder="Search items by name..."
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                className="w-full h-8 pl-8 pr-3 border border-gray-200 rounded-md text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+                className="w-full h-8 pl-8 pr-3 border border-gray-200 rounded-md text-base md:text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
               />
             </div>
+            {/* Bulk import/export are desktop power-user actions — hidden
+                entirely on mobile instead of just losing their label, so the
+                header's one remaining button (New Item) gets a clean row of
+                its own instead of three cramped icon buttons competing for
+                space. */}
             <Button
               size="sm"
               variant="outline"
               onClick={() => downloadCsv("items", [...EXPORT_COLUMNS], rows.map(itemToBulkRow))}
               title="Export CSV"
+              className="hidden sm:inline-flex"
             >
-              <Download className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Export CSV</span>
+              <Download className="h-3.5 w-3.5" /> Export CSV
             </Button>
             <Button
               size="sm"
               variant="outline"
               onClick={() => setBulkOpen(true)}
               title="Bulk Import"
+              className="hidden sm:inline-flex"
             >
-              <Upload className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Bulk Import</span>
+              <Upload className="h-3.5 w-3.5" /> Bulk Import
             </Button>
             {editAllowed && (
               <Button
@@ -260,6 +272,7 @@ function ItemsPage() {
                   setEdit(null);
                   setOpen(true);
                 }}
+                className="w-full sm:w-auto"
               >
                 <Plus className="h-3.5 w-3.5" /> New Item
               </Button>
@@ -295,7 +308,89 @@ function ItemsPage() {
           </div>
         </div>
       )}
-      <div className="p-6 flex-1 min-h-0 flex">
+      {/* Mobile card list — a table of 6 columns doesn't fit a phone; this
+          is the same data as one tappable card per item instead. */}
+      <div className="md:hidden flex-1 overflow-auto">
+        {filtered.length === 0 ? (
+          <div className="text-center py-16 text-gray-400">
+            <Package className="h-10 w-10 mx-auto mb-3 text-gray-200" />
+            <p className="font-medium">No items found</p>
+            <p className="text-xs mt-1">Try adjusting your search or add a new item</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {pg.paged.map((r) => {
+              const low = (r.minStock != null && r.stock <= r.minStock) || r.stock < 0;
+              return (
+                <div
+                  key={r.id}
+                  onClick={() => navigate({ to: "/items/$id", params: { id: r.id } })}
+                  className="bg-white p-4 active:bg-gray-50"
+                >
+                  <div className="flex items-start justify-between gap-3 mb-1.5">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-gray-800 truncate">{r.name}</p>
+                      <p className="text-xs text-gray-400 mt-0.5 truncate">
+                        {r.category ?? "No category"}
+                      </p>
+                    </div>
+                    <p className="font-bold text-gray-800 tabular-nums shrink-0">
+                      {fmtMoney(r.salePrice)}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span
+                      className={`text-xs font-semibold ${low ? "text-warning" : "text-gray-500"}`}
+                    >
+                      {r.stock} {r.unit} in stock
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate({ to: "/items/$id", params: { id: r.id } });
+                        }}
+                        className="p-1.5 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+                        title="View details & history"
+                      >
+                        <History className="h-3.5 w-3.5" />
+                      </button>
+                      {editAllowed && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEdit(r);
+                            setOpen(true);
+                          }}
+                          className="p-1.5 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+                          title="Edit item"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      {editAllowed && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAdjustItem(r);
+                          }}
+                          className="p-1.5 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+                          title="Adjust stock (damage, counting correction…)"
+                        >
+                          <ArrowUpDown className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Table (desktop) */}
+      <div className="hidden md:flex flex-1 min-h-0 p-6">
         <DataTable
           columns={columns}
           rows={filtered}
@@ -347,7 +442,7 @@ export function StockAdjustDialog({
   onSaved: () => void;
 }) {
   const [type, setType] = useState<"add" | "reduce">("add");
-  const [qty, setQty] = useState("");
+  const [qty, setQty] = useState(0);
   const [date, setDate] = useState(today());
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
@@ -355,7 +450,7 @@ export function StockAdjustDialog({
   useEffect(() => {
     if (item) {
       setType("add");
-      setQty("");
+      setQty(0);
       setDate(today());
       setReason("");
       setSaving(false);
@@ -363,7 +458,7 @@ export function StockAdjustDialog({
   }, [item]);
 
   if (!item) return null;
-  const n = parseFloat(qty) || 0;
+  const n = qty;
   const newStock = Math.round((item.stock + (type === "add" ? n : -n)) * 100) / 100;
 
   const save = (e: React.FormEvent) => {
@@ -420,12 +515,7 @@ export function StockAdjustDialog({
             </button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field
-              label={`Quantity (${item.unit}) *`}
-              type="number"
-              value={qty}
-              onChange={(e) => setQty(e.target.value)}
-            />
+            <NumField label={`Quantity (${item.unit}) *`} value={qty} onValue={setQty} />
             <Field
               label="Date"
               type="date"
@@ -802,13 +892,20 @@ export function ItemDialog({
           />
           <Field
             label="Min Stock (low-stock alert)"
-            type="number"
+            type="text"
+            inputMode="decimal"
             value={f.minStock ?? ""}
             onChange={(e) => {
+              const v = e.target.value;
+              // Digits + at most one dot, same filter NumInput uses — plain
+              // type="number" has a known Safari bug where clearing the
+              // field can leave it stuck showing 0 with backspace unable to
+              // remove it, which is exactly why every other numeric field in
+              // the app avoids it. Kept as its own Field (not NumField) since
               // "" || undefined here would also swallow a deliberately
               // entered 0 (alert exactly when stock runs out) — only an
               // empty field should mean "no threshold set".
-              const v = e.target.value;
+              if (!/^\d*\.?\d*$/.test(v)) return;
               setF({ ...f, minStock: v === "" ? undefined : Math.max(0, parseFloat(v) || 0) });
             }}
           />

@@ -40,9 +40,21 @@ export function GlobalSearch() {
     }
   }, [globalSearchOpen, isOwner, canView]);
 
-  const go = (path: string) => {
+  const goParty = (id: string) => {
     setGlobalSearch(false);
-    navigate({ to: path });
+    navigate({ to: "/parties/$id", params: { id } });
+  };
+  const goItem = (id: string) => {
+    setGlobalSearch(false);
+    navigate({ to: "/items/$id", params: { id } });
+  };
+  const goSale = (id: string) => {
+    setGlobalSearch(false);
+    navigate({ to: "/sales/$id", params: { id } });
+  };
+  const goPurchase = (id: string) => {
+    setGlobalSearch(false);
+    navigate({ to: "/purchase/$id", params: { id } });
   };
 
   return (
@@ -56,7 +68,7 @@ export function GlobalSearch() {
               {data.parties.slice(0, 6).map((p) => (
                 <CommandItem
                   key={p.id}
-                  onSelect={() => go("/parties")}
+                  onSelect={() => goParty(p.id)}
                   value={`party ${p.name} ${p.phone ?? ""}`}
                 >
                   <Users className="h-3.5 w-3.5" />
@@ -71,7 +83,7 @@ export function GlobalSearch() {
               {data.items.slice(0, 6).map((i) => (
                 <CommandItem
                   key={i.id}
-                  onSelect={() => go("/items")}
+                  onSelect={() => goItem(i.id)}
                   value={`item ${i.name} ${i.sku ?? ""}`}
                 >
                   <Package className="h-3.5 w-3.5" />
@@ -86,7 +98,7 @@ export function GlobalSearch() {
               {data.sales.slice(0, 6).map((s) => (
                 <CommandItem
                   key={s.id}
-                  onSelect={() => go("/sales")}
+                  onSelect={() => goSale(s.id)}
                   value={`sale ${s.number} ${s.partyName}`}
                 >
                   <ShoppingCart className="h-3.5 w-3.5" />
@@ -100,7 +112,7 @@ export function GlobalSearch() {
               {data.purchases.slice(0, 6).map((s) => (
                 <CommandItem
                   key={s.id}
-                  onSelect={() => go("/purchase")}
+                  onSelect={() => goPurchase(s.id)}
                   value={`purchase ${s.number} ${s.partyName}`}
                 >
                   <Truck className="h-3.5 w-3.5" />

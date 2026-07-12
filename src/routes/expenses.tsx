@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
+import { usePagination } from "@/components/Pagination";
 import { ExpenseRepo, BankRepo, PayeeRepo, CompanyRepo } from "@/repositories";
 import { newBatch, commitBatch, genId } from "@/repositories/base";
 import type { Expense, BankAccount, Payee } from "@/types";
@@ -12,7 +13,7 @@ import { NumField } from "@/components/NumInput";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { ModePills, fmtMode } from "@/components/ModePills";
 import { fmtMoney, fmtDate, today } from "@/lib/format";
-import { Plus, Receipt } from "lucide-react";
+import { Plus, Receipt, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { usePermissions } from "@/hooks/usePermissions";
 
@@ -28,7 +29,29 @@ function ExpensesPage() {
   const refresh = () => setRows(ExpenseRepo.all());
   useEffect(refresh, []);
 
+  const pg = usePagination(rows);
+
   const total = rows.reduce((s, r) => s + r.amount, 0);
+
+  const handleDelete = (r: Expense) => {
+    if (!deleteAllowed) {
+      toast.error("You don't have permission to delete expenses");
+      return;
+    }
+    if (confirm("Delete expense?")) {
+      // Money that was taken off a specific bank account when this
+      // expense was recorded must be moved back on, or the account
+      // balance stays permanently wrong after the expense is gone.
+      const batch = newBatch();
+      if (r.paymentMode === "bank" && r.bankId && BankRepo.get(r.bankId)) {
+        BankRepo.adjustFieldBatched(batch, r.bankId, "balance", r.amount);
+      }
+      ExpenseRepo.removeBatched(batch, r.id);
+      commitBatch(batch, "delete expense");
+      refresh();
+      toast.success("Deleted");
+    }
+  };
 
   const columns: Column<Expense>[] = [
     {
@@ -78,13 +101,68 @@ function ExpensesPage() {
                 setEdit(null);
                 setOpen(true);
               }}
+              className="w-full sm:w-auto"
             >
               <Plus className="h-3.5 w-3.5" /> New Expense
             </Button>
           )
         }
       />
-      <div className="p-6 flex-1 min-h-0 flex">
+      {/* Mobile card list — a table of 6 columns doesn't fit a phone; this
+          is the same data as one tappable card per expense instead. */}
+      <div className="md:hidden flex-1 overflow-auto">
+        {rows.length === 0 ? (
+          <div className="text-center py-16 text-gray-400">
+            <Receipt className="h-10 w-10 mx-auto mb-3 text-gray-200" />
+            <p className="font-medium">No expenses found</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {pg.paged.map((r) => (
+              <div
+                key={r.id}
+                onClick={() => {
+                  if (!editAllowed) return;
+                  setEdit(r);
+                  setOpen(true);
+                }}
+                className={editAllowed ? "bg-white p-4 active:bg-gray-50 cursor-pointer" : "bg-white p-4"}
+              >
+                <div className="flex items-start justify-between gap-3 mb-1.5">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-gray-800 truncate">{r.category}</p>
+                    <p className="text-xs text-gray-400 mt-0.5 truncate">
+                      {fmtDate(r.date)} · {r.payeeName ?? "—"}
+                      {r.notes ? ` · ${r.notes}` : ""}
+                    </p>
+                  </div>
+                  <p className="font-bold text-gray-800 tabular-nums shrink-0">
+                    {fmtMoney(r.amount)}
+                  </p>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[11px] text-gray-400">{fmtMode(r.paymentMode)}</span>
+                  {deleteAllowed && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete(r);
+                      }}
+                      className="p-1.5 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"
+                      title="Delete expense"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Table (desktop) */}
+      <div className="hidden md:flex flex-1 min-h-0 p-6">
         <DataTable
           columns={columns}
           rows={rows}
@@ -98,25 +176,7 @@ function ExpensesPage() {
                 }
               : undefined
           }
-          onDelete={(r) => {
-            if (!deleteAllowed) {
-              toast.error("You don't have permission to delete expenses");
-              return;
-            }
-            if (confirm("Delete expense?")) {
-              // Money that was taken off a specific bank account when this
-              // expense was recorded must be moved back on, or the account
-              // balance stays permanently wrong after the expense is gone.
-              const batch = newBatch();
-              if (r.paymentMode === "bank" && r.bankId && BankRepo.get(r.bankId)) {
-                BankRepo.adjustFieldBatched(batch, r.bankId, "balance", r.amount);
-              }
-              ExpenseRepo.removeBatched(batch, r.id);
-              commitBatch(batch, "delete expense");
-              refresh();
-              toast.success("Deleted");
-            }
-          }}
+          onDelete={handleDelete}
         />
       </div>
       <ExpenseDialog open={open} onOpenChange={setOpen} expense={edit} onSaved={refresh} />

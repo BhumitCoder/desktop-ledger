@@ -11,6 +11,7 @@ import {
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { usePagination, PaginationBar } from "@/components/Pagination";
 import { ItemDialog, StockAdjustDialog } from "./items";
+import { usePermissions } from "@/hooks/usePermissions";
 import type { Item, Invoice, Return } from "@/types";
 import { ArrowLeft, Package, Pencil, ArrowUpDown, AlertCircle, TrendingUp } from "lucide-react";
 
@@ -34,6 +35,8 @@ interface HistoryRow {
 function ItemDetailPage() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
+  const { isOwner, canEdit } = usePermissions();
+  const editAllowed = isOwner || canEdit("masterData");
   const [item, setItem] = useState<Item | null | undefined>(undefined);
   const [editOpen, setEditOpen] = useState(false);
   const [adjustOpen, setAdjustOpen] = useState(false);
@@ -162,20 +165,22 @@ function ItemDetailPage() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setAdjustOpen(true)}
-            className="inline-flex items-center gap-1.5 h-8 px-3 bg-white border border-gray-200 text-gray-700 rounded-md text-sm font-semibold hover:bg-gray-50 transition"
-          >
-            <ArrowUpDown className="h-4 w-4" /> Adjust Stock
-          </button>
-          <button
-            onClick={() => setEditOpen(true)}
-            className="inline-flex items-center gap-1.5 h-8 px-3 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition"
-          >
-            <Pencil className="h-4 w-4" /> Edit Item
-          </button>
-        </div>
+        {editAllowed && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setAdjustOpen(true)}
+              className="inline-flex items-center gap-1.5 h-8 px-3 bg-white border border-gray-200 text-gray-700 rounded-md text-sm font-semibold hover:bg-gray-50 transition"
+            >
+              <ArrowUpDown className="h-4 w-4" /> Adjust Stock
+            </button>
+            <button
+              onClick={() => setEditOpen(true)}
+              className="inline-flex items-center gap-1.5 h-8 px-3 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition"
+            >
+              <Pencil className="h-4 w-4" /> Edit Item
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Summary */}

@@ -13,12 +13,14 @@ import {
   Trash2,
   Pencil,
   Receipt,
+  SlidersHorizontal,
 } from "lucide-react";
 import { toast } from "sonner";
 import { usePagination, PaginationBar } from "@/components/Pagination";
 import { DataTable } from "@/components/DataTable";
 import { fmtMode } from "@/components/ModePills";
 import { PageHeader } from "@/components/PageHeader";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { usePermissions } from "@/hooks/usePermissions";
 
 export const Route = createFileRoute("/sales/")({ component: SalesPage });
@@ -29,6 +31,17 @@ type Status = "all" | "paid" | "partial" | "unpaid";
 // would otherwise keep filtering on yesterday's date and hide new bills
 const monthStart = () => ymd(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
 
+// Keeps the filters selected everywhere — across leaving to view/edit an
+// invoice, across leaving to a different page entirely and coming back,
+// anything short of an actual page reload (which starts fresh again).
+let filterCache: {
+  dateFrom: string;
+  dateTo: string;
+  partyId: string;
+  status: Status;
+  search: string;
+} | null = null;
+
 function SalesPage() {
   const navigate = useNavigate();
   const { isOwner, canEdit, canDelete } = usePermissions();
@@ -36,13 +49,14 @@ function SalesPage() {
   const deleteAllowed = isOwner || canDelete("sales");
   const [rows, setRows] = useState<Invoice[]>([]);
   const [parties, setParties] = useState<{ id: string; name: string }[]>([]);
-  const [dateFrom, setDateFrom] = useState(monthStart);
-  const [dateTo, setDateTo] = useState(today);
-  const [partyId, setPartyId] = useState("all");
-  const [status, setStatus] = useState<Status>("all");
-  const [search, setSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState(() => filterCache?.dateFrom ?? monthStart());
+  const [dateTo, setDateTo] = useState(() => filterCache?.dateTo ?? today());
+  const [partyId, setPartyId] = useState(() => filterCache?.partyId ?? "all");
+  const [status, setStatus] = useState<Status>(() => filterCache?.status ?? "all");
+  const [search, setSearch] = useState(() => filterCache?.search ?? "");
   const [showPartyDrop, setShowPartyDrop] = useState(false);
   const [partyDropQ, setPartyDropQ] = useState("");
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   const refresh = () => {
     setRows(SalesRepo.all());
@@ -102,6 +116,10 @@ function SalesPage() {
     status !== "all" ||
     search !== "";
 
+  useEffect(() => {
+    filterCache = { dateFrom, dateTo, partyId, status, search };
+  }, [dateFrom, dateTo, partyId, status, search]);
+
   const handleDelete = (r: Invoice) => {
     if (!deleteAllowed) {
       toast.error("You don't have permission to delete sales");
@@ -156,10 +174,24 @@ function SalesPage() {
         subtitle={`${filtered.length} of ${rows.length} invoices`}
         icon={<Receipt className="h-5 w-5" />}
         iconClassName="text-success"
+        mobileAction={
+          <button
+            onClick={() => setMobileFiltersOpen(true)}
+            className="relative h-9 w-9 flex items-center justify-center rounded-lg border border-gray-200 bg-gray-50/60 text-gray-600"
+            title="Filters"
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            {filtersActive && (
+              <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-primary" />
+            )}
+          </button>
+        }
         actions={
           <>
-            {/* Date range */}
-            <div className="flex items-center gap-1.5 h-9 pl-3 pr-2.5 rounded-lg border border-gray-200 bg-gray-50/60">
+            {/* Date range — its own filter sheet on mobile (see Filters
+                button above); this inline row is desktop only, since it
+                doesn't fit next to Customer/Status/Search on a phone. */}
+            <div className="hidden sm:flex items-center gap-1.5 h-9 pl-3 pr-2.5 rounded-lg border border-gray-200 bg-gray-50/60">
               <input
                 type="date"
                 value={dateFrom}
@@ -175,8 +207,8 @@ function SalesPage() {
               />
             </div>
 
-            {/* Party filter */}
-            <div className="relative">
+            {/* Party filter — desktop only, see Filters sheet on mobile */}
+            <div className="hidden sm:block relative">
               <button
                 onClick={() => setShowPartyDrop((v) => !v)}
                 className="flex items-center gap-2 h-9 border border-gray-200 rounded-lg text-xs px-3 text-gray-700 bg-gray-50/60 hover:bg-gray-100 transition min-w-[140px]"
@@ -227,8 +259,8 @@ function SalesPage() {
               )}
             </div>
 
-            {/* Status filter */}
-            <div className="flex items-center gap-0.5 h-9 border border-gray-200 rounded-lg p-0.5 bg-gray-50/60">
+            {/* Status filter — desktop only, see Filters sheet on mobile */}
+            <div className="hidden sm:flex items-center gap-0.5 h-9 border border-gray-200 rounded-lg p-0.5 bg-gray-50/60">
               {STATUSES.map((s) => (
                 <button
                   key={s.value}
@@ -240,8 +272,8 @@ function SalesPage() {
               ))}
             </div>
 
-            {/* Search */}
-            <div className="relative w-48">
+            {/* Search — the one filter kept inline on every screen size */}
+            <div className="relative w-full sm:w-48">
               <Search className="h-3.5 w-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
                 value={search}
@@ -254,7 +286,7 @@ function SalesPage() {
             {filtersActive && (
               <button
                 onClick={clearFilters}
-                className="text-xs text-gray-400 hover:text-gray-600 transition flex items-center gap-1"
+                className="hidden sm:flex text-xs text-gray-400 hover:text-gray-600 transition items-center gap-1"
               >
                 <X className="h-3 w-3" /> Clear
               </button>
@@ -263,7 +295,7 @@ function SalesPage() {
             {editAllowed && (
               <button
                 onClick={() => navigate({ to: "/sales/new" })}
-                className="inline-flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition"
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition"
               >
                 <Plus className="h-4 w-4" /> Add Sale
               </button>
@@ -271,6 +303,122 @@ function SalesPage() {
           </>
         }
       />
+
+      {/* Mobile filter sheet — Date Range/Customer/Status don't fit inline
+          next to Search on a phone, so they live here behind the header's
+          Filters button instead, same state as the desktop inline controls. */}
+      <Dialog open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Filters</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-semibold text-gray-500 block mb-1.5">Date Range</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="flex-1 h-9 px-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+                <span className="text-gray-300">–</span>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="flex-1 h-9 px-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-500 block mb-1.5">Customer</label>
+              <div className="relative">
+                <button
+                  onClick={() => setShowPartyDrop((v) => !v)}
+                  className="w-full flex items-center gap-2 h-9 border border-gray-200 rounded-lg text-sm px-3 text-gray-700 bg-gray-50/60 hover:bg-gray-100 transition"
+                >
+                  <span className="flex-1 text-left truncate">
+                    {selectedParty ? selectedParty.name : "All Customers"}
+                  </span>
+                  <ChevronDown className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                </button>
+                {showPartyDrop && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-30 max-h-52 overflow-auto">
+                    <div className="p-2 border-b">
+                      <input
+                        autoFocus
+                        placeholder="Search customer..."
+                        value={partyDropQ}
+                        className="w-full text-sm px-2 py-1.5 border border-gray-200 rounded focus:outline-none"
+                        onChange={(e) => setPartyDropQ(e.target.value)}
+                      />
+                    </div>
+                    <button
+                      onClick={() => {
+                        setPartyId("all");
+                        setShowPartyDrop(false);
+                        setPartyDropQ("");
+                      }}
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 ${partyId === "all" ? "text-blue-600 font-semibold bg-blue-50" : "text-gray-700"}`}
+                    >
+                      All Customers
+                    </button>
+                    {filteredDropdownParties.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => {
+                          setPartyId(p.id);
+                          setShowPartyDrop(false);
+                          setPartyDropQ("");
+                        }}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 truncate ${partyId === p.id ? "text-blue-600 font-semibold bg-blue-50" : "text-gray-700"}`}
+                      >
+                        {p.name}
+                      </button>
+                    ))}
+                    {filteredDropdownParties.length === 0 && (
+                      <p className="text-xs text-gray-400 text-center py-3">No customers found</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-500 block mb-1.5">Status</label>
+              <div className="flex items-center gap-1 border border-gray-200 rounded-lg p-1 bg-gray-50/60">
+                {STATUSES.map((s) => (
+                  <button
+                    key={s.value}
+                    onClick={() => setStatus(s.value)}
+                    className={`flex-1 h-8 rounded-md text-xs font-medium transition ${status === s.value ? "bg-primary text-primary-foreground font-semibold" : "text-gray-500 hover:bg-gray-100"}`}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center justify-between pt-1">
+              {filtersActive ? (
+                <button
+                  onClick={clearFilters}
+                  className="text-xs text-gray-400 hover:text-gray-600 transition flex items-center gap-1"
+                >
+                  <X className="h-3 w-3" /> Clear all
+                </button>
+              ) : (
+                <span />
+              )}
+              <button
+                onClick={() => setMobileFiltersOpen(false)}
+                className="h-8 px-4 bg-primary text-primary-foreground rounded-md text-sm font-semibold hover:opacity-90 transition"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Mobile card list — a table of 10 columns doesn't fit a phone;
           this is the same data as one tappable card per invoice instead. */}

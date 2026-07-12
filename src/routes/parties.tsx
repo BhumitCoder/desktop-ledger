@@ -2,6 +2,8 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
+import { usePagination } from "@/components/Pagination";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   PartyRepo,
   SalesRepo,
@@ -25,6 +27,7 @@ export const Route = createFileRoute("/parties")({ component: PartiesPage });
 
 function PartiesPage() {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const { isOwner, canEdit, canDelete } = usePermissions();
   const editAllowed = isOwner || canEdit("masterData");
   const deleteAllowed = isOwner || canDelete("masterData");
@@ -52,6 +55,8 @@ function PartiesPage() {
     const s = q.toLowerCase();
     return !s || r.name.toLowerCase().includes(s) || r.phone?.includes(s);
   });
+
+  const pg = usePagination(filtered);
 
   // Same per-party balance rules as the Dashboard/Customer-Supplier Ledger,
   // so this total always agrees with those pages.
@@ -154,14 +159,14 @@ function PartiesPage() {
         icon={<Users className="h-5 w-5" />}
         actions={
           <>
-            <div className="relative w-44 lg:w-56">
+            <div className="relative w-full sm:w-44 lg:w-56">
               <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
-                autoFocus
+                autoFocus={!isMobile}
                 placeholder="Search parties..."
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                className="w-full h-8 pl-8 pr-3 border border-gray-200 rounded-md text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+                className="w-full h-8 pl-8 pr-3 border border-gray-200 rounded-md text-base md:text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
               />
             </div>
             {editAllowed && (
@@ -171,6 +176,7 @@ function PartiesPage() {
                   setEdit(null);
                   setOpen(true);
                 }}
+                className="w-full sm:w-auto"
               >
                 <Plus className="h-3.5 w-3.5" /> New Party
               </Button>
@@ -178,7 +184,80 @@ function PartiesPage() {
           </>
         }
       />
-      <div className="p-6 flex-1 min-h-0 flex">
+      {/* Mobile card list — a table of 6 columns doesn't fit a phone; this
+          is the same data as one tappable card per party instead. */}
+      <div className="md:hidden flex-1 overflow-auto">
+        {filtered.length === 0 ? (
+          <div className="text-center py-16 text-gray-400">
+            <Users className="h-10 w-10 mx-auto mb-3 text-gray-200" />
+            <p className="font-medium">No parties found</p>
+            <p className="text-xs mt-1">Try adjusting your search or add a new party</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {pg.paged.map((r) => (
+              <div
+                key={r.id}
+                onClick={() => navigate({ to: "/parties/$id", params: { id: r.id } })}
+                className="bg-white p-4 active:bg-gray-50"
+              >
+                <div className="flex items-start justify-between gap-3 mb-1.5">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-gray-800 truncate">{r.name}</p>
+                    <p className="text-xs text-gray-400 mt-0.5 truncate">{r.phone || "No phone"}</p>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate({ to: "/parties/$id", params: { id: r.id } });
+                      }}
+                      className="p-1.5 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+                      title="View statement"
+                    >
+                      <FileText className="h-3.5 w-3.5" />
+                    </button>
+                    {editAllowed && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEdit(r);
+                          setOpen(true);
+                        }}
+                        className="p-1.5 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+                        title="Edit party"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-4 text-xs">
+                  {(receivableByParty.get(r.id) ?? 0) > 0 && (
+                    <span>
+                      <span className="text-gray-400">Receivable </span>
+                      <span className="font-semibold tabular-nums text-emerald-600">
+                        {fmtMoney(receivableByParty.get(r.id) ?? 0)}
+                      </span>
+                    </span>
+                  )}
+                  {(payableByParty.get(r.id) ?? 0) > 0 && (
+                    <span>
+                      <span className="text-gray-400">Payable </span>
+                      <span className="font-semibold tabular-nums text-rose-600">
+                        {fmtMoney(payableByParty.get(r.id) ?? 0)}
+                      </span>
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Table (desktop) */}
+      <div className="hidden md:flex flex-1 min-h-0 p-6">
         <DataTable
           columns={columns}
           rows={filtered}
@@ -365,13 +444,10 @@ export function PartyDialog({
             onValue={(n) => setForm({ ...form, openingBalance: n })}
             allowNegative
           />
-          <Field
+          <NumField
             label="Credit Limit"
-            type="number"
-            value={form.creditLimit ?? ""}
-            onChange={(e) =>
-              setForm({ ...form, creditLimit: parseFloat(e.target.value) || undefined })
-            }
+            value={form.creditLimit ?? 0}
+            onValue={(n) => setForm({ ...form, creditLimit: n || undefined })}
           />
           <div className="col-span-2 flex justify-end gap-2 mt-2">
             <Button

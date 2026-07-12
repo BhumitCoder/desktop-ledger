@@ -2,6 +2,8 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
+import { usePagination } from "@/components/Pagination";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { PayeeRepo, ExpenseRepo, CompanyRepo } from "@/repositories";
 import type { Payee } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -17,6 +19,7 @@ export const Route = createFileRoute("/payees")({ component: PayeesPage });
 
 function PayeesPage() {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const { isOwner, canEdit, canDelete } = usePermissions();
   const editAllowed = isOwner || canEdit("purchaseExpenses");
   const deleteAllowed = isOwner || canDelete("purchaseExpenses");
@@ -32,6 +35,8 @@ function PayeesPage() {
     const s = q.toLowerCase();
     return !s || r.name.toLowerCase().includes(s);
   });
+
+  const pg = usePagination(filtered);
 
   // Total paid + most recent payment date per payee, derived straight from
   // the expense records — never a second, separately-maintained number that
@@ -116,14 +121,14 @@ function PayeesPage() {
         icon={<Wallet2 className="h-5 w-5" />}
         actions={
           <>
-            <div className="relative w-44 lg:w-56">
+            <div className="relative w-full sm:w-44 lg:w-56">
               <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
-                autoFocus
+                autoFocus={!isMobile}
                 placeholder="Search payees..."
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                className="w-full h-8 pl-8 pr-3 border border-gray-200 rounded-md text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+                className="w-full h-8 pl-8 pr-3 border border-gray-200 rounded-md text-base md:text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
               />
             </div>
             {editAllowed && (
@@ -133,6 +138,7 @@ function PayeesPage() {
                   setEdit(null);
                   setOpen(true);
                 }}
+                className="w-full sm:w-auto"
               >
                 <Plus className="h-3.5 w-3.5" /> New Payee
               </Button>
@@ -140,7 +146,70 @@ function PayeesPage() {
           </>
         }
       />
-      <div className="p-6 flex-1 min-h-0 flex">
+      {/* Mobile card list — a table of 4 columns doesn't fit a phone; this
+          is the same data as one tappable card per payee instead. */}
+      <div className="md:hidden flex-1 overflow-auto">
+        {filtered.length === 0 ? (
+          <div className="text-center py-16 text-gray-400">
+            <Wallet2 className="h-10 w-10 mx-auto mb-3 text-gray-200" />
+            <p className="font-medium">No payees found</p>
+            <p className="text-xs mt-1">Try adjusting your search or add a new payee</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {pg.paged.map((r) => {
+              const stats = statsByPayee.get(r.id);
+              return (
+                <div
+                  key={r.id}
+                  onClick={() => navigate({ to: "/payees/$id", params: { id: r.id } })}
+                  className="bg-white p-4 active:bg-gray-50"
+                >
+                  <div className="flex items-start justify-between gap-3 mb-1.5">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-gray-800 truncate">{r.name}</p>
+                      <p className="text-xs text-gray-400 mt-0.5 truncate">
+                        {r.defaultCategory ?? "No category"}
+                        {stats?.lastDate ? ` · Last paid ${fmtDate(stats.lastDate)}` : ""}
+                      </p>
+                    </div>
+                    <p className="font-bold text-gray-800 tabular-nums shrink-0">
+                      {fmtMoney(stats?.total ?? 0)}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-end gap-1">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate({ to: "/payees/$id", params: { id: r.id } });
+                      }}
+                      className="p-1.5 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+                      title="View ledger"
+                    >
+                      <FileText className="h-3.5 w-3.5" />
+                    </button>
+                    {editAllowed && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEdit(r);
+                          setOpen(true);
+                        }}
+                        className="p-1.5 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+                        title="Edit payee"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="hidden md:flex flex-1 min-h-0 p-6">
         <DataTable
           columns={columns}
           rows={filtered}

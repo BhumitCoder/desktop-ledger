@@ -13,6 +13,8 @@ export async function sendElementViaWhatsApp(opts: {
   message: string;
   fileName: string;
   orientation?: "portrait" | "landscape";
+  /** For thermal-format bills (80mm/58mm) — see elementToPdfBase64. */
+  pageWidthMm?: number;
 }): Promise<void> {
   const phone = opts.phone?.trim();
   if (!phone) {
@@ -21,7 +23,7 @@ export async function sendElementViaWhatsApp(opts: {
   const callerIdToken = await auth.currentUser?.getIdToken();
   if (!callerIdToken) throw new Error("Not signed in");
 
-  const pdfBase64 = await elementToPdfBase64(opts.el, opts.orientation ?? "landscape");
+  const pdfBase64 = await elementToPdfBase64(opts.el, opts.orientation ?? "landscape", opts.pageWidthMm);
   await sendWhatsAppMessageServerFn({
     data: {
       callerIdToken,

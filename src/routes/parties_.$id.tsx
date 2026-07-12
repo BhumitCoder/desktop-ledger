@@ -13,10 +13,12 @@ import { buildPartyStatement, type PartyStatementRow } from "@/lib/ledger";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { printWithName } from "@/lib/print";
 import { downloadXlsx } from "@/lib/xlsx";
-import { downloadElementAsPdf, shareElementAsPdf } from "@/lib/pdf";
+import { downloadElementAsPdf } from "@/lib/pdf";
+import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { sendElementViaWhatsApp } from "@/lib/whatsappSend";
 import { partyStatementSheet } from "@/lib/partySheet";
 import { PartyDialog } from "./parties";
+import { usePermissions } from "@/hooks/usePermissions";
 import type { Party } from "@/types";
 import { toast } from "sonner";
 import {
@@ -48,14 +50,22 @@ export const Route = createFileRoute("/parties_/$id")({ component: PartyStatemen
 
 type LedgerRow = PartyStatementRow;
 
+// Keeps the date range selected everywhere — across leaving to view a
+// linked sale/purchase/return, across switching to a different party
+// entirely, anything short of an actual page reload (which starts fresh
+// again).
+let dateCache: { dateFrom: string; dateTo: string } | null = null;
+
 function PartyStatementPage() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
+  const { isOwner, canEdit } = usePermissions();
+  const editAllowed = isOwner || canEdit("masterData");
   const [party, setParty] = useState<Party | null | undefined>(undefined);
   const [editOpen, setEditOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateFrom, setDateFrom] = useState(() => dateCache?.dateFrom ?? "");
+  const [dateTo, setDateTo] = useState(() => dateCache?.dateTo ?? "");
   const [pdfBusy, setPdfBusy] = useState<"download" | "share" | "whatsapp" | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
   const simpleLedgerRef = useRef<HTMLDivElement>(null);
@@ -79,6 +89,10 @@ function PartyStatementPage() {
   useEffect(() => {
     setParty(PartyRepo.get(id) ?? null);
   }, [id, refreshKey]);
+
+  useEffect(() => {
+    dateCache = { dateFrom, dateTo };
+  }, [dateFrom, dateTo]);
 
   const { rows } = useMemo(() => {
     if (!party) return { rows: [] as LedgerRow[], fullBalance: 0 };
@@ -150,9 +164,12 @@ function PartyStatementPage() {
 
   const activePrintEl = () => (ledgerFormat === "simple" ? simpleLedgerRef.current : printRef.current);
 
+  const { shareReady, share, resetShare } = useShareablePdf("Statement");
+
   const handleDownloadPdf = async () => {
     const el = activePrintEl();
     if (!el || pdfBusy) return;
+    resetShare();
     setPdfBusy("download");
     try {
       await downloadElementAsPdf(el, pdfName(), "landscape");
@@ -169,10 +186,7 @@ function PartyStatementPage() {
     if (!el || pdfBusy) return;
     setPdfBusy("share");
     try {
-      const result = await shareElementAsPdf(el, pdfName(), "landscape");
-      if (result === "shared") toast.success("Statement shared");
-      else if (result === "downloaded")
-        toast.info("Sharing isn't supported here — PDF downloaded instead");
+      await share(el, pdfName(), "landscape");
     } catch {
       toast.error("Could not share statement — try Download PDF instead");
     } finally {
@@ -326,13 +340,15 @@ function PartyStatementPage() {
             value={Math.abs(balance)}
             tone={balance > 0 ? "rose" : balance < 0 ? "amber" : "emerald"}
           />
-          <button
-            onClick={() => setEditOpen(true)}
-            className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition"
-            title="Edit party"
-          >
-            <Pencil className="h-4 w-4" />
-          </button>
+          {editAllowed && (
+            <button
+              onClick={() => setEditOpen(true)}
+              className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition"
+              title="Edit party"
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+          )}
           <button
             onClick={downloadExcel}
             className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition"
@@ -349,10 +365,14 @@ function PartyStatementPage() {
             <FileDown className="h-4 w-4" />
           </button>
           <button
-            onClick={() => promptFormat("share")}
+            // Once a PDF is already prepared and waiting for confirmation
+            // (shareReady), this tap must go straight to handleShare() — a
+            // direct, fresh click — rather than back through the format
+            // modal, or the share sheet loses the user gesture it needs.
+            onClick={() => (shareReady ? handleShare() : promptFormat("share"))}
             disabled={pdfBusy !== null}
-            className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50"
-            title="Share statement PDF"
+            className={`h-8 w-8 shrink-0 rounded-md border bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50 ${shareReady ? "border-primary ring-2 ring-primary animate-pulse" : "border-gray-200"}`}
+            title={shareReady ? "PDF ready — tap again to share" : "Share statement PDF"}
           >
             <Share2 className="h-4 w-4" />
           </button>
