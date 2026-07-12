@@ -11,7 +11,8 @@ import {
 } from "@/repositories";
 import { buildPartyStatement, type PartyStatementRow } from "@/lib/ledger";
 import { fmtMoney, fmtDate } from "@/lib/format";
-import { printWithName } from "@/lib/print";
+import { printOrEscapeStandalone } from "@/lib/print";
+import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
 import { downloadXlsx } from "@/lib/xlsx";
 import { downloadElementAsPdf } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
@@ -162,6 +163,13 @@ function PartyStatementPage() {
 
   const pdfName = () => `Statement-${(party?.name ?? "Party").replace(/\s+/g, "-")}`;
 
+  // Re-entry point for printOrEscapeStandalone's standalone-app escape (see
+  // lib/print.ts) — this tab opened fresh with ?print=1, so print immediately
+  // once the party has loaded rather than making the user pick a format
+  // again; always uses the "full" statement (this page's own default) since
+  // whatever format the original tap chose isn't carried across tabs.
+  useAutoPrintFromUrl(party ? pdfName() : null, !!party);
+
   const activePrintEl = () => (ledgerFormat === "simple" ? simpleLedgerRef.current : printRef.current);
 
   const { shareReady, share, resetShare } = useShareablePdf("Statement");
@@ -239,7 +247,7 @@ function PartyStatementPage() {
     const action = pendingActionRef.current;
     if (!action) return;
     pendingActionRef.current = null;
-    if (action === "print") printWithName(pdfName());
+    if (action === "print") printOrEscapeStandalone(pdfName());
     else if (action === "download") handleDownloadPdf();
     else if (action === "whatsapp") handleSendWhatsApp();
     else handleShare();

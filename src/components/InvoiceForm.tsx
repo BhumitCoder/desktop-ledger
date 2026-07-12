@@ -739,7 +739,7 @@ export function InvoiceForm({ mode, existing }: Props) {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="px-4 md:px-5 py-3 border-b bg-card flex items-center justify-between gap-3 flex-wrap">
+      <div className="px-4 md:px-5 py-3 border-b bg-card flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <div
             className={`h-10 w-10 rounded-md flex items-center justify-center ${isSale ? "bg-success-soft text-success" : "bg-warning-soft text-warning"}`}
@@ -755,22 +755,60 @@ export function InvoiceForm({ mode, existing }: Props) {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap justify-end">
-          {!isSale && (
-            <label className="flex items-center gap-2 h-9 px-3 rounded-md border bg-background cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={!!inv.isInternational}
-                onChange={(e) => updateInternational({ isInternational: e.target.checked })}
-                className="accent-primary"
-              />
-              <span className="text-[12px] font-semibold">International Purchase</span>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:flex-wrap sm:justify-end">
+          {/* Toggles — grouped together as one row so they read as a clean
+              pair of switches instead of separate borderline-width chips
+              each wrapping onto their own line. */}
+          <div className={!isSale ? "grid grid-cols-2 gap-2 sm:flex sm:items-center sm:w-auto" : "flex items-center gap-2"}>
+            {!isSale && (
+              <label className="flex items-center justify-center gap-2 h-9 px-3 rounded-md border bg-background cursor-pointer select-none sm:justify-start sm:w-auto">
+                <input
+                  type="checkbox"
+                  checked={!!inv.isInternational}
+                  onChange={(e) => updateInternational({ isInternational: e.target.checked })}
+                  className="accent-primary"
+                />
+                <span className="text-[12px] font-semibold whitespace-nowrap">International Purchase</span>
+              </label>
+            )}
+            <label className="sm:hidden flex items-center justify-center gap-2 h-9 px-3 rounded-md border bg-background cursor-pointer select-none">
+              <input type="checkbox" checked={gstOn} onChange={toggleGst} className="accent-primary" />
+              <span className="text-[12px] font-semibold">GST Bill</span>
             </label>
-          )}
+          </div>
+
           {!isSale && inv.isInternational && (
             <>
+              {/* Mobile: proper label-above-input fields in a 2-col grid —
+                  reads as a form, not a squeezed inline pill. */}
+              <div className="sm:hidden grid grid-cols-2 gap-2">
+                <label
+                  className="flex flex-col gap-1 px-2.5 py-2 rounded-md border bg-background"
+                  title="How many rupees 1 unit of the supplier's currency is worth"
+                >
+                  <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
+                    Exchange Rate (₹)
+                  </span>
+                  <NumInput
+                    value={inv.exchangeRate ?? 0}
+                    onValue={(n) => updateInternational({ exchangeRate: n })}
+                    className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 px-2.5 py-2 rounded-md border bg-background">
+                  <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
+                    Carry cost/pc (₹)
+                  </span>
+                  <NumInput
+                    value={inv.carryCostPerUnit ?? 0}
+                    onValue={(n) => updateInternational({ carryCostPerUnit: n })}
+                    className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
+                  />
+                </label>
+              </div>
+              {/* Desktop: original compact inline pills, unchanged */}
               <label
-                className="flex items-center gap-1.5 h-9 px-2.5 rounded-md border bg-background text-[12px]"
+                className="hidden sm:flex items-center gap-1.5 h-9 px-2.5 rounded-md border bg-background text-[12px]"
                 title="How many rupees 1 unit of the supplier's currency is worth"
               >
                 <span className="text-muted-foreground whitespace-nowrap">Exchange Rate (₹)</span>
@@ -780,7 +818,7 @@ export function InvoiceForm({ mode, existing }: Props) {
                   className="w-16 h-6 px-1 text-right border rounded bg-background focus:border-primary outline-none"
                 />
               </label>
-              <label className="flex items-center gap-1.5 h-9 px-2.5 rounded-md border bg-background text-[12px]">
+              <label className="hidden sm:flex items-center gap-1.5 h-9 px-2.5 rounded-md border bg-background text-[12px]">
                 <span className="text-muted-foreground whitespace-nowrap">Carry cost/pc</span>
                 <NumInput
                   value={inv.carryCostPerUnit ?? 0}
@@ -791,14 +829,9 @@ export function InvoiceForm({ mode, existing }: Props) {
               </label>
             </>
           )}
-          {/* GST toggle */}
-          <label className="flex items-center gap-2 h-9 px-3 rounded-md border bg-background cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={gstOn}
-              onChange={toggleGst}
-              className="accent-primary"
-            />
+          {/* GST toggle — desktop position */}
+          <label className="hidden sm:flex items-center gap-2 h-9 px-3 rounded-md border bg-background cursor-pointer select-none">
+            <input type="checkbox" checked={gstOn} onChange={toggleGst} className="accent-primary" />
             <span className="text-[12px] font-semibold">GST Bill</span>
           </label>
         </div>
@@ -1299,15 +1332,27 @@ export function InvoiceForm({ mode, existing }: Props) {
       {/* Bottom action bar — kept last in DOM/tab order on purpose: the whole
           form (party, items, totals, notes) is fully keyboard-navigable via
           Tab, and this is where that flow naturally lands to save. */}
-      <div className="px-4 md:px-5 py-3 border-t bg-card flex items-center justify-end gap-2 flex-wrap">
-        <span className="text-[11px] text-muted-foreground mr-auto">
+      <div className="px-4 md:px-5 py-3 border-t bg-card flex items-center gap-2">
+        {/* Keyboard hint is meaningless on a touchscreen — desktop only */}
+        <span className="hidden md:inline text-[11px] text-muted-foreground mr-auto">
           Tab/Enter to move · Ctrl+S save · Esc cancel
         </span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => navigate({ to: isSale ? "/sales" : "/purchase" })}
+          className="shrink-0"
+        >
+          <X className="h-3.5 w-3.5" /> Cancel
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => save(true)} disabled={saving} className="shrink-0">
+          <Printer className="h-3.5 w-3.5" /> Save & Print
+        </Button>
         <Button
           size="sm"
           onClick={() => save()}
           disabled={saving}
-          className="bg-primary text-primary-foreground"
+          className="flex-1 md:flex-none bg-primary text-primary-foreground"
         >
           {saving ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1315,16 +1360,6 @@ export function InvoiceForm({ mode, existing }: Props) {
             <Save className="h-3.5 w-3.5" />
           )}
           {saving ? "Saving…" : "Save"}
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => save(true)} disabled={saving}>
-          <Printer className="h-3.5 w-3.5" /> Save & Print
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => navigate({ to: isSale ? "/sales" : "/purchase" })}
-        >
-          <X className="h-3.5 w-3.5" /> Cancel
         </Button>
       </div>
       <PrintableInvoice inv={inv} company={company} mode={mode} />

@@ -15,7 +15,8 @@ import {
 } from "@/repositories";
 import { buildBankLedger, paidViaPayments } from "@/lib/ledger";
 import { fmtMoney, fmtDate, today, ymd } from "@/lib/format";
-import { printWithName } from "@/lib/print";
+import { printOrEscapeStandalone } from "@/lib/print";
+import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
 import { downloadElementAsPdf } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { usePagination, PaginationBar } from "@/components/Pagination";
@@ -41,7 +42,16 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 
-export const Route = createFileRoute("/daybook")({ component: DaybookPage });
+export const Route = createFileRoute("/daybook")({
+  component: DaybookPage,
+  // `date` here is only ever set by printOrEscapeStandalone's standalone-app
+  // print escape (see lib/print.ts) — it carries the date that was on
+  // screen into the freshly opened tab, so re-entry prints the same day
+  // instead of whatever today()/dateCache falls back to.
+  validateSearch: (search: Record<string, unknown>): { date?: string } => ({
+    date: typeof search.date === "string" ? search.date : undefined,
+  }),
+});
 
 // Keeps the picked date selected everywhere — across leaving to view a
 // linked sale/purchase/return, across leaving to a different page entirely
@@ -64,7 +74,8 @@ interface DayRow {
 
 function DaybookPage() {
   const navigate = useNavigate();
-  const [date, setDate] = useState(() => dateCache ?? today());
+  const { date: dateFromUrl } = Route.useSearch();
+  const [date, setDate] = useState(() => dateFromUrl ?? dateCache ?? today());
   const [q, setQ] = useState("");
   const [pdfBusy, setPdfBusy] = useState<"download" | "share" | null>(null);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
@@ -73,6 +84,11 @@ function DaybookPage() {
   useEffect(() => {
     dateCache = date;
   }, [date]);
+
+  // Re-entry point for printOrEscapeStandalone's standalone-app escape (see
+  // lib/print.ts) — the day's data is already loaded synchronously from the
+  // repos, so this can fire as soon as the date search param above resolves.
+  useAutoPrintFromUrl(`Daybook-${date}`, true);
 
   const rows = useMemo<DayRow[]>(() => {
     const list: DayRow[] = [];
@@ -441,7 +457,7 @@ function DaybookPage() {
               <Share2 className="h-4 w-4" />
             </button>
             <button
-              onClick={() => printWithName(`Daybook-${date}`)}
+              onClick={() => printOrEscapeStandalone(`Daybook-${date}`, { date })}
               className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 h-8 px-3.5 bg-white border border-gray-200 rounded-md text-xs font-semibold text-gray-600 hover:bg-gray-50 transition"
               title="Print"
             >

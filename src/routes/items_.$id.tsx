@@ -144,7 +144,7 @@ function ItemDetailPage() {
   return (
     <div className="flex flex-col h-full bg-[#f5f6fa]">
       {/* Header */}
-      <div className="bg-white border-b px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
+      <div className="bg-white border-b px-5 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={() => navigate({ to: "/items" })}
@@ -166,16 +166,16 @@ function ItemDetailPage() {
           </div>
         </div>
         {editAllowed && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
             <button
               onClick={() => setAdjustOpen(true)}
-              className="inline-flex items-center gap-1.5 h-8 px-3 bg-white border border-gray-200 text-gray-700 rounded-md text-sm font-semibold hover:bg-gray-50 transition"
+              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 h-9 px-4 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-semibold shadow-sm hover:bg-gray-50 hover:border-gray-300 hover:shadow transition"
             >
               <ArrowUpDown className="h-4 w-4" /> Adjust Stock
             </button>
             <button
               onClick={() => setEditOpen(true)}
-              className="inline-flex items-center gap-1.5 h-8 px-3 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition"
+              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 h-9 px-4 bg-primary text-white rounded-lg text-sm font-semibold shadow-sm hover:opacity-90 hover:shadow transition"
             >
               <Pencil className="h-4 w-4" /> Edit Item
             </button>
@@ -183,8 +183,8 @@ function ItemDetailPage() {
         )}
       </div>
 
-      {/* Summary */}
-      <div className="grid grid-cols-3 lg:grid-cols-6 bg-white border-b">
+      {/* Summary — desktop: one row across all 6, plenty of width to spare */}
+      <div className="hidden lg:grid grid-cols-6 bg-white border-b">
         <Stat
           label="Current Stock"
           value={`${item.stock} ${item.unit}`}
@@ -200,6 +200,31 @@ function ItemDetailPage() {
           color={profit >= 0 ? "text-emerald-600" : "text-rose-600"}
           icon
         />
+      </div>
+
+      {/* Summary — mobile/tablet: 6 stats don't fit one row at this width, and
+          wrapping to a 2-row grid (the old behavior) reads cramped and cuts
+          "Profit Earned" awkwardly. A horizontally-scrolling strip of small
+          KPI cards keeps every stat a single, evenly-sized tap/glance target
+          in one row, native-app style, instead of a squeezed table grid. */}
+      <div className="lg:hidden bg-white border-b py-3">
+        <div className="flex gap-2.5 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <MobileStatCard
+            label="Current Stock"
+            value={`${item.stock} ${item.unit}`}
+            color={item.stock < 0 ? "text-rose-600" : "text-gray-800"}
+          />
+          <MobileStatCard label="Stock Value" value={fmtMoney(r2(item.stock * item.purchasePrice))} />
+          <MobileStatCard label="Purchase Price" value={fmtMoney(item.purchasePrice)} />
+          <MobileStatCard label="Sale Price" value={fmtMoney(item.salePrice)} />
+          <MobileStatCard label="Total Sold" value={`${soldQty} ${item.unit}`} />
+          <MobileStatCard
+            label="Profit Earned"
+            value={fmtMoney(profit)}
+            color={profit >= 0 ? "text-emerald-600" : "text-rose-600"}
+            icon
+          />
+        </div>
       </div>
 
       {/* History */}
@@ -362,6 +387,28 @@ function Stat({
         {label}
       </p>
       <p className={`text-[15px] font-bold tabular-nums ${color}`}>{value}</p>
+    </div>
+  );
+}
+
+function MobileStatCard({
+  label,
+  value,
+  color = "text-gray-800",
+  icon,
+}: {
+  label: string;
+  value: string;
+  color?: string;
+  icon?: boolean;
+}) {
+  return (
+    <div className="shrink-0 min-w-[116px] rounded-xl border border-gray-100 bg-white shadow-sm px-3.5 py-2.5">
+      <p className="text-[9px] text-gray-400 font-semibold uppercase tracking-wide mb-1 flex items-center gap-1">
+        {icon && <TrendingUp className="h-3 w-3" />}
+        {label}
+      </p>
+      <p className={`text-[14px] font-bold tabular-nums whitespace-nowrap ${color}`}>{value}</p>
     </div>
   );
 }

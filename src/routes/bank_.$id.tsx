@@ -3,7 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import { BankRepo, SalesRepo, PurchaseRepo, PaymentRepo, BankTxnRepo, ExpenseRepo, CompanyRepo } from "@/repositories";
 import { buildBankLedger, type BankLedgerRow } from "@/lib/ledger";
 import { fmtMoney, fmtDate } from "@/lib/format";
-import { printWithName } from "@/lib/print";
+import { printOrEscapeStandalone } from "@/lib/print";
+import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
 import { downloadCsv } from "@/lib/csv";
 import type { BankAccount } from "@/types";
 import { ArrowLeft, Printer, Download, Landmark, AlertCircle } from "lucide-react";
@@ -30,6 +31,11 @@ function BankStatementPage() {
   useEffect(() => {
     dateCache = { dateFrom, dateTo };
   }, [dateFrom, dateTo]);
+
+  // Re-entry point for printOrEscapeStandalone's standalone-app escape (see
+  // lib/print.ts) — this tab opened fresh with ?print=1, so print
+  // immediately once the bank account has loaded.
+  useAutoPrintFromUrl(bank ? `Bank-${bank.name.replace(/\s+/g, "-")}` : null, !!bank);
 
   const { rows } = useMemo(() => {
     if (!bank) return { rows: [] as BankLedgerRow[] };
@@ -132,7 +138,7 @@ function BankStatementPage() {
             <Download className="h-4 w-4" /> Download Excel
           </button>
           <button
-            onClick={() => printWithName(`Bank-${bank.name.replace(/\s+/g, "-")}`)}
+            onClick={() => printOrEscapeStandalone(`Bank-${bank.name.replace(/\s+/g, "-")}`)}
             className="inline-flex items-center gap-1.5 h-8 px-4 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition"
             title="Print, or choose 'Save as PDF' in the print dialog"
           >

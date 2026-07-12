@@ -2,7 +2,8 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PayeeRepo, ExpenseRepo, BankRepo, CompanyRepo } from "@/repositories";
 import { fmtMoney, fmtDate } from "@/lib/format";
-import { printWithName } from "@/lib/print";
+import { printOrEscapeStandalone } from "@/lib/print";
+import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
 import { downloadElementAsPdf } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { downloadXlsx } from "@/lib/xlsx";
@@ -66,6 +67,11 @@ function PayeeLedgerPage() {
   const allTimeTotal = allRows.reduce((s, r) => s + r.amount, 0);
 
   const pdfName = () => `Payee-Ledger-${(payee?.name ?? "Payee").replace(/\s+/g, "-")}`;
+
+  // Re-entry point for printOrEscapeStandalone's standalone-app escape (see
+  // lib/print.ts) — this tab opened fresh with ?print=1, so print
+  // immediately once the payee has loaded.
+  useAutoPrintFromUrl(payee ? pdfName() : null, !!payee);
 
   const { shareReady, share, resetShare } = useShareablePdf("Ledger");
 
@@ -193,7 +199,7 @@ function PayeeLedgerPage() {
             <Share2 className="h-4 w-4" />
           </button>
           <button
-            onClick={() => printWithName(pdfName())}
+            onClick={() => printOrEscapeStandalone(pdfName())}
             className="inline-flex items-center gap-1.5 h-8 px-3 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition"
             title="Print"
           >

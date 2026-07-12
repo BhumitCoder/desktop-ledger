@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { SalesRepo, CompanyRepo } from "@/repositories";
 import type { Invoice, Company, PrintFormat } from "@/types";
 import { fmtMoney } from "@/lib/format";
-import { printWithName } from "@/lib/print";
+import { printWithName, printOrEscapeStandalone } from "@/lib/print";
 import { downloadElementAsPdf } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { useFitScale } from "@/hooks/useFitScale";
@@ -243,7 +243,7 @@ function InvoiceDetailPage() {
               <MessageCircle className="h-4 w-4" />
             </button>
             <button
-              onClick={() => printWithName(inv.number)}
+              onClick={() => printOrEscapeStandalone(inv.number)}
               className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 h-8 px-4 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition"
               title="Print"
             >
