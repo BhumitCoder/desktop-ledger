@@ -450,7 +450,7 @@ export function PartyDialog({
             value={form.creditLimit ?? 0}
             onValue={(n) => setForm({ ...form, creditLimit: n || undefined })}
           />
-          <div className="col-span-2 flex justify-end gap-2 mt-2">
+          <div className="sm:col-span-2 flex justify-end gap-2 mt-2">
             <Button
               type="button"
               variant="outline"

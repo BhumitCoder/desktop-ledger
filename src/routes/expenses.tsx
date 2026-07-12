@@ -495,14 +495,14 @@ function ExpenseDialog({
               )}
             </div>
           )}
-          <div className="col-span-2">
+          <div className="sm:col-span-2">
             <Field
               label="Notes"
               value={f.notes ?? ""}
               onChange={(e) => setF({ ...f, notes: e.target.value })}
             />
           </div>
-          <div className="col-span-2 flex justify-end gap-2 mt-2">
+          <div className="sm:col-span-2 flex justify-end gap-2 mt-2">
             <Button
               type="button"
               variant="outline"

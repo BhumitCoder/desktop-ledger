@@ -246,7 +246,7 @@ function SettingsPage() {
                 description="Shown on every invoice, bill, and printed document"
               />
               <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="col-span-2">
+                <div className="sm:col-span-2">
                   <Field
                     label="Company Name *"
                     value={c.name}
@@ -283,14 +283,14 @@ function SettingsPage() {
                   value={c.purchasePrefix}
                   onChange={(e) => setC({ ...c, purchasePrefix: e.target.value })}
                 />
-                <div className="col-span-2">
+                <div className="sm:col-span-2">
                   <Field
                     label="Address"
                     value={c.address ?? ""}
                     onChange={(e) => setC({ ...c, address: e.target.value })}
                   />
                 </div>
-                <div className="col-span-2 space-y-2 pt-1">
+                <div className="sm:col-span-2 space-y-2 pt-1">
                   <ToggleRow
                     checked={c.enableRoundOff !== false}
                     onChange={(v) => setC({ ...c, enableRoundOff: v })}

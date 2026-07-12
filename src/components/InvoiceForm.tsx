@@ -740,26 +740,45 @@ export function InvoiceForm({ mode, existing }: Props) {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="px-4 md:px-5 py-3 border-b bg-card flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <div
-            className={`h-10 w-10 rounded-md flex items-center justify-center ${isSale ? "bg-success-soft text-success" : "bg-warning-soft text-warning"}`}
-          >
-            {isSale ? <Receipt className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
+        <div className="flex items-center justify-between gap-3 min-w-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div
+              className={`h-10 w-10 rounded-md flex items-center justify-center ${isSale ? "bg-success-soft text-success" : "bg-warning-soft text-warning"}`}
+            >
+              {isSale ? <Receipt className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-[17px] font-bold tracking-tight leading-tight">
+                {existing ? "Edit" : "New"} {isSale ? "Sale Invoice" : "Purchase Bill"}
+              </h1>
+              <p className="text-[11px] text-muted-foreground">
+                <span className="font-mono font-semibold text-foreground">{inv.number}</span>
+              </p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <h1 className="text-[17px] font-bold tracking-tight leading-tight">
-              {existing ? "Edit" : "New"} {isSale ? "Sale Invoice" : "Purchase Bill"}
-            </h1>
-            <p className="text-[11px] text-muted-foreground">
-              <span className="font-mono font-semibold text-foreground">{inv.number}</span>
-            </p>
-          </div>
+          {isSale && (
+            <label className="sm:hidden shrink-0 flex items-center gap-1.5 h-7 px-2.5 rounded-md border bg-background cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={gstOn}
+                onChange={toggleGst}
+                className="accent-primary h-3.5 w-3.5"
+              />
+              <span className="text-[11px] font-semibold">GST Bill</span>
+            </label>
+          )}
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:flex-wrap sm:justify-end">
           {/* Toggles — grouped together as one row so they read as a clean
               pair of switches instead of separate borderline-width chips
               each wrapping onto their own line. */}
-          <div className={!isSale ? "grid grid-cols-2 gap-2 sm:flex sm:items-center sm:w-auto" : "flex items-center gap-2"}>
+          <div
+            className={
+              !isSale
+                ? "grid grid-cols-2 gap-2 sm:flex sm:items-center sm:w-auto"
+                : "flex items-center justify-end gap-2"
+            }
+          >
             {!isSale && (
               <label className="flex items-center justify-center gap-2 h-9 px-3 rounded-md border bg-background cursor-pointer select-none sm:justify-start sm:w-auto">
                 <input
@@ -771,12 +790,12 @@ export function InvoiceForm({ mode, existing }: Props) {
                 <span className="text-[12px] font-semibold whitespace-nowrap">International Purchase</span>
               </label>
             )}
-            <label
-              className={`sm:hidden flex items-center justify-center gap-2 h-9 px-3 rounded-md border bg-background cursor-pointer select-none ${isSale ? "flex-1" : ""}`}
-            >
-              <input type="checkbox" checked={gstOn} onChange={toggleGst} className="accent-primary" />
-              <span className="text-[12px] font-semibold">GST Bill</span>
-            </label>
+            {!isSale && (
+              <label className="sm:hidden shrink-0 flex items-center gap-2 h-9 px-3 rounded-md border bg-background cursor-pointer select-none">
+                <input type="checkbox" checked={gstOn} onChange={toggleGst} className="accent-primary" />
+                <span className="text-[12px] font-semibold">GST Bill</span>
+              </label>
+            )}
           </div>
 
           {!isSale && inv.isInternational && (
@@ -842,18 +861,18 @@ export function InvoiceForm({ mode, existing }: Props) {
       <div className="p-4 md:p-5 space-y-4 overflow-auto flex-1 bg-muted/30">
         {/* Party + meta */}
         <div className="bg-card border rounded-lg shadow-card p-4">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 mb-3">
             <span className="text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">
               {isSale ? "Customer Details" : "Supplier Details"}
             </span>
             {inv.partyId ? (
-              <span className="inline-flex items-center gap-2">
-                <span className="text-[11px] inline-flex items-center gap-1 text-success font-medium bg-success-soft px-2 py-0.5 rounded">
+              <span className="inline-flex items-center gap-1.5 flex-wrap">
+                <span className="text-[11px] inline-flex items-center gap-1 text-success font-medium bg-success-soft px-2 py-0.5 rounded shrink-0">
                   ✓ Existing party
                 </span>
                 {partyBalance !== null && Math.abs(partyBalance) > 0.01 && (
                   <span
-                    className={`text-[11px] font-semibold px-2 py-0.5 rounded ${partyBalance > 0 ? "text-destructive bg-destructive/10" : "text-success bg-success-soft"}`}
+                    className={`text-[11px] font-semibold px-2 py-0.5 rounded shrink-0 ${partyBalance > 0 ? "text-destructive bg-destructive/10" : "text-success bg-success-soft"}`}
                   >
                     {partyBalance > 0
                       ? `${isSale ? "Receivable" : "Payable"}: ${fmtMoney(partyBalance)}`
@@ -862,7 +881,7 @@ export function InvoiceForm({ mode, existing }: Props) {
                 )}
               </span>
             ) : partyQ || phoneQ ? (
-              <span className="text-[11px] inline-flex items-center gap-1 text-primary font-medium bg-primary-soft px-2 py-0.5 rounded">
+              <span className="text-[11px] inline-flex items-center gap-1 text-primary font-medium bg-primary-soft px-2 py-0.5 rounded self-start">
                 <UserPlus className="h-3 w-3" /> New party — details asked on save
               </span>
             ) : null}
@@ -1941,7 +1960,7 @@ function QuickAddItemDialog({
           this {isSale ? "invoice" : "bill"}.
         </p>
         <form onSubmit={submit} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="col-span-2 relative">
+          <div className="sm:col-span-2 relative">
             <Field
               ref={firstRef}
               label="Name *"
@@ -2010,7 +2029,7 @@ function QuickAddItemDialog({
               else setSalePrice(v);
             }}
           />
-          <div className="col-span-2 flex justify-end gap-2 mt-2">
+          <div className="sm:col-span-2 flex justify-end gap-2 mt-2">
             <Button type="button" variant="outline" onClick={onCancel}>
               Cancel
             </Button>

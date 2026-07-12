@@ -89,7 +89,7 @@ export function QuickAddPartyDialog({
           "{draft.name}" isn't in your parties list yet — add their details to continue.
         </p>
         <form onSubmit={submit} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="col-span-2 relative">
+          <div className="sm:col-span-2 relative">
             <Field
               ref={firstRef}
               label="Name *"
@@ -150,7 +150,7 @@ export function QuickAddPartyDialog({
             onChange={(e) => setGstin(e.target.value.toUpperCase())}
           />
           <NumField label="Credit Limit" value={creditLimit} onValue={setCreditLimit} />
-          <div className="col-span-2 flex justify-end gap-2 mt-2">
+          <div className="sm:col-span-2 flex justify-end gap-2 mt-2">
             <Button type="button" variant="outline" onClick={onCancel}>
               Cancel
             </Button>

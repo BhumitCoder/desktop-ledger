@@ -441,7 +441,7 @@ function BankDialog({
           <DialogTitle>{bank ? "Edit" : "New"} Bank Account</DialogTitle>
         </DialogHeader>
         <form onSubmit={save} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="col-span-2">
+          <div className="sm:col-span-2">
             <Field
               ref={firstRef}
               label="Bank Name *"
@@ -464,7 +464,7 @@ function BankDialog({
             value={f.openingBalance ?? 0}
             onValue={(n) => setF({ ...f, openingBalance: n })}
           />
-          <div className="col-span-2 flex justify-end gap-2 mt-2">
+          <div className="sm:col-span-2 flex justify-end gap-2 mt-2">
             <Button
               type="button"
               variant="outline"

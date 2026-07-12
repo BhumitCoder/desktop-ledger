@@ -829,7 +829,7 @@ export function ItemDialog({
           <DialogTitle>{item ? "Edit Item" : "New Item"}</DialogTitle>
         </DialogHeader>
         <form onSubmit={save} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="col-span-2 relative">
+          <div className="sm:col-span-2 relative">
             <Field
               ref={firstRef}
               label="Name *"
@@ -910,7 +910,7 @@ export function ItemDialog({
               setF({ ...f, minStock: v === "" ? undefined : Math.max(0, parseFloat(v) || 0) });
             }}
           />
-          <div className="col-span-3 flex justify-end gap-2 mt-2">
+          <div className="sm:col-span-3 flex justify-end gap-2 mt-2">
             <Button
               type="button"
               variant="outline"
