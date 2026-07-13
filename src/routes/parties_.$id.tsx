@@ -885,20 +885,43 @@ export function PartyStatementCardBlock({
   onOpen: () => void;
 }) {
   const isBalanceRow = e.type === "Beginning Balance" || e.type === "Balance b/f";
+  const balanceClass =
+    e.balance > 0 ? "text-rose-600" : e.balance < 0 ? "text-amber-600" : "text-gray-400";
+  const balanceText =
+    e.balance > 0
+      ? `${fmtMoney(e.balance)} Dr`
+      : e.balance < 0
+        ? `${fmtMoney(-e.balance)} Cr`
+        : "Settled";
+
+  // Opening / brought-forward marker: a compact muted strip (label + running
+  // balance) rather than a full transaction card — it has no bill, date, or
+  // amounts to show, so the old full-card layout left a stray "· —" line.
+  if (isBalanceRow) {
+    return (
+      <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50/70">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+          {e.type}
+        </span>
+        <span className={`text-xs font-semibold tabular-nums ${balanceClass}`}>{balanceText}</span>
+      </div>
+    );
+  }
+
+  const meta = [e.date ? fmtDate(e.date) : null, e.ref && e.ref !== "—" ? `#${e.ref}` : null]
+    .filter(Boolean)
+    .join("  ·  ");
+
   return (
     <div
       onClick={e.docId ? onOpen : undefined}
-      className={`p-4 ${e.docId ? "cursor-pointer active:bg-gray-50" : ""} ${isBalanceRow ? "bg-gray-50/40" : ""}`}
+      className={`px-4 py-3 ${e.docId ? "cursor-pointer active:bg-gray-50" : ""}`}
     >
-      <div className="flex items-start justify-between gap-3 mb-1.5">
+      {/* Header: transaction type + date/ref, and the status pill */}
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className={`text-gray-800 truncate ${isBalanceRow ? "font-semibold" : "font-medium"}`}>
-            {e.type}
-          </p>
-          <p className="text-xs text-gray-400 mt-0.5 truncate">
-            {e.date ? fmtDate(e.date) : ""}
-            {e.ref ? ` · ${e.ref}` : ""}
-          </p>
+          <p className="font-semibold text-gray-800 truncate leading-tight">{e.type}</p>
+          {meta && <p className="text-[11px] text-gray-400 mt-0.5 truncate">{meta}</p>}
         </div>
         {e.status && (
           <span
@@ -914,22 +937,38 @@ export function PartyStatementCardBlock({
           </span>
         )}
       </div>
-      <div className="flex items-center gap-3 text-xs flex-wrap">
-        {!!e.total && <span className="text-gray-500">Total {fmtMoney(e.total)}</span>}
-        {!!e.receivedOrPaid && (
-          <span className="text-emerald-600 font-semibold">
-            Received/Paid {fmtMoney(e.receivedOrPaid)}
-          </span>
-        )}
-        <span
-          className={`ml-auto font-semibold tabular-nums ${e.balance > 0 ? "text-rose-600" : e.balance < 0 ? "text-amber-600" : "text-gray-500"}`}
-        >
-          {e.balance > 0
-            ? `${fmtMoney(e.balance)} Dr`
-            : e.balance < 0
-              ? `${fmtMoney(-e.balance)} Cr`
-              : "Settled"}
-        </span>
+      {/* Amounts: labeled columns on the left, running balance emphasised on the right */}
+      <div className="flex items-end justify-between gap-3 mt-2.5">
+        <div className="flex gap-5">
+          {!!e.total && (
+            <div className="min-w-0">
+              <p className="text-[9.5px] uppercase tracking-wide text-gray-400 leading-none mb-1">
+                Total
+              </p>
+              <p className="text-[13px] font-medium tabular-nums text-gray-700 leading-none">
+                {fmtMoney(e.total)}
+              </p>
+            </div>
+          )}
+          {!!e.receivedOrPaid && (
+            <div className="min-w-0">
+              <p className="text-[9.5px] uppercase tracking-wide text-gray-400 leading-none mb-1">
+                Received / Paid
+              </p>
+              <p className="text-[13px] font-medium tabular-nums text-emerald-600 leading-none">
+                {fmtMoney(e.receivedOrPaid)}
+              </p>
+            </div>
+          )}
+        </div>
+        <div className="text-right shrink-0">
+          <p className="text-[9.5px] uppercase tracking-wide text-gray-400 leading-none mb-1">
+            Balance
+          </p>
+          <p className={`text-[13px] font-bold tabular-nums leading-none ${balanceClass}`}>
+            {balanceText}
+          </p>
+        </div>
       </div>
     </div>
   );
