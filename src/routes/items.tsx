@@ -472,6 +472,9 @@ export function StockAdjustDialog({
   const [date, setDate] = useState(today());
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
+  // Synchronous double-submit guard — `saving` state doesn't update until the
+  // next render, so two rapid submits in the same tick both see it false.
+  const savingRef = useRef(false);
 
   useEffect(() => {
     if (item) {
@@ -480,6 +483,7 @@ export function StockAdjustDialog({
       setDate(today());
       setReason("");
       setSaving(false);
+      savingRef.current = false;
     }
   }, [item]);
 
@@ -489,14 +493,19 @@ export function StockAdjustDialog({
 
   const save = (e: React.FormEvent) => {
     e.preventDefault();
-    if (saving) return;
+    if (savingRef.current) return;
     if (n <= 0) {
       toast.error("Enter quantity to adjust");
       return;
     }
+    savingRef.current = true;
     setSaving(true);
-    ItemRepo.adjustField(item.id, "stock", type === "add" ? n : -n);
-    StockAdjustmentRepo.add({
+    // Stock change + its audit record commit together as one atomic batch —
+    // otherwise a partial failure could move stock with no audit trail (or
+    // vice versa).
+    const batch = newBatch();
+    ItemRepo.adjustFieldBatched(batch, item.id, "stock", type === "add" ? n : -n);
+    StockAdjustmentRepo.addBatched(batch, {
       itemId: item.id,
       itemName: item.name,
       date,
@@ -504,6 +513,7 @@ export function StockAdjustDialog({
       qty: n,
       reason: reason.trim() || undefined,
     } as any);
+    commitBatch(batch, "stock adjustment");
     toast.success(
       `${item.name}: stock ${type === "add" ? "increased" : "reduced"} by ${n} → now ${newStock} ${item.unit}`,
     );
@@ -768,6 +778,7 @@ export function ItemDialog({
   const firstRef = useRef<HTMLInputElement>(null);
   const [f, setF] = useState<Partial<Item>>({});
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [nameOpen, setNameOpen] = useState(false);
 
   useEffect(() => {
@@ -783,6 +794,7 @@ export function ItemDialog({
         },
       );
       setSaving(false);
+      savingRef.current = false;
       setNameOpen(false);
       setTimeout(() => firstRef.current?.focus(), 50);
     }
@@ -790,7 +802,7 @@ export function ItemDialog({
 
   const save = (e: React.FormEvent) => {
     e.preventDefault();
-    if (saving) return;
+    if (savingRef.current) return;
     if (!f.name?.trim()) {
       toast.error("Name required");
       return;
@@ -807,14 +819,20 @@ export function ItemDialog({
       toast.error("Prices cannot be negative");
       return;
     }
+    savingRef.current = true;
     setSaving(true);
     if (item) {
-      // Correcting opening stock shifts current stock by the same difference
+      // Correcting opening stock shifts current stock by the same difference.
+      // The descriptive update and the atomic opening-delta must land together
+      // as one batch — otherwise a partial failure leaves stock and the record
+      // out of sync.
       const openingDelta = (f.openingStock ?? 0) - (item.openingStock ?? 0);
       const patch: Partial<Item> = { ...f };
       delete patch.stock; // stock only changes via atomic adjustments
-      ItemRepo.update(item.id, patch);
-      if (openingDelta !== 0) ItemRepo.adjustField(item.id, "stock", openingDelta);
+      const batch = newBatch();
+      ItemRepo.updateBatched(batch, item.id, patch);
+      if (openingDelta !== 0) ItemRepo.adjustFieldBatched(batch, item.id, "stock", openingDelta);
+      commitBatch(batch, "update item");
       toast.success(
         openingDelta !== 0
           ? `Item updated — stock adjusted by ${openingDelta > 0 ? "+" : ""}${openingDelta}`

@@ -275,6 +275,9 @@ function BankTxnDialog({
   const [notes, setNotes] = useState("");
   const [linkCash, setLinkCash] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Synchronous double-submit guard — the `saving` state doesn't flip until the
+  // next render, so two rapid Enter presses in one tick would both deposit.
+  const savingRef = useRef(false);
 
   useEffect(() => {
     if (open) {
@@ -285,12 +288,13 @@ function BankTxnDialog({
       setNotes("");
       setLinkCash(true);
       setSaving(false);
+      savingRef.current = false;
     }
   }, [open, accounts]);
 
   const save = (e: React.FormEvent) => {
     e.preventDefault();
-    if (saving) return;
+    if (savingRef.current) return;
     const n = amount;
     const bank = accounts.find((b) => b.id === bankId);
     if (!bank) {
@@ -301,6 +305,7 @@ function BankTxnDialog({
       toast.error("Enter amount");
       return;
     }
+    savingRef.current = true;
     setSaving(true);
     // The passbook txn, the account balance change, and the linked cash
     // adjustment must land together or not at all — one shared batch commits
@@ -435,32 +440,54 @@ function BankDialog({
   const firstRef = useRef<HTMLInputElement>(null);
   const [f, setF] = useState<Partial<BankAccount>>({});
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   useEffect(() => {
     if (open) {
       setF(bank ?? { openingBalance: 0, balance: 0 });
       setSaving(false);
+      savingRef.current = false;
       setTimeout(() => firstRef.current?.focus(), 50);
     }
   }, [open, bank]);
   const save = (e: React.FormEvent) => {
     e.preventDefault();
-    if (saving) return;
+    if (savingRef.current) return;
     if (!f.name?.trim()) {
       toast.error("Name required");
       return;
     }
+    // Block duplicate accounts (same rule parties/items/payees enforce) — two
+    // identical accounts are indistinguishable in every picker and let one be
+    // deleted while the user thinks they deleted the other.
+    const nameLc = f.name.trim().toLowerCase();
+    const acctNo = (f.accountNumber ?? "").trim();
+    const dup = BankRepo.all().find(
+      (b) =>
+        b.id !== bank?.id &&
+        (b.name.trim().toLowerCase() === nameLc ||
+          (!!acctNo && (b.accountNumber ?? "").trim() === acctNo)),
+    );
+    if (dup) {
+      toast.error(
+        acctNo && (dup.accountNumber ?? "").trim() === acctNo
+          ? `Account number ${acctNo} already exists on "${dup.name}"`
+          : `Bank account "${dup.name}" already exists — repeat accounts cannot be added`,
+      );
+      return;
+    }
+    savingRef.current = true;
     setSaving(true);
     if (bank) {
-      // Stored balance = opening balance + net of all transactions. The
-      // transactions don't change on an account edit, so if the opening
-      // balance is corrected the stored balance must shift by the SAME delta
-      // — otherwise the list balance and the derived passbook (which recomputes
-      // from the new opening) disagree permanently.
+      // Stored balance = opening balance + net of all transactions. Correcting
+      // the opening balance must shift the stored balance by the SAME delta,
+      // applied as an ATOMIC increment (carried alongside the descriptive
+      // fields via adjustField's `extra`) — NOT an absolute write off the
+      // dialog's stale snapshot, which would clobber a sale/payment that landed
+      // on this account while the dialog was open. Mirrors items.tsx opening-stock.
       const openingDelta = (f.openingBalance ?? 0) - (bank.openingBalance ?? 0);
-      BankRepo.update(bank.id, {
-        ...f,
-        balance: Math.round(((bank.balance ?? 0) + openingDelta) * 100) / 100,
-      } as BankAccount);
+      const descriptive: Partial<BankAccount> = { ...f };
+      delete descriptive.balance; // balance only ever changes via atomic increments
+      BankRepo.adjustField(bank.id, "balance", openingDelta, descriptive);
     } else
       BankRepo.add({
         ...f,

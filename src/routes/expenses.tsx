@@ -207,6 +207,9 @@ function ExpenseDialog({
   const firstRef = useRef<HTMLButtonElement>(null);
   const [f, setF] = useState<Partial<Expense>>({});
   const [saving, setSaving] = useState(false);
+  // Synchronous double-submit guard — prevents a same-tick double Enter from
+  // recording the expense (and its bank-balance move) twice.
+  const savingRef = useRef(false);
   const [banks] = useState(() => BankRepo.all());
   const [payees, setPayees] = useState<Payee[]>([]);
   const [categories] = useState(() => CompanyRepo.get().expenseCategories ?? []);
@@ -221,6 +224,7 @@ function ExpenseDialog({
       setPayees(PayeeRepo.all());
       setPayeeQ(expense?.payeeName ?? "");
       setSaving(false);
+      savingRef.current = false;
       setTimeout(() => firstRef.current?.focus(), 50);
     }
   }, [open, expense]);
@@ -272,7 +276,7 @@ function ExpenseDialog({
 
   const save = (e: React.FormEvent) => {
     e.preventDefault();
-    if (saving) return;
+    if (savingRef.current) return;
     if (!f.category?.trim()) {
       toast.error("Category required");
       return;
@@ -289,6 +293,7 @@ function ExpenseDialog({
       toast.error("Select or type who this was paid to");
       return;
     }
+    savingRef.current = true;
     setSaving(true);
 
     // Bank-balance changes, a possibly-new payee, and the expense record

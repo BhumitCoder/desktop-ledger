@@ -350,6 +350,26 @@ function ReportView({
   const items = useMemo(() => ItemRepo.all(), []);
   const [partySearch, setPartySearch] = useState("");
 
+  // Every party's full statement, built ONCE per (report, date-range) — not on
+  // every keystroke of the party search below. Building it is O(parties × all
+  // documents), so rebuilding it per keystroke froze the search box at scale.
+  // Only built when the Party Ledger report is actually open. `partySearch`
+  // is deliberately NOT a dependency — it only filters the memoized result.
+  const partyLedgerAll = useMemo(() => {
+    if (which !== "party-ledger") return [];
+    const data = {
+      sales: SalesRepo.all(),
+      purchases: PurchaseRepo.all(),
+      saleReturns: SaleReturnRepo.all(),
+      purchaseReturns: PurchaseReturnRepo.all(),
+      payments: PaymentRepo.all(),
+    };
+    return parties
+      .map((p) => ({ party: p, ledger: buildPartyStatement(p, data, dateFrom, dateTo) }))
+      .filter(({ ledger }) => ledger.rows.length > 0)
+      .sort((a, b) => a.party.name.localeCompare(b.party.name));
+  }, [which, dateFrom, dateTo, parties]);
+
   if (which === "pl") {
     const revenue = sales.reduce((a, s) => a + s.total, 0);
     const saleReturnTotal = saleReturns.reduce((a, r) => a + r.total, 0);
@@ -624,17 +644,7 @@ function ReportView({
     // from FULL history — dateFrom/dateTo only control the visible window
     // inside buildPartyStatement (via a proper "Balance b/f" line), same as
     // the per-party Statement page.
-    const data = {
-      sales: SalesRepo.all(),
-      purchases: PurchaseRepo.all(),
-      saleReturns: SaleReturnRepo.all(),
-      purchaseReturns: PurchaseReturnRepo.all(),
-      payments: PaymentRepo.all(),
-    };
-    const perPartyAll = parties
-      .map((p) => ({ party: p, ledger: buildPartyStatement(p, data, dateFrom, dateTo) }))
-      .filter(({ ledger }) => ledger.rows.length > 0)
-      .sort((a, b) => a.party.name.localeCompare(b.party.name));
+    const perPartyAll = partyLedgerAll;
     const q = partySearch.trim().toLowerCase();
     const perParty = q
       ? perPartyAll.filter(({ party: p }) => p.name.toLowerCase().includes(q))

@@ -302,37 +302,79 @@ export function ReturnForm({ mode }: Props) {
     // invoice can be returned twice (or more than was ever sold/purchased),
     // crediting stock and the party's balance more than once.
     const ref = (ret.originalRef ?? "").trim();
+    const thisReturnQty = new Map<string, number>();
+    for (const l of ret.lineItems) {
+      thisReturnQty.set(l.itemId, r2((thisReturnQty.get(l.itemId) ?? 0) + l.qty));
+    }
     if (ref) {
       const originalInvoice = invoiceRepo.all().find((i) => i.number.trim() === ref);
-      if (originalInvoice) {
-        const originalQty = new Map<string, number>();
-        for (const l of originalInvoice.lineItems) {
-          originalQty.set(l.itemId, (originalQty.get(l.itemId) ?? 0) + l.qty);
+      if (!originalInvoice) {
+        // A typed reference that matches no bill is almost always a typo —
+        // don't silently skip the cap (which used to let any qty through).
+        // Clear the field for a genuine standalone return instead.
+        toast.error(
+          `No ${isSaleReturn ? "invoice" : "bill"} numbered "${ref}" found — check the number, or clear the field for a return without a linked bill.`,
+        );
+        return;
+      }
+      const originalQty = new Map<string, number>();
+      for (const l of originalInvoice.lineItems) {
+        originalQty.set(l.itemId, (originalQty.get(l.itemId) ?? 0) + l.qty);
+      }
+      const alreadyReturned = new Map<string, number>();
+      for (const r of repo.all()) {
+        if ((r.originalRef ?? "").trim() !== ref) continue;
+        for (const l of r.lineItems) {
+          alreadyReturned.set(l.itemId, (alreadyReturned.get(l.itemId) ?? 0) + l.qty);
         }
-        const alreadyReturned = new Map<string, number>();
-        for (const r of repo.all()) {
-          if ((r.originalRef ?? "").trim() !== ref) continue;
-          for (const l of r.lineItems) {
-            alreadyReturned.set(l.itemId, (alreadyReturned.get(l.itemId) ?? 0) + l.qty);
-          }
+      }
+      for (const l of ret.lineItems) {
+        const bought = originalQty.get(l.itemId) ?? 0;
+        const already = alreadyReturned.get(l.itemId) ?? 0;
+        const remaining = r2(bought - already);
+        const returningNow = thisReturnQty.get(l.itemId) ?? l.qty;
+        if (returningNow > remaining + 0.0001) {
+          toast.error(
+            remaining > 0
+              ? `"${l.name}" — only ${remaining} ${l.unit} left to return from ${ref} (already returned ${already})`
+              : `"${l.name}" has already been fully returned from ${ref}`,
+          );
+          return;
         }
-        const thisReturnQty = new Map<string, number>();
-        for (const l of ret.lineItems) {
-          thisReturnQty.set(l.itemId, r2((thisReturnQty.get(l.itemId) ?? 0) + l.qty));
+      }
+    } else if (partyId) {
+      // Unlinked (standalone) return for a KNOWN party: cap each item by that
+      // party's NET transacted quantity — everything ever sold to / purchased
+      // from them, minus everything already returned — so a blank-ref return
+      // can't credit stock and balance for goods the party never transacted.
+      // (A brand-new party has no history to validate against, so this only
+      // applies once the party exists.)
+      const soldByItem = new Map<string, number>();
+      for (const inv of invoiceRepo.all()) {
+        if (inv.partyId !== partyId) continue;
+        for (const l of inv.lineItems) {
+          soldByItem.set(l.itemId, (soldByItem.get(l.itemId) ?? 0) + l.qty);
         }
-        for (const l of ret.lineItems) {
-          const bought = originalQty.get(l.itemId) ?? 0;
-          const already = alreadyReturned.get(l.itemId) ?? 0;
-          const remaining = r2(bought - already);
-          const returningNow = thisReturnQty.get(l.itemId) ?? l.qty;
-          if (returningNow > remaining + 0.0001) {
-            toast.error(
-              remaining > 0
-                ? `"${l.name}" — only ${remaining} ${l.unit} left to return from ${ref} (already returned ${already})`
-                : `"${l.name}" has already been fully returned from ${ref}`,
-            );
-            return;
-          }
+      }
+      const returnedByItem = new Map<string, number>();
+      for (const r of repo.all()) {
+        if (r.partyId !== partyId) continue;
+        for (const l of r.lineItems) {
+          returnedByItem.set(l.itemId, (returnedByItem.get(l.itemId) ?? 0) + l.qty);
+        }
+      }
+      for (const l of ret.lineItems) {
+        const sold = soldByItem.get(l.itemId) ?? 0;
+        const already = returnedByItem.get(l.itemId) ?? 0;
+        const remaining = r2(sold - already);
+        const returningNow = thisReturnQty.get(l.itemId) ?? l.qty;
+        if (returningNow > remaining + 0.0001) {
+          toast.error(
+            remaining > 0
+              ? `"${l.name}" — only ${remaining} ${l.unit} can be returned for this party (${sold} transacted, ${already} already returned)`
+              : `"${l.name}" — nothing left to return for this party (link a bill if this is a fresh return)`,
+          );
+          return;
         }
       }
     }
