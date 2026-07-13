@@ -40,6 +40,8 @@ import {
   FileDown,
   Share2,
   SlidersHorizontal,
+  ArrowDownLeft,
+  ArrowUpRight,
 } from "lucide-react";
 
 export const Route = createFileRoute("/daybook")({
@@ -616,33 +618,52 @@ function DaybookPage() {
                 </p>
               ) : (
                 <div className="divide-y divide-gray-100">
-                  {pg.paged.map((r, i) => (
-                    <div
-                      key={i}
-                      onClick={() => openRow(r)}
-                      className={`p-4 ${r.docId ? "cursor-pointer active:bg-gray-50" : ""}`}
-                    >
-                      <div className="flex items-start justify-between gap-3 mb-1">
-                        <div className="min-w-0">
-                          <p className="font-medium text-gray-800 truncate">{r.party}</p>
-                          <p className="text-xs text-gray-400 mt-0.5 truncate">
-                            {r.type} · {modeLabel(r)}
-                            {r.ref ? ` · ${r.ref}` : ""}
-                          </p>
-                        </div>
-                        <p className="font-bold tabular-nums shrink-0 text-gray-800">
-                          {fmtMoney(Math.abs(r.amount))}
-                        </p>
-                      </div>
-                      {(r.cash !== 0) && (
-                        <p
-                          className={`text-xs font-semibold ${r.cash > 0 ? "text-emerald-600" : "text-rose-600"}`}
+                  {pg.paged.map((r, i) => {
+                    const isIn = r.cash > 0;
+                    const isOut = r.cash < 0;
+                    return (
+                      <div
+                        key={i}
+                        onClick={() => openRow(r)}
+                        className={`flex items-center gap-3 px-4 py-3 ${r.docId ? "cursor-pointer active:bg-gray-50" : ""}`}
+                      >
+                        <div
+                          className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 ${isIn ? "bg-emerald-50 text-emerald-600" : isOut ? "bg-rose-50 text-rose-600" : "bg-gray-100 text-gray-400"}`}
                         >
-                          {r.cash > 0 ? `+${fmtMoney(r.cash)} in` : `−${fmtMoney(Math.abs(r.cash))} out`}
-                        </p>
-                      )}
-                    </div>
-                  ))}
+                          {isOut ? (
+                            <ArrowUpRight className="h-4 w-4" />
+                          ) : (
+                            <ArrowDownLeft className="h-4 w-4" />
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="font-semibold text-[13px] text-gray-800 truncate leading-tight">
+                              {r.party}
+                            </p>
+                            <p className="font-bold text-[13px] tabular-nums shrink-0 leading-tight text-gray-800">
+                              {fmtMoney(Math.abs(r.amount))}
+                            </p>
+                          </div>
+                          <div className="flex items-center justify-between gap-2 mt-1">
+                            <p className="text-[11px] text-gray-400 truncate">
+                              {r.type} · {modeLabel(r)}
+                              {r.ref ? ` · ${r.ref}` : ""}
+                            </p>
+                            {r.cash !== 0 && (
+                              <span
+                                className={`text-[11px] font-semibold shrink-0 ${isIn ? "text-emerald-600" : "text-rose-600"}`}
+                              >
+                                {isIn
+                                  ? `+${fmtMoney(r.cash)}`
+                                  : `−${fmtMoney(Math.abs(r.cash))}`}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
               {filteredRows.length > 0 && (

@@ -391,62 +391,82 @@ function PaymentsPage() {
           </div>
         ) : (
           <div className="divide-y divide-gray-100">
-            {pg.paged.map((r) => (
-              <div
-                key={r.id}
-                onClick={() => openEdit(r)}
-                className="bg-white p-4 active:bg-gray-50"
-              >
-                <div className="flex items-start justify-between gap-3 mb-1.5">
-                  <div className="min-w-0">
-                    <p className="font-semibold text-gray-800 truncate">{r.partyName}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {fmtDate(r.date)} · {r.type === "in" ? "Received" : "Paid Out"} ·{" "}
-                      {fmtMode(r.mode)}
-                    </p>
-                  </div>
-                  <p className="font-bold text-gray-800 tabular-nums shrink-0">
-                    {r.type === "out" ? "−" : "+"}
-                    {fmtMoney(r.amount)}
-                  </p>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="font-mono text-xs text-gray-400 truncate">
-                    {r.allocations?.length
-                      ? r.allocations.map((a) => a.number).join(", ")
-                      : r.ref && r.ref.match(/^(INV|PUR)-/)
-                        ? r.ref
-                        : "—"}
-                  </span>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {editAllowed && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openEdit(r);
-                        }}
-                        className="p-1.5 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
-                        title="Edit payment"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                    {deleteAllowed && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(r);
-                        }}
-                        className="p-1.5 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"
-                        title="Delete payment"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+            {pg.paged.map((r) => {
+              const isIn = r.type === "in";
+              const refText = r.allocations?.length
+                ? r.allocations.map((a) => a.number).join(", ")
+                : r.ref && r.ref.match(/^(INV|PUR)-/)
+                  ? r.ref
+                  : "";
+              return (
+                <div
+                  key={r.id}
+                  onClick={() => openEdit(r)}
+                  className="bg-white px-4 py-3 active:bg-gray-50 flex items-center gap-3"
+                >
+                  <div
+                    className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 ${isIn ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"}`}
+                  >
+                    {isIn ? (
+                      <ArrowDownCircle className="h-4 w-4" />
+                    ) : (
+                      <ArrowUpCircle className="h-4 w-4" />
                     )}
                   </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-semibold text-[13px] text-gray-800 truncate leading-tight">
+                        {r.partyName}
+                      </p>
+                      <p
+                        className={`font-bold text-[13px] tabular-nums shrink-0 leading-tight ${isIn ? "text-emerald-600" : "text-rose-600"}`}
+                      >
+                        {isIn ? "+" : "−"}
+                        {fmtMoney(r.amount)}
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 mt-1">
+                      <p className="text-[11px] text-gray-400 truncate">
+                        {fmtDate(r.date)} · {isIn ? "Received" : "Paid Out"} · {fmtMode(r.mode)}
+                      </p>
+                      {refText && (
+                        <span className="font-mono text-[11px] text-gray-400 truncate shrink-0 max-w-[38%]">
+                          {refText}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {(editAllowed || deleteAllowed) && (
+                    <div className="flex flex-col gap-0.5 shrink-0 -mr-1.5">
+                      {editAllowed && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEdit(r);
+                          }}
+                          className="p-1.5 rounded hover:bg-blue-50 text-gray-300 hover:text-blue-600 transition"
+                          title="Edit payment"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      {deleteAllowed && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(r);
+                          }}
+                          className="p-1.5 rounded hover:bg-rose-50 text-gray-300 hover:text-rose-500 transition"
+                          title="Delete payment"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

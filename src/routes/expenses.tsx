@@ -135,35 +135,37 @@ function ExpensesPage() {
                   setEdit(r);
                   setOpen(true);
                 }}
-                className={editAllowed ? "bg-white p-4 active:bg-gray-50 cursor-pointer" : "bg-white p-4"}
+                className={`bg-white px-4 py-3 flex items-center gap-3 ${editAllowed ? "active:bg-gray-50 cursor-pointer" : ""}`}
               >
-                <div className="flex items-start justify-between gap-3 mb-1.5">
-                  <div className="min-w-0">
-                    <p className="font-semibold text-gray-800 truncate">{r.category}</p>
-                    <p className="text-xs text-gray-400 mt-0.5 truncate">
-                      {fmtDate(r.date)} · {r.payeeName ?? "—"}
-                      {r.notes ? ` · ${r.notes}` : ""}
+                <div className="h-9 w-9 rounded-full flex items-center justify-center shrink-0 bg-rose-50 text-rose-600">
+                  <Receipt className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-semibold text-[13px] text-gray-800 truncate leading-tight">
+                      {r.category}
+                    </p>
+                    <p className="font-bold text-[13px] text-rose-600 tabular-nums shrink-0 leading-tight">
+                      −{fmtMoney(r.amount)}
                     </p>
                   </div>
-                  <p className="font-bold text-gray-800 tabular-nums shrink-0">
-                    {fmtMoney(r.amount)}
+                  <p className="text-[11px] text-gray-400 mt-1 truncate">
+                    {fmtDate(r.date)} · {r.payeeName ?? "—"} · {fmtMode(r.paymentMode)}
+                    {r.notes ? ` · ${r.notes}` : ""}
                   </p>
                 </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-[11px] text-gray-400">{fmtMode(r.paymentMode)}</span>
-                  {deleteAllowed && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDelete(r);
-                      }}
-                      className="p-1.5 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"
-                      title="Delete expense"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
+                {deleteAllowed && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(r);
+                    }}
+                    className="p-1.5 rounded hover:bg-rose-50 text-gray-300 hover:text-rose-500 transition shrink-0 -mr-1.5"
+                    title="Delete expense"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
             ))}
           </div>

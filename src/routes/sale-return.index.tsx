@@ -88,38 +88,37 @@ function SaleReturnPage() {
               <div
                 key={r.id}
                 onClick={() => navigate({ to: "/sale-return/$id", params: { id: r.id } })}
-                className="bg-white p-4 active:bg-gray-50"
+                className="bg-white px-4 py-3 active:bg-gray-50 flex items-center gap-3"
               >
-                <div className="flex items-start justify-between gap-3 mb-1.5">
-                  <div className="min-w-0">
-                    <p className="font-semibold text-gray-800 truncate font-mono">{r.number}</p>
-                    <p className="text-xs text-gray-400 mt-0.5 truncate">
-                      {fmtDate(r.date)} · {r.partyName} · {r.originalRef || "—"}
+                <div className="h-9 w-9 rounded-full flex items-center justify-center shrink-0 bg-rose-50 text-rose-600">
+                  <CornerDownLeft className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-semibold text-[13px] text-gray-800 truncate font-mono leading-tight">
+                      {r.number}
+                    </p>
+                    <p className="font-bold text-[13px] text-gray-800 tabular-nums shrink-0 leading-tight">
+                      {fmtMoney(r.total)}
                     </p>
                   </div>
-                  <p className="font-bold text-gray-800 tabular-nums shrink-0">
-                    {fmtMoney(r.total)}
+                  <p className="text-[11px] text-gray-400 mt-1 truncate">
+                    {fmtDate(r.date)} · {r.partyName}
+                    {r.originalRef ? ` · vs ${r.originalRef}` : ""} · {r.lineItems.length} items
                   </p>
                 </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs text-gray-500">
-                    {r.lineItems.length} items · GST: {r.gstEnabled ? "Yes" : "No"}
-                  </span>
-                  <div className="flex items-center gap-1">
-                    {deleteAllowed && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(r);
-                        }}
-                        className="p-1.5 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"
-                        title="Delete return"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </div>
+                {deleteAllowed && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(r);
+                    }}
+                    className="p-1.5 rounded hover:bg-rose-50 text-gray-300 hover:text-rose-500 transition shrink-0 -mr-1.5"
+                    title="Delete return"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
             ))}
           </div>

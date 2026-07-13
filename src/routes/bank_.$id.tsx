@@ -8,7 +8,15 @@ import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
 import { downloadCsv } from "@/lib/csv";
 import { downloadElementAsPdf } from "@/lib/pdf";
 import type { BankAccount } from "@/types";
-import { ArrowLeft, Printer, Download, Landmark, AlertCircle } from "lucide-react";
+import {
+  ArrowLeft,
+  Printer,
+  Download,
+  Landmark,
+  AlertCircle,
+  ArrowDownLeft,
+  ArrowUpRight,
+} from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/bank_/$id")({ component: BankStatementPage });
@@ -249,34 +257,53 @@ function BankStatementPage() {
               </div>
             ) : (
               <div className="divide-y divide-gray-100">
-                {rows.map((e, i) => (
-                  <div
-                    key={i}
-                    onClick={e.docId ? () => openRow(e) : undefined}
-                    title={e.docId ? "Open this bill" : undefined}
-                    className={`bg-white p-4 ${e.docId ? "cursor-pointer active:bg-gray-50" : ""}`}
-                  >
-                    <div className="flex items-start justify-between gap-3 mb-1">
-                      <div className="min-w-0">
-                        <p className="font-medium text-gray-800 truncate">{e.type}</p>
-                        <p className="text-xs text-gray-400 mt-0.5 truncate">
-                          {e.date ? fmtDate(e.date) : "—"}
-                        </p>
-                      </div>
-                      <p
-                        className={`font-bold tabular-nums shrink-0 ${e.debit ? "text-rose-600" : e.credit ? "text-emerald-600" : "text-gray-800"}`}
+                {rows.map((e, i) => {
+                  const isCredit = !!e.credit;
+                  const isDebit = !!e.debit;
+                  return (
+                    <div
+                      key={i}
+                      onClick={e.docId ? () => openRow(e) : undefined}
+                      title={e.docId ? "Open this bill" : undefined}
+                      className={`bg-white px-4 py-3 flex items-center gap-3 ${e.docId ? "cursor-pointer active:bg-gray-50" : ""}`}
+                    >
+                      <div
+                        className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 ${isCredit ? "bg-emerald-50 text-emerald-600" : isDebit ? "bg-rose-50 text-rose-600" : "bg-gray-100 text-gray-400"}`}
                       >
-                        {e.debit ? fmtMoney(e.debit) : e.credit ? fmtMoney(e.credit) : "—"}
-                      </p>
+                        {isDebit ? (
+                          <ArrowUpRight className="h-4 w-4" />
+                        ) : (
+                          <ArrowDownLeft className="h-4 w-4" />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="font-semibold text-[13px] text-gray-800 truncate leading-tight">
+                            {e.type}
+                          </p>
+                          <p
+                            className={`font-bold text-[13px] tabular-nums shrink-0 leading-tight ${isDebit ? "text-rose-600" : isCredit ? "text-emerald-600" : "text-gray-800"}`}
+                          >
+                            {isDebit
+                              ? `−${fmtMoney(e.debit)}`
+                              : isCredit
+                                ? `+${fmtMoney(e.credit)}`
+                                : "—"}
+                          </p>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 mt-1">
+                          <p className="text-[11px] text-gray-400 truncate">
+                            {e.date ? fmtDate(e.date) : "—"}
+                            {e.ref ? ` · ${e.ref}` : ""}
+                          </p>
+                          <span className="text-[11px] font-semibold text-gray-500 shrink-0 tabular-nums">
+                            Bal {fmtMoney(e.balance)}
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-xs font-mono text-blue-600 truncate">{e.ref}</span>
-                      <span className="text-xs font-semibold text-gray-500 shrink-0">
-                        Bal: {fmtMoney(e.balance)}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
