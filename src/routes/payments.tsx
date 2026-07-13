@@ -127,24 +127,38 @@ function PaymentsPage() {
     }
     if (!confirm("Delete this payment record? Amounts applied to invoices/bills will be reversed."))
       return;
-    const repo = r.type === "in" ? SalesRepo : PurchaseRepo;
+    // Bail if another device already deleted this payment — the invoice-paid
+    // and bank reversals below are blind atomic decrements, so running them a
+    // second time would reverse the money twice. Reverse from the LIVE record.
+    const live = PaymentRepo.get(r.id);
+    if (!live) {
+      toast.info("This payment was already deleted");
+      refresh();
+      return;
+    }
+    const repo = live.type === "in" ? SalesRepo : PurchaseRepo;
     // Invoice-paid reversal, bank-balance reversal, and the payment removal
     // itself must all land together — a shared batch commits them atomically.
     const batch = newBatch();
-    if (r.allocations?.length) {
-      for (const a of r.allocations) {
+    if (live.allocations?.length) {
+      for (const a of live.allocations) {
         if (repo.get(a.invoiceId)) repo.adjustFieldBatched(batch, a.invoiceId, "paid", -a.amount);
       }
-    } else if (r.ref) {
-      reverseLegacyRefApplication(batch, repo, r.ref, r.amount);
+    } else if (live.ref) {
+      reverseLegacyRefApplication(batch, repo, live.ref, live.amount);
     }
     // Money that was moved onto a specific bank account when this payment
     // was recorded must be moved back off it, or the account balance stays
     // permanently wrong after the payment is deleted.
-    if (r.mode === "bank" && r.bankId && BankRepo.get(r.bankId)) {
-      BankRepo.adjustFieldBatched(batch, r.bankId, "balance", r.type === "in" ? -r.amount : r.amount);
+    if (live.mode === "bank" && live.bankId && BankRepo.get(live.bankId)) {
+      BankRepo.adjustFieldBatched(
+        batch,
+        live.bankId,
+        "balance",
+        live.type === "in" ? -live.amount : live.amount,
+      );
     }
-    PaymentRepo.removeBatched(batch, r.id);
+    PaymentRepo.removeBatched(batch, live.id);
     commitBatch(batch, "delete payment");
     refresh();
     toast.success("Payment deleted");

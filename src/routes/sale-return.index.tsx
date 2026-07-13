@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { SaleReturnRepo, ItemRepo } from "@/repositories";
+import { newBatch, commitBatch } from "@/repositories/base";
 import type { Return } from "@/types";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { Plus, CornerDownLeft, Trash2 } from "lucide-react";
@@ -34,12 +35,23 @@ function SaleReturnPage() {
       !confirm(`Delete return ${r.number}? Returned quantities will be removed from stock again.`)
     )
       return;
-    // Reverse the stock addition this sale return made
-    for (const l of r.lineItems) {
-      const it = ItemRepo.get(l.itemId);
-      if (it) ItemRepo.adjustField(it.id, "stock", -l.qty);
+    // Bail if another device already deleted it — the stock reversal is a
+    // blind atomic increment, so running it twice would double-adjust stock.
+    const live = SaleReturnRepo.get(r.id);
+    if (!live) {
+      toast.info(`Return ${r.number} was already deleted`);
+      refresh();
+      return;
     }
-    SaleReturnRepo.remove(r.id);
+    // Stock reversal and the delete must land together as one atomic write —
+    // previously these were separate calls, so a failure between them left
+    // stock reversed with the return still present (or vice versa).
+    const batch = newBatch();
+    for (const l of live.lineItems) {
+      if (ItemRepo.get(l.itemId)) ItemRepo.adjustFieldBatched(batch, l.itemId, "stock", -l.qty);
+    }
+    SaleReturnRepo.removeBatched(batch, live.id);
+    commitBatch(batch, "delete sale return");
     refresh();
     toast.success("Sale return deleted — stock adjusted");
   };

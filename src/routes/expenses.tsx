@@ -39,14 +39,23 @@ function ExpensesPage() {
       return;
     }
     if (confirm("Delete expense?")) {
+      // Bail if another device already deleted it — the bank reversal below is
+      // a blind atomic increment, so running it twice would add the money back
+      // to the account twice.
+      const live = ExpenseRepo.get(r.id);
+      if (!live) {
+        toast.info("This expense was already deleted");
+        refresh();
+        return;
+      }
       // Money that was taken off a specific bank account when this
       // expense was recorded must be moved back on, or the account
       // balance stays permanently wrong after the expense is gone.
       const batch = newBatch();
-      if (r.paymentMode === "bank" && r.bankId && BankRepo.get(r.bankId)) {
-        BankRepo.adjustFieldBatched(batch, r.bankId, "balance", r.amount);
+      if (live.paymentMode === "bank" && live.bankId && BankRepo.get(live.bankId)) {
+        BankRepo.adjustFieldBatched(batch, live.bankId, "balance", live.amount);
       }
-      ExpenseRepo.removeBatched(batch, r.id);
+      ExpenseRepo.removeBatched(batch, live.id);
       commitBatch(batch, "delete expense");
       refresh();
       toast.success("Deleted");

@@ -145,19 +145,30 @@ function PurchasePage() {
       )
     )
       return;
+    // Another device (or a stale row) may have already deleted this bill.
+    // Re-read the live doc and bail if it's gone — the stock/bank reversals
+    // below are blind atomic increments, so running them a second time would
+    // double-remove stock and double-reverse the bank balance. Reverse from
+    // the LIVE doc, not the possibly-stale list row.
+    const live = PurchaseRepo.get(r.id);
+    if (!live) {
+      toast.info(`Bill ${r.number} was already deleted`);
+      refresh();
+      return;
+    }
     // Stock restore, payment unlinking, and the bill delete must land
     // together — a shared batch commits them as one atomic Firestore write.
     const batch = newBatch();
     // Reverse the stock addition this purchase made
-    for (const l of r.lineItems) {
+    for (const l of live.lineItems) {
       const it = ItemRepo.get(l.itemId);
       if (it) ItemRepo.adjustFieldBatched(batch, it.id, "stock", -l.qty);
     }
     // Payments applied to this bill: unlink them so the money stays
     // counted as an advance instead of silently disappearing
     for (const p of PaymentRepo.all()) {
-      if (p.allocations?.some((a) => a.invoiceId === r.id)) {
-        const remaining = p.allocations.filter((a) => a.invoiceId !== r.id);
+      if (p.allocations?.some((a) => a.invoiceId === live.id)) {
+        const remaining = p.allocations.filter((a) => a.invoiceId !== live.id);
         PaymentRepo.updateBatched(batch, p.id, {
           allocations: remaining.length ? remaining : undefined,
         });
@@ -166,10 +177,10 @@ function PurchasePage() {
     // Undo whatever this bill moved out of a specific bank account at
     // billing time, or that account's balance stays permanently wrong
     // after delete.
-    if (r.paymentMode === "bank" && r.bankId && (r.bankPaidAmount ?? 0) > 0) {
-      BankRepo.adjustFieldBatched(batch, r.bankId, "balance", r.bankPaidAmount!);
+    if (live.paymentMode === "bank" && live.bankId && (live.bankPaidAmount ?? 0) > 0) {
+      BankRepo.adjustFieldBatched(batch, live.bankId, "balance", live.bankPaidAmount!);
     }
-    PurchaseRepo.removeBatched(batch, r.id);
+    PurchaseRepo.removeBatched(batch, live.id);
     commitBatch(batch, "delete purchase");
     refresh();
     toast.success("Bill deleted — stock adjusted");

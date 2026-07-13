@@ -642,6 +642,45 @@ export function InvoiceForm({ mode, existing }: Props) {
       }
     }
 
+    // If the bill NUMBER was changed on edit, the records that reference it by
+    // that string (returns via originalRef, and payments via their allocation
+    // display number / legacy ref) would otherwise point at a number that no
+    // longer exists — the return's over-return cap silently stops matching and
+    // the linked-invoice display goes stale. Cascade the rename to them in the
+    // same batch. (Payment MATH keys on invoiceId, so balances stay correct
+    // regardless; this keeps the human-readable links right too.)
+    if (existing?.id) {
+      const oldNum = (existing.number ?? "").trim();
+      const newNum = finalInv.number;
+      if (oldNum && oldNum !== newNum) {
+        const retRepo = isSale ? SaleReturnRepo : PurchaseReturnRepo;
+        for (const ret of retRepo.all()) {
+          if ((ret.originalRef ?? "").trim() === oldNum) {
+            retRepo.updateBatched(batch, ret.id, { originalRef: newNum });
+          }
+        }
+        for (const p of PaymentRepo.all()) {
+          let changed = false;
+          let allocations = p.allocations;
+          if (p.allocations?.some((a) => a.invoiceId === existing.id)) {
+            allocations = p.allocations.map((a) =>
+              a.invoiceId === existing.id ? { ...a, number: newNum } : a,
+            );
+            changed = true;
+          }
+          let ref = p.ref;
+          if (p.ref) {
+            const tokens = p.ref.split(",").map((t) => t.trim());
+            if (tokens.includes(oldNum)) {
+              ref = tokens.map((t) => (t === oldNum ? newNum : t)).join(", ");
+              changed = true;
+            }
+          }
+          if (changed) PaymentRepo.updateBatched(batch, p.id, { allocations, ref });
+        }
+      }
+    }
+
     let savedId: string;
     if (existing?.id) {
       repo.updateBatched(batch, existing.id, finalInv);
