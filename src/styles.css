@@ -50,13 +50,15 @@
 
   /* Mobile bottom tab bar: row height + safe-area clearance, defined ONCE so
      the bar itself (MobileBottomNav) and the content padding that makes room
-     for it (AppShell's <main>) can never drift apart. The safe-area inset is
-     trimmed by 12px — the full iPhone inset (~34px) below an already-padded
-     60px row read as a band of dead space in the installed app; the row's
-     own inner padding provides part of the clearance, so the bar only needs
-     the remainder to stay clear of the home-indicator gesture area. */
+     for it (AppShell's <main>) can never drift apart. Use the FULL
+     safe-area-inset so the bar's own white background fills the entire
+     home-indicator zone down to the physical screen edge — trimming it (as a
+     previous build did) left the bar's white ending early and the page's
+     cream background showing through below the tabs, which read as a broken
+     gap rather than a footer. A solid white bar to the edge is the native
+     iOS/Android tab-bar look. */
   --mobile-nav-height: 52px;
-  --mobile-nav-safe: max(0px, calc(env(safe-area-inset-bottom, 0px) - 12px));
+  --mobile-nav-safe: env(safe-area-inset-bottom, 0px);
 
   --background: oklch(0.985 0.004 60);
   --foreground: oklch(0.22 0.02 25);
