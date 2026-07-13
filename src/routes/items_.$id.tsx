@@ -170,7 +170,7 @@ function ItemDetailPage() {
               {item.name}
             </h1>
             <p className="text-[12px] text-gray-400">
-              {item.category || "No category"} · Unit: {item.unit} · Item History
+              {item.category || "No category"} · Unit: {item.unit}
             </p>
           </div>
         </div>
