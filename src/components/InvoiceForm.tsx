@@ -50,7 +50,11 @@ export function InvoiceForm({ mode, existing }: Props) {
   const company = CompanyRepo.get();
   const isSale = mode === "sale";
   const repo = isSale ? SalesRepo : PurchaseRepo;
-  const partyFilter = (_p: Party) => true;
+  // Archived parties are hidden from the picker (no NEW transactions for
+  // them) — but the full `allParties` list is still used for save-time dedup
+  // below, so typing an archived party's exact name still reuses (and
+  // auto-restores) it instead of creating a duplicate.
+  const partyFilter = (p: Party) => !p.archived;
 
   const [inv, setInv] = useState<Invoice>(
     () =>
@@ -521,6 +525,13 @@ export function InvoiceForm({ mode, existing }: Props) {
     } else {
       partyId = party.id;
       partyName = party.name;
+      // Reusing an archived party for a new transaction means they're active
+      // again — restore them in the same batch so they reappear in pickers and
+      // the active list (matches Zoho/QuickBooks "reactivate on use").
+      if (PartyRepo.get(partyId)?.archived) {
+        PartyRepo.updateBatched(batch, partyId, { archived: false });
+        setAllParties(PartyRepo.all());
+      }
     }
 
     const finalInv: Invoice = {

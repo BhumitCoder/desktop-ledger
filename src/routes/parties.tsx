@@ -19,7 +19,7 @@ import { Field } from "@/components/Field";
 import { NumField } from "@/components/NumInput";
 import { fmtMoney } from "@/lib/format";
 import { partyBalances } from "@/lib/ledger";
-import { Plus, Search, Pencil, FileText, Users, AlertTriangle } from "lucide-react";
+import { Plus, Search, Pencil, FileText, Users, AlertTriangle, Archive, ArchiveRestore, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { usePermissions } from "@/hooks/usePermissions";
 
@@ -29,16 +29,19 @@ function PartiesPage() {
   const navigate = useNavigate();
   const searchRef = useRef<HTMLInputElement>(null);
   useAutoFocusOnDesktop(searchRef);
-  const { isOwner, canEdit, canDelete } = usePermissions();
+  const { isOwner, canEdit } = usePermissions();
   const editAllowed = isOwner || canEdit("masterData");
-  const deleteAllowed = isOwner || canDelete("masterData");
   const [rows, setRows] = useState<Party[]>([]);
   const [q, setQ] = useState("");
+  const [view, setView] = useState<"active" | "archived">("active");
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<Party | null>(null);
 
   const refresh = () => setRows(PartyRepo.all());
   useEffect(refresh, []);
+
+  const activeCount = rows.filter((r) => !r.archived).length;
+  const archivedCount = rows.filter((r) => r.archived).length;
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -53,6 +56,11 @@ function PartiesPage() {
   }, []);
 
   const filtered = rows.filter((r) => {
+    // Active/Archived are two separate views of the same list. Archived
+    // parties stay fully in the books (dashboard, reports, statements read
+    // every party) — they're just hidden from this default "active" view and
+    // from new-transaction pickers.
+    if (view === "active" ? !!r.archived : !r.archived) return false;
     const s = q.toLowerCase();
     return !s || r.name.toLowerCase().includes(s) || r.phone?.includes(s);
   });
@@ -81,6 +89,50 @@ function PartiesPage() {
   // the table, so an all-party total next to a filtered count would lie.
   const receivable = filtered.reduce((a, p) => a + (receivableByParty.get(p.id) ?? 0), 0);
   const payable = filtered.reduce((a, p) => a + (payableByParty.get(p.id) ?? 0), 0);
+
+  // Archive = soft-delete (the recommended action). Just a flag update, so it
+  // commits offline and orphans nothing — every document referencing this
+  // party keeps working.
+  const archiveParty = (r: Party) => {
+    PartyRepo.update(r.id, { archived: true });
+    refresh();
+    toast.success(`${r.name} archived — hidden from new transactions, history kept`);
+  };
+  const restoreParty = (r: Party) => {
+    PartyRepo.update(r.id, { archived: false });
+    refresh();
+    toast.success(`${r.name} restored`);
+  };
+
+  const partyHasHistory = (r: Party) =>
+    SalesRepo.all().some((i) => i.partyId === r.id) ||
+    PurchaseRepo.all().some((i) => i.partyId === r.id) ||
+    SaleReturnRepo.all().some((i) => i.partyId === r.id) ||
+    PurchaseReturnRepo.all().some((i) => i.partyId === r.id) ||
+    PaymentRepo.all().some((i) => i.partyId === r.id);
+
+  // Permanent delete is the rare exception, not the norm. Owner-only: only the
+  // owner hydrates every collection, so the history check is reliable — a
+  // permission-scoped user might have some collections unloaded and get a
+  // false "no history". Also requires a zero opening balance, since that is
+  // real outstanding money the history check alone wouldn't catch.
+  const permanentlyDelete = (r: Party) => {
+    if (!isOwner) {
+      toast.error("Only the owner can permanently delete a party. Use Archive instead.");
+      return;
+    }
+    if (partyHasHistory(r) || (r.openingBalance ?? 0) !== 0) {
+      toast.error(
+        "This party contains accounting history and cannot be permanently deleted. Archive it instead.",
+      );
+      return;
+    }
+    if (confirm(`Permanently delete ${r.name}? This cannot be undone.`)) {
+      PartyRepo.remove(r.id);
+      refresh();
+      toast.success("Party permanently deleted");
+    }
+  };
 
   const columns: Column<Party>[] = [
     {
@@ -149,6 +201,45 @@ function PartiesPage() {
               <Pencil className="h-3.5 w-3.5" />
             </button>
           )}
+          {editAllowed &&
+            (r.archived ? (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  restoreParty(r);
+                }}
+                className="p-1 rounded hover:bg-emerald-50 text-gray-400 hover:text-emerald-600 transition"
+                title="Restore party"
+              >
+                <ArchiveRestore className="h-3.5 w-3.5" />
+              </button>
+            ) : (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  archiveParty(r);
+                }}
+                className="p-1 rounded hover:bg-amber-50 text-gray-400 hover:text-amber-600 transition"
+                title="Archive party"
+              >
+                <Archive className="h-3.5 w-3.5" />
+              </button>
+            ))}
+          {/* Permanent delete: owner-only, and only meaningful for a party
+              with no accounting history — permanentlyDelete enforces both and
+              explains via toast when it's blocked. */}
+          {isOwner && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                permanentlyDelete(r);
+              }}
+              className="p-1 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-600 transition"
+              title="Permanently delete (only if no history)"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
         </span>
       ),
     },
@@ -162,6 +253,20 @@ function PartiesPage() {
         icon={<Users className="h-5 w-5" />}
         actions={
           <>
+            <div className="inline-flex rounded-md border border-gray-200 bg-white overflow-hidden shrink-0">
+              <button
+                onClick={() => setView("active")}
+                className={`h-8 px-3 text-xs font-semibold transition ${view === "active" ? "bg-primary text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}
+              >
+                Active ({activeCount})
+              </button>
+              <button
+                onClick={() => setView("archived")}
+                className={`h-8 px-3 text-xs font-semibold transition ${view === "archived" ? "bg-primary text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}
+              >
+                Archived ({archivedCount})
+              </button>
+            </div>
             <div className="relative w-full sm:w-44 lg:w-56">
               <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
@@ -233,9 +338,50 @@ function PartiesPage() {
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
                     )}
+                    {editAllowed &&
+                      (r.archived ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            restoreParty(r);
+                          }}
+                          className="p-1.5 rounded hover:bg-emerald-50 text-gray-400 hover:text-emerald-600 transition"
+                          title="Restore party"
+                        >
+                          <ArchiveRestore className="h-3.5 w-3.5" />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            archiveParty(r);
+                          }}
+                          className="p-1.5 rounded hover:bg-amber-50 text-gray-400 hover:text-amber-600 transition"
+                          title="Archive party"
+                        >
+                          <Archive className="h-3.5 w-3.5" />
+                        </button>
+                      ))}
+                    {isOwner && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          permanentlyDelete(r);
+                        }}
+                        className="p-1.5 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-600 transition"
+                        title="Permanently delete (only if no history)"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-4 text-xs">
+                  {r.archived && (
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-600 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                      Archived
+                    </span>
+                  )}
                   {(receivableByParty.get(r.id) ?? 0) > 0 && (
                     <span>
                       <span className="text-gray-400">Receivable </span>
@@ -276,36 +422,10 @@ function PartiesPage() {
           activateOnClick
           onRowActivate={(r) => navigate({ to: "/parties/$id", params: { id: r.id } })}
           onDelete={(r) => {
-            // Ctrl+Delete reaches this directly, bypassing whatever button
-            // is or isn't shown — the real enforcement is Firestore rules,
-            // but this check keeps the attempt from ever reaching the
-            // network for someone who can already see they lack delete
-            // access, instead of a confusing rejected-write toast.
-            if (!deleteAllowed) {
-              toast.error("You don't have permission to delete parties");
-              return;
-            }
-            // A party with any history must never be removable — old
-            // invoices/payments would keep referencing a partyId that
-            // resolves to nothing, making their statement/edit/reminder
-            // permanently inaccessible while dashboard totals still count them.
-            const hasHistory =
-              SalesRepo.all().some((i) => i.partyId === r.id) ||
-              PurchaseRepo.all().some((i) => i.partyId === r.id) ||
-              SaleReturnRepo.all().some((i) => i.partyId === r.id) ||
-              PurchaseReturnRepo.all().some((i) => i.partyId === r.id) ||
-              PaymentRepo.all().some((i) => i.partyId === r.id);
-            if (hasHistory) {
-              toast.error(
-                `Cannot delete ${r.name} — it has invoices, returns, or payments on record`,
-              );
-              return;
-            }
-            if (confirm(`Delete ${r.name}?`)) {
-              PartyRepo.remove(r.id);
-              refresh();
-              toast.success("Party deleted");
-            }
+            // Ctrl+Delete reaches this directly, bypassing the row buttons —
+            // route it through the same owner-only, no-history, zero-opening
+            // -balance guard so the keyboard path can't skip the checks.
+            permanentlyDelete(r);
           }}
         />
       </div>
@@ -359,7 +479,11 @@ export function PartyDialog({
       (p) => p.name.trim().toLowerCase() === form.name!.trim().toLowerCase() && p.id !== party?.id,
     );
     if (dup) {
-      toast.error(`Party "${dup.name}" already exists — repeat parties cannot be added`);
+      toast.error(
+        dup.archived
+          ? `"${dup.name}" is in Archived — restore it instead of creating a duplicate`
+          : `Party "${dup.name}" already exists — repeat parties cannot be added`,
+      );
       return;
     }
     setSaving(true);

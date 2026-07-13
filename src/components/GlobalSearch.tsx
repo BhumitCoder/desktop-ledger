@@ -73,6 +73,11 @@ export function GlobalSearch() {
                 >
                   <Users className="h-3.5 w-3.5" />
                   {p.name}
+                  {p.archived && (
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-600 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                      Archived
+                    </span>
+                  )}
                   <span className="ml-auto text-xs text-muted-foreground">{p.phone}</span>
                 </CommandItem>
               ))}

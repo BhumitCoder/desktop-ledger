@@ -10,7 +10,7 @@ import {
   BankRepo,
 } from "@/repositories";
 import { newBatch, commitBatch } from "@/repositories/base";
-import type { Payment, PaymentAllocation, PaymentMode, Invoice, BankAccount } from "@/types";
+import type { Payment, PaymentAllocation, PaymentMode, Invoice, BankAccount, Party } from "@/types";
 import { fmtMoney, fmtDate, today } from "@/lib/format";
 import { partyBalances } from "@/lib/ledger";
 import {
@@ -520,7 +520,7 @@ function ReceivePaymentDialog({
   // party created by an earlier payment in this same session (e.g. a
   // walk-in customer typed by name) would never show up in the dedupe
   // lookup or the search suggestions, creating a duplicate Party record.
-  const [allParties, setAllParties] = useState<{ id: string; name: string }[]>([]);
+  const [allParties, setAllParties] = useState<Party[]>([]);
 
   const [partyQ, setPartyQ] = useState("");
   const [partyOpen, setPartyOpen] = useState(false);
@@ -539,9 +539,12 @@ function ReceivePaymentDialog({
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
 
+  // Archived parties are hidden from the picker; the full `allParties` list is
+  // still used for save-time dedup (which auto-restores an archived match).
+  const activeParties = allParties.filter((p) => !p.archived);
   const suggests = partyQ.trim()
-    ? allParties.filter((p) => p.name.toLowerCase().includes(partyQ.toLowerCase())).slice(0, 6)
-    : allParties.slice(0, 6);
+    ? activeParties.filter((p) => p.name.toLowerCase().includes(partyQ.toLowerCase())).slice(0, 6)
+    : activeParties.slice(0, 6);
 
   const bankSuggests = bankQ.trim()
     ? banks.filter(
@@ -719,6 +722,11 @@ function ReceivePaymentDialog({
         partyId = match?.id ?? genId();
         if (!match)
           PartyRepo.addBatched(batch, { id: partyId, name: partyName, type: "both", openingBalance: 0 });
+      }
+      // Recording a payment against an archived party reactivates them — restore
+      // in the same batch (matches the sale/purchase/return forms).
+      if (partyId && PartyRepo.get(partyId)?.archived) {
+        PartyRepo.updateBatched(batch, partyId, { archived: false });
       }
 
       const repo = isIn ? SalesRepo : PurchaseRepo;

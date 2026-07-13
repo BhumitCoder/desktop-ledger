@@ -127,11 +127,15 @@ export function ReturnForm({ mode }: Props) {
   };
 
   const partySuggests = useMemo(() => {
+    // Archived parties are hidden from the picker; `allParties` stays full for
+    // save-time dedup, which auto-restores an archived match instead of
+    // creating a duplicate.
+    const active = allParties.filter((p) => !p.archived);
     const q = partyQ.trim().toLowerCase();
     // Empty query — browse the full party list (like a combobox), instead
     // of showing nothing until the user starts typing.
-    if (!q) return allParties.slice(0, 8);
-    return allParties.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 8);
+    if (!q) return active.slice(0, 8);
+    return active.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 8);
   }, [partyQ, allParties]);
 
   useEffect(() => {
@@ -243,6 +247,11 @@ export function ReturnForm({ mode }: Props) {
     } else {
       partyId = party.id;
       partyName = party.name;
+      // Reusing an archived party means they're active again — restore in the
+      // same batch (matches the sale/purchase form's behaviour).
+      if (PartyRepo.get(partyId)?.archived) {
+        PartyRepo.updateBatched(batch, partyId, { archived: false });
+      }
     }
 
     const finalRet: Return = { ...ret, partyId, partyName, createdAt: new Date().toISOString() };

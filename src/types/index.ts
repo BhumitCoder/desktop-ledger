@@ -11,6 +11,12 @@ export interface Party {
   shippingAddress?: string;
   openingBalance: number;
   creditLimit?: number;
+  /** Soft-delete flag. An archived party is hidden from new-transaction
+   * pickers and the active parties list, but its document is kept so every
+   * existing invoice/payment/return, ledger, statement, report and dashboard
+   * total that references it stays intact. Absence of the field means active
+   * — so every party that predates this feature is active automatically. */
+  archived?: boolean;
   createdAt: string;
 }
 
