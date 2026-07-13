@@ -13,7 +13,16 @@ import { usePagination, PaginationBar } from "@/components/Pagination";
 import { ItemDialog, StockAdjustDialog } from "./items";
 import { usePermissions } from "@/hooks/usePermissions";
 import type { Item, Invoice, Return } from "@/types";
-import { ArrowLeft, Package, Pencil, ArrowUpDown, AlertCircle, TrendingUp } from "lucide-react";
+import {
+  ArrowLeft,
+  Package,
+  Pencil,
+  ArrowUpDown,
+  AlertCircle,
+  TrendingUp,
+  ArrowDownLeft,
+  ArrowUpRight,
+} from "lucide-react";
 
 export const Route = createFileRoute("/items_/$id")({ component: ItemDetailPage });
 
@@ -244,42 +253,48 @@ function ItemDetailPage() {
               <p className="text-center py-14 text-gray-400">No transactions for this item yet</p>
             ) : (
               <div className="divide-y divide-gray-100">
-                {pg.paged.map((e, i) => (
-                  <div
-                    key={i}
-                    onClick={() => openRow(e)}
-                    className={`p-4 ${e.docId ? "cursor-pointer active:bg-gray-50" : ""}`}
-                  >
-                    <div className="flex items-start justify-between gap-3 mb-1.5">
-                      <div className="min-w-0">
-                        <span
-                          className={`inline-block text-[11px] font-semibold px-2 py-0.5 rounded-full border ${e.qtyIn > 0 ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-rose-50 text-rose-700 border-rose-200"}`}
-                        >
+                {pg.paged.map((e, i) => {
+                  const isIn = e.qtyIn > 0;
+                  return (
+                    <div
+                      key={i}
+                      onClick={() => openRow(e)}
+                      className={`flex items-center gap-3 px-4 py-3 ${e.docId ? "cursor-pointer active:bg-gray-50" : ""}`}
+                    >
+                      {/* Tinted in/out marker — green = stock came in (purchase /
+                          sale return), red = stock went out (sale / purchase return) */}
+                      <div
+                        className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 ${isIn ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"}`}
+                      >
+                        {isIn ? (
+                          <ArrowDownLeft className="h-4 w-4" />
+                        ) : (
+                          <ArrowUpRight className="h-4 w-4" />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-[13px] text-gray-800 truncate leading-tight">
                           {e.type}
-                        </span>
-                        <p className="text-xs text-gray-400 mt-1 truncate">
-                          {fmtDate(e.date)} · {e.party}
+                        </p>
+                        <p className="text-[11px] text-gray-400 truncate mt-0.5">
+                          {fmtDate(e.date)}
+                          {e.party ? ` · ${e.party}` : ""}
+                          {e.rate != null ? ` · Rate ${fmtMoney(e.rate)}` : ""}
                         </p>
                       </div>
-                      {e.ref && <p className="font-mono text-xs text-blue-600 shrink-0">{e.ref}</p>}
+                      <div className="text-right shrink-0">
+                        <p
+                          className={`font-bold tabular-nums text-[13px] leading-tight ${isIn ? "text-emerald-600" : "text-rose-600"}`}
+                        >
+                          {isIn ? `+${e.qtyIn}` : `−${e.qtyOut}`} {item.unit}
+                        </p>
+                        {e.ref && (
+                          <p className="font-mono text-[10px] text-blue-500 mt-0.5">{e.ref}</p>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-4 text-xs">
-                      <span className="text-gray-500">
-                        Rate {e.rate != null ? fmtMoney(e.rate) : "—"}
-                      </span>
-                      {e.qtyIn > 0 && (
-                        <span className="text-emerald-600 font-semibold tabular-nums">
-                          +{e.qtyIn} in
-                        </span>
-                      )}
-                      {e.qtyOut > 0 && (
-                        <span className="text-rose-600 font-semibold tabular-nums">
-                          −{e.qtyOut} out
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
