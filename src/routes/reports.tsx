@@ -1196,19 +1196,14 @@ function TableReport({
           </table>
         </div>
         {totalRows.length > 0 && (
-          <div className="border-t border-gray-200/80 bg-gray-50/60 px-4 py-3.5 grid grid-cols-2 sm:flex sm:flex-wrap gap-x-8 gap-y-3">
+          <div className="border-t border-gray-200/80 bg-gray-50/60 px-4 sm:px-5 py-1">
             {totalRows.map(([k, v], i) => (
-              <div key={i} className="min-w-0">
-                {k && (
-                  <p className="text-[10px] uppercase tracking-wide text-gray-400 leading-none mb-1.5">
-                    {k}
-                  </p>
-                )}
-                <p
-                  className={`text-[15px] font-bold tabular-nums leading-none truncate ${totalTone(k)}`}
-                >
-                  {v}
-                </p>
+              <div
+                key={i}
+                className={`flex items-center justify-between gap-4 py-2.5 ${i > 0 ? "border-t border-gray-100" : ""}`}
+              >
+                <span className="text-[12px] font-medium text-gray-500">{k}</span>
+                <span className={`text-[14px] font-bold tabular-nums ${totalTone(k)}`}>{v}</span>
               </div>
             ))}
           </div>
