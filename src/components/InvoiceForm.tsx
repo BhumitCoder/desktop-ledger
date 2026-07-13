@@ -250,28 +250,37 @@ export function InvoiceForm({ mode, existing }: Props) {
     setTimeout(() => partyRef.current?.focus(), 30);
   };
 
-  // Every past bill where this party bought/sold this exact item, most
-  // recent first — many shops negotiate a standing rate per customer/item
-  // that doesn't match the catalog price, so seeing (and re-using) the last
-  // few prices charged beats re-typing it from memory every time.
-  const partyItemHistory = (
-    itemId: string,
-    partyId: string,
-  ): { date: string; qty: number; price: number }[] => {
-    if (!partyId) return [];
-    const rows: { date: string; created: string; qty: number; price: number }[] = [];
+  // Every past bill where this party bought/sold each item, most recent
+  // first — many shops negotiate a standing rate per customer/item that
+  // doesn't match the catalog price, so seeing (and re-using) the last few
+  // prices charged beats re-typing it from memory every time. Indexed once
+  // per selected party: the render path asks for this per line row on every
+  // keystroke, and a fresh scan of every invoice each time made typing lag
+  // once the shop had a few thousand bills.
+  const partyHistoryIndex = useMemo(() => {
+    const map = new Map<string, { date: string; created: string; qty: number; price: number }[]>();
+    if (!inv.partyId) return map;
     for (const doc of repo.all()) {
-      if (doc.partyId !== partyId) continue;
+      if (doc.partyId !== inv.partyId) continue;
       for (const l of doc.lineItems) {
-        if (l.itemId === itemId) rows.push({ date: doc.date, created: doc.createdAt || "", qty: l.qty, price: l.price });
+        let rows = map.get(l.itemId);
+        if (!rows) map.set(l.itemId, (rows = []));
+        rows.push({ date: doc.date, created: doc.createdAt || "", qty: l.qty, price: l.price });
       }
     }
-    rows.sort((a, b) => b.date.localeCompare(a.date) || b.created.localeCompare(a.created));
-    return rows.slice(0, 5).map(({ date, qty, price }) => ({ date, qty, price }));
-  };
+    for (const rows of map.values())
+      rows.sort((a, b) => b.date.localeCompare(a.date) || b.created.localeCompare(a.created));
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inv.partyId, repo]);
 
-  const lastPartyPrice = (itemId: string, partyId: string): number | undefined =>
-    partyItemHistory(itemId, partyId)[0]?.price;
+  const partyItemHistory = (itemId: string): { date: string; qty: number; price: number }[] =>
+    (partyHistoryIndex.get(itemId) ?? [])
+      .slice(0, 5)
+      .map(({ date, qty, price }) => ({ date, qty, price }));
+
+  const lastPartyPrice = (itemId: string): number | undefined =>
+    partyHistoryIndex.get(itemId)?.[0]?.price;
 
   // Returns the id of the line that was added/updated, so the caller can move
   // focus straight to that row's Qty field for fast entry.
@@ -283,7 +292,7 @@ export function InvoiceForm({ mode, existing }: Props) {
       toast.info(`${it.name} — quantity increased to ${existingLine.qty + 1}`);
       return existingLine.id;
     }
-    const historicalPrice = lastPartyPrice(it.id, inv.partyId);
+    const historicalPrice = lastPartyPrice(it.id);
     const line: LineItem = {
       id: genId(),
       itemId: it.id,
@@ -419,7 +428,7 @@ export function InvoiceForm({ mode, existing }: Props) {
       toast.info(`${it.name} — merged into existing line, quantity increased to ${mergedQty}`);
       return dup.id;
     }
-    const historicalPrice = lastPartyPrice(it.id, inv.partyId);
+    const historicalPrice = lastPartyPrice(it.id);
     updateLine(lineId, {
       itemId: it.id,
       name: it.name,
@@ -427,6 +436,10 @@ export function InvoiceForm({ mode, existing }: Props) {
       gstRate: it.gstRate,
       price: historicalPrice ?? (isSale ? it.salePrice || it.purchasePrice : it.purchasePrice),
       costPrice: it.purchasePrice,
+      // The old item's foreign price must not survive the swap — a later
+      // exchange-rate change re-prices every line that still has one, which
+      // would overwrite the new item's price with the OLD item's landed cost.
+      foreignPrice: undefined,
     });
     return lineId;
   };
@@ -1110,7 +1123,7 @@ export function InvoiceForm({ mode, existing }: Props) {
                         <PriceHistoryCell
                           value={l.price}
                           onValue={(n) => updateLine(l.id, { price: n })}
-                          history={partyItemHistory(l.itemId, inv.partyId)}
+                          history={partyItemHistory(l.itemId)}
                           partyName={inv.partyName}
                           isSale={isSale}
                         />

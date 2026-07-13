@@ -75,10 +75,12 @@ function PartiesPage() {
     rows.filter((p) => p.type !== "customer"),
     "supplier",
   );
-  const receivable = customerBalances.reduce((a, b) => a + Math.max(0, b.balance), 0);
-  const payable = supplierBalances.reduce((a, b) => a + Math.max(0, b.balance), 0);
   const receivableByParty = new Map(customerBalances.map((b) => [b.partyId, Math.max(0, b.balance)]));
   const payableByParty = new Map(supplierBalances.map((b) => [b.partyId, Math.max(0, b.balance)]));
+  // Footer totals cover the same rows the table shows — searching narrows
+  // the table, so an all-party total next to a filtered count would lie.
+  const receivable = filtered.reduce((a, p) => a + (receivableByParty.get(p.id) ?? 0), 0);
+  const payable = filtered.reduce((a, p) => a + (payableByParty.get(p.id) ?? 0), 0);
 
   const columns: Column<Party>[] = [
     {

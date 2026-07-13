@@ -267,6 +267,15 @@ function DaybookPage() {
     rows.filter((r) => r.cash < 0).reduce((s, r) => s + r.cash, 0),
   );
 
+  // Table footers cover the same rows the table shows — the whole-day
+  // figures above stay on the KPI cards / Excel export, but next to a
+  // search-filtered row count they'd lie.
+  const footerNet = filteredRows.reduce((s, r) => s + r.cash, 0);
+  const footerMoneyIn = filteredRows.filter((r) => r.cash > 0).reduce((s, r) => s + r.cash, 0);
+  const footerMoneyOut = Math.abs(
+    filteredRows.filter((r) => r.cash < 0).reduce((s, r) => s + r.cash, 0),
+  );
+
   // Page size deliberately generous (100, vs. the usual 25/50) — this table
   // is also the exact snapshot the PDF/print export captures, so pagination
   // must never silently cut a busy day's transactions out of that export. A
@@ -639,7 +648,7 @@ function DaybookPage() {
               {filteredRows.length > 0 && (
                 <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-t text-xs font-bold text-gray-600">
                   <span>Total ({filteredRows.length})</span>
-                  <span className="tabular-nums">{fmtMoney(net)}</span>
+                  <span className="tabular-nums">{fmtMoney(footerNet)}</span>
                 </div>
               )}
             </div>
@@ -693,9 +702,9 @@ function DaybookPage() {
                 <tfoot>
                   <tr>
                     <td colSpan={5}>Total ({filteredRows.length} transactions)</td>
-                    <td className="text-right tabular-nums">{fmtMoney(net)}</td>
-                    <td className="text-right tabular-nums">{fmtMoney(totalMoneyIn)}</td>
-                    <td className="text-right tabular-nums">{fmtMoney(totalMoneyOut)}</td>
+                    <td className="text-right tabular-nums">{fmtMoney(footerNet)}</td>
+                    <td className="text-right tabular-nums">{fmtMoney(footerMoneyIn)}</td>
+                    <td className="text-right tabular-nums">{fmtMoney(footerMoneyOut)}</td>
                   </tr>
                 </tfoot>
               )}

@@ -55,14 +55,16 @@ function CashPage() {
     );
   }, [entries, dateFrom, dateTo]);
 
-  const totalIn = dateFiltered.reduce((s, e) => s + e.in, 0);
-  const totalOut = dateFiltered.reduce((s, e) => s + e.out, 0);
-
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return dateFiltered;
     return dateFiltered.filter((e) => [e.type, e.ref].some((v) => v.toLowerCase().includes(s)));
   }, [dateFiltered, q]);
+
+  // Footer In/Out cover the filtered rows the table actually shows (date
+  // range AND search) — `balance` above stays all-time by design.
+  const totalIn = filtered.reduce((s, e) => s + e.in, 0);
+  const totalOut = filtered.reduce((s, e) => s + e.out, 0);
 
   const pg = usePagination(filtered);
 

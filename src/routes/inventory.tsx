@@ -121,15 +121,16 @@ function InventoryPage() {
     },
   ];
 
-  const totalValue = rows.reduce((s, r) => s + r.stock * r.purchasePrice, 0);
-  const lowCount = rows.filter(
-    (r) => (r.minStock != null && r.stock <= r.minStock) || r.stock < 0,
-  ).length;
-
   const filtered = rows.filter((r) => {
     const s = q.toLowerCase();
     return !s || r.name.toLowerCase().includes(s) || r.sku?.toLowerCase().includes(s);
   });
+
+  // Footer totals cover the filtered rows the table actually shows
+  const totalValue = filtered.reduce((s, r) => s + r.stock * r.purchasePrice, 0);
+  const lowCount = filtered.filter(
+    (r) => (r.minStock != null && r.stock <= r.minStock) || r.stock < 0,
+  ).length;
 
   const pg = usePagination(filtered);
 

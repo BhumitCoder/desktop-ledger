@@ -1,4 +1,13 @@
 import { renderPdfServerFn, renderPdfBase64ServerFn } from "@/lib/pdfServer";
+import { auth } from "@/lib/firebase";
+
+/** The render server fns are auth-gated (they'd otherwise be an open
+ * headless-Chromium endpoint) — every call must carry the caller's token. */
+async function requireIdToken(): Promise<string> {
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) throw new Error("Not signed in");
+  return token;
+}
 
 /** Concatenates every same-origin stylesheet the page has already loaded and
  * parsed, so the headless-rendered copy gets the exact same CSS (including
@@ -44,7 +53,12 @@ async function elementToPdfBlob(
   pageWidthMm?: number,
 ): Promise<Blob> {
   const res = await renderPdfServerFn({
-    data: { html: buildPrintableHtml(el), landscape: orientation === "landscape", pageWidthMm },
+    data: {
+      callerIdToken: await requireIdToken(),
+      html: buildPrintableHtml(el),
+      landscape: orientation === "landscape",
+      pageWidthMm,
+    },
   });
   return res.blob();
 }
@@ -57,7 +71,12 @@ export async function elementToPdfBase64(
   pageWidthMm?: number,
 ): Promise<string> {
   const { pdfBase64 } = await renderPdfBase64ServerFn({
-    data: { html: buildPrintableHtml(el), landscape: orientation === "landscape", pageWidthMm },
+    data: {
+      callerIdToken: await requireIdToken(),
+      html: buildPrintableHtml(el),
+      landscape: orientation === "landscape",
+      pageWidthMm,
+    },
   });
   return pdfBase64;
 }

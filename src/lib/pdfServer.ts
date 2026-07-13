@@ -1,7 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { existsSync } from "node:fs";
+import { requireActiveUser } from "@/lib/firebaseAdmin";
 
-type RenderPdfInput = { html: string; landscape: boolean; pageWidthMm?: number };
+type RenderPdfInput = {
+  callerIdToken: string;
+  html: string;
+  landscape: boolean;
+  pageWidthMm?: number;
+};
 
 const LOCAL_CHROME_CANDIDATES = [
   process.env.CHROME_PATH,
@@ -113,8 +119,11 @@ async function renderPdfBuffer(html: string, landscape: boolean, pageWidthMm?: n
 
 const validateRenderInput = (data: unknown): RenderPdfInput => {
   const d = data as Partial<RenderPdfInput>;
-  if (typeof d?.html !== "string" || !d.html) throw new Error("html is required");
+  if (typeof d?.callerIdToken !== "string" || !d.callerIdToken)
+    throw new Error("Not authenticated");
+  if (typeof d.html !== "string" || !d.html) throw new Error("html is required");
   return {
+    callerIdToken: d.callerIdToken,
     html: d.html,
     landscape: !!d.landscape,
     pageWidthMm: typeof d.pageWidthMm === "number" ? d.pageWidthMm : undefined,
@@ -128,6 +137,10 @@ const validateRenderInput = (data: unknown): RenderPdfInput => {
 export const renderPdfServerFn = createServerFn({ method: "POST" })
   .validator(validateRenderInput)
   .handler(async ({ data }) => {
+    // Anyone on the internet can POST to a server fn — without this check
+    // the endpoint was an unauthenticated headless-Chromium-as-a-service
+    // (SSRF via subresource fetches in attacker HTML + free compute).
+    await requireActiveUser(data.callerIdToken);
     const pdf = await renderPdfBuffer(data.html, data.landscape, data.pageWidthMm);
     return new Response(new Blob([new Uint8Array(pdf)], { type: "application/pdf" }), {
       headers: { "Content-Type": "application/pdf" },
@@ -140,6 +153,7 @@ export const renderPdfServerFn = createServerFn({ method: "POST" })
 export const renderPdfBase64ServerFn = createServerFn({ method: "POST" })
   .validator(validateRenderInput)
   .handler(async ({ data }) => {
+    await requireActiveUser(data.callerIdToken);
     const pdf = await renderPdfBuffer(data.html, data.landscape, data.pageWidthMm);
     return { pdfBase64: pdf.toString("base64") };
   });

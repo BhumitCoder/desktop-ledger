@@ -70,8 +70,9 @@ function PaymentsPage() {
 
   const pg = usePagination(filtered);
 
-  const totalIn = rows.filter((r) => r.type === "in").reduce((s, r) => s + r.amount, 0);
-  const totalOut = rows.filter((r) => r.type === "out").reduce((s, r) => s + r.amount, 0);
+  // Footer totals cover the same rows the table shows (tab + search applied)
+  const totalIn = filtered.filter((r) => r.type === "in").reduce((s, r) => s + r.amount, 0);
+  const totalOut = filtered.filter((r) => r.type === "out").reduce((s, r) => s + r.amount, 0);
   const net = totalIn - totalOut;
 
   const openForm = (type: "in" | "out") => {
