@@ -33,17 +33,19 @@ export function MobileBottomNav() {
 
   return (
     // Installed on the home screen (standalone mode), phones with a home
-    // indicator (iPhone X and later) need extra clearance below the tab bar
-    // — otherwise the icons/labels sit right against the gesture area,
-    // making the bottom row cramped and easy to mis-tap. The safe-area
-    // padding goes on the outer nav (so its background still fills all the
-    // way to the screen edge); the actual 60px tab row stays a fixed height
-    // inside it so the icons/labels don't get squeezed by that padding.
+    // indicator (iPhone X and later) need clearance below the tab bar —
+    // otherwise the icons/labels sit right against the gesture area, making
+    // the bottom row easy to mis-tap. Height and (trimmed) safe-area
+    // clearance both come from the :root variables in styles.css, shared
+    // with AppShell's content padding so the two can never drift apart. The
+    // clearance goes on the outer nav (so its background still fills to the
+    // screen edge); the tab row keeps a fixed height inside it so the
+    // icons/labels don't get squeezed by that padding.
     <nav
       className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white border-t border-gray-200"
-      style={{ boxShadow: "0 -2px 10px rgba(0,0,0,0.06)", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+      style={{ boxShadow: "0 -2px 10px rgba(0,0,0,0.06)", paddingBottom: "var(--mobile-nav-safe)" }}
     >
-      <div className="flex items-stretch h-[60px]">
+      <div className="flex items-stretch h-[var(--mobile-nav-height)]">
         <Link to="/" className={tabClass(isActive("/"))}>
           <LayoutDashboard className="h-5 w-5" />
           <span className="text-[10px] font-semibold">Home</span>

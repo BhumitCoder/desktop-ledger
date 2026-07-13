@@ -48,6 +48,16 @@
 :root {
   --radius: 0.5rem;
 
+  /* Mobile bottom tab bar: row height + safe-area clearance, defined ONCE so
+     the bar itself (MobileBottomNav) and the content padding that makes room
+     for it (AppShell's <main>) can never drift apart. The safe-area inset is
+     trimmed by 12px — the full iPhone inset (~34px) below an already-padded
+     60px row read as a band of dead space in the installed app; the row's
+     own inner padding provides part of the clearance, so the bar only needs
+     the remainder to stay clear of the home-indicator gesture area. */
+  --mobile-nav-height: 52px;
+  --mobile-nav-safe: max(0px, calc(env(safe-area-inset-bottom, 0px) - 12px));
+
   --background: oklch(0.985 0.004 60);
   --foreground: oklch(0.22 0.02 25);
   --card: oklch(1 0 0);
