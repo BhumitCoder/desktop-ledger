@@ -55,7 +55,7 @@ function ItemDetailPage() {
     setItem(ItemRepo.get(id) ?? null);
   }, [id, refreshKey]);
 
-  const { rows, soldQty, boughtQty, profit } = useMemo(() => {
+  const { rows, soldQty, profit } = useMemo(() => {
     const entries: HistoryRow[] = [];
     let soldQty = 0;
     let boughtQty = 0;
@@ -239,12 +239,8 @@ function ItemDetailPage() {
       {/* History */}
       <div className="flex-1 overflow-auto p-5">
         <div className="bg-white border rounded-lg shadow-sm overflow-hidden max-w-5xl mx-auto flex flex-col">
-          <div className="px-5 py-3 border-b flex items-center justify-between">
+          <div className="px-5 py-3 border-b">
             <p className="text-sm font-bold text-gray-800">Transaction History</p>
-            <p className="text-[11px] text-gray-400">
-              Opening stock: {item.openingStock} {item.unit} · Purchased: {boughtQty} · Sold:{" "}
-              {soldQty}
-            </p>
           </div>
           {/* Mobile card list — a table of 7 columns doesn't fit a phone;
               this is the same history as one tappable card per entry instead. */}
