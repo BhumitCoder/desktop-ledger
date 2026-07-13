@@ -1028,6 +1028,23 @@ function smartCompare(a: string, b: string): number {
   return a.localeCompare(b);
 }
 
+// Colour cues shared by the report cards — the status column becomes a pill
+// and the summary totals get tinted by what they mean, detected from the text
+// so this stays generic across every differently-shaped report.
+const STATUS_PILL: Record<string, string> = {
+  paid: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  partial: "bg-amber-50 text-amber-700 border-amber-200",
+  unpaid: "bg-rose-50 text-rose-700 border-rose-200",
+  overdue: "bg-rose-50 text-rose-700 border-rose-200",
+};
+const isStatusValue = (v: string) => v.trim().toLowerCase() in STATUS_PILL;
+const totalTone = (k: string) => {
+  const s = k.toLowerCase();
+  if (/outstand|payable|\bdue\b|debit|payable/.test(s)) return "text-rose-600";
+  if (/collect|received/.test(s)) return "text-emerald-600";
+  return "text-gray-800";
+};
+
 function TableReport({
   label,
   cols,
@@ -1106,14 +1123,21 @@ function TableReport({
                 {/* Identifier on the left, the report's last column (status /
                     headline total, depending on the report) emphasised right */}
                 <div className="flex items-center justify-between gap-2 mb-2.5">
-                  <p className="font-semibold text-[13px] text-gray-800 truncate leading-tight">
+                  <p className="font-bold text-[14px] text-gray-800 truncate leading-tight">
                     {row[0]}
                   </p>
-                  {cols.length > 1 && (
-                    <p className="font-bold text-[13px] text-gray-800 tabular-nums shrink-0 leading-tight">
-                      {row[row.length - 1]}
-                    </p>
-                  )}
+                  {cols.length > 1 &&
+                    (isStatusValue(row[row.length - 1]) ? (
+                      <span
+                        className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${STATUS_PILL[row[row.length - 1].trim().toLowerCase()]}`}
+                      >
+                        {row[row.length - 1]}
+                      </span>
+                    ) : (
+                      <p className="font-bold text-[13px] text-gray-800 tabular-nums shrink-0 leading-tight">
+                        {row[row.length - 1]}
+                      </p>
+                    ))}
                 </div>
                 {/* Middle columns as a tidy label/value grid instead of a
                     wrapped run-on line */}
@@ -1180,7 +1204,9 @@ function TableReport({
                     {k}
                   </p>
                 )}
-                <p className="text-[15px] font-bold text-gray-800 tabular-nums leading-none truncate">
+                <p
+                  className={`text-[15px] font-bold tabular-nums leading-none truncate ${totalTone(k)}`}
+                >
                   {v}
                 </p>
               </div>
