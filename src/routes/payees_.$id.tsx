@@ -199,7 +199,7 @@ function PayeeLedgerPage() {
             <Share2 className="h-4 w-4" />
           </button>
           <button
-            onClick={() => printOrEscapeStandalone(pdfName())}
+            onClick={() => printOrEscapeStandalone(pdfName(), undefined, handleDownloadPdf)}
             className="inline-flex items-center gap-1.5 h-8 px-3 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition"
             title="Print"
           >

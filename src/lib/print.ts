@@ -29,7 +29,7 @@ export function printWithName(name: string) {
 /** True when running as an installed/home-screen app rather than a normal
  * browser tab — iOS's `navigator.standalone` for Safari-installed PWAs,
  * `display-mode: standalone` for the cross-browser equivalent. */
-function isStandalone(): boolean {
+export function isStandalone(): boolean {
   return (
     window.matchMedia?.("(display-mode: standalone)").matches === true ||
     (navigator as unknown as { standalone?: boolean }).standalone === true
@@ -53,9 +53,25 @@ function isStandalone(): boolean {
  * the current selection here is what makes the reopened tab print the same
  * thing that was on screen, instead of whatever the URL happened to still
  * say from when the page was first opened.
+ *
+ * `pdfFallback` (the page's existing server-rendered PDF download) replaces
+ * that tab escape entirely when provided. The escape turned out to be broken
+ * in exactly the situation it existed for: on iPhone the home-screen app and
+ * Safari don't share storage, so the escaped tab isn't signed in — it boots
+ * the whole SPA and stops at the login page instead of printing ("click
+ * print → whole site reloads, nothing prints"). A PDF saved from inside the
+ * installed app itself needs no second browser context at all.
  */
-export function printOrEscapeStandalone(name: string, extraParams?: Record<string, string>) {
+export function printOrEscapeStandalone(
+  name: string,
+  extraParams?: Record<string, string>,
+  pdfFallback?: () => void,
+) {
   if (isStandalone()) {
+    if (pdfFallback) {
+      pdfFallback();
+      return;
+    }
     const url = new URL(window.location.href);
     url.searchParams.set("print", "1");
     if (extraParams) {

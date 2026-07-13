@@ -1,13 +1,15 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BankRepo, SalesRepo, PurchaseRepo, PaymentRepo, BankTxnRepo, ExpenseRepo, CompanyRepo } from "@/repositories";
 import { buildBankLedger, type BankLedgerRow } from "@/lib/ledger";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
 import { downloadCsv } from "@/lib/csv";
+import { downloadElementAsPdf } from "@/lib/pdf";
 import type { BankAccount } from "@/types";
 import { ArrowLeft, Printer, Download, Landmark, AlertCircle } from "lucide-react";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/bank_/$id")({ component: BankStatementPage });
 
@@ -23,6 +25,8 @@ function BankStatementPage() {
   const [bank, setBank] = useState<BankAccount | null | undefined>(undefined);
   const [dateFrom, setDateFrom] = useState(() => dateCache?.dateFrom ?? "");
   const [dateTo, setDateTo] = useState(() => dateCache?.dateTo ?? "");
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const printRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setBank(BankRepo.get(id) ?? null);
@@ -105,6 +109,22 @@ function BankStatementPage() {
     downloadCsv(`Passbook-${bank.name}`, allRows[0], allRows.slice(1));
   };
 
+  // Print's standalone-app fallback (see lib/print.ts) — the installed
+  // home-screen app can't open a print dialog, so Print saves this same
+  // passbook as a PDF instead.
+  const handleDownloadPdf = async () => {
+    if (!printRef.current || pdfBusy) return;
+    setPdfBusy(true);
+    try {
+      await downloadElementAsPdf(printRef.current, `Bank-${bank.name.replace(/\s+/g, "-")}`, "portrait");
+      toast.success("Passbook downloaded as PDF");
+    } catch {
+      toast.error("Could not generate PDF — try again once online");
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-[#f5f6fa]">
       {/* Header */}
@@ -138,7 +158,7 @@ function BankStatementPage() {
             <Download className="h-4 w-4" /> Download Excel
           </button>
           <button
-            onClick={() => printOrEscapeStandalone(`Bank-${bank.name.replace(/\s+/g, "-")}`)}
+            onClick={() => printOrEscapeStandalone(`Bank-${bank.name.replace(/\s+/g, "-")}`, undefined, handleDownloadPdf)}
             className="inline-flex items-center gap-1.5 h-8 px-4 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition"
             title="Print, or choose 'Save as PDF' in the print dialog"
           >
@@ -173,7 +193,7 @@ function BankStatementPage() {
 
       {/* Passbook (also the printable area) */}
       <div className="flex-1 overflow-auto p-5">
-        <div className="print-visible bg-white border rounded-lg shadow-sm overflow-hidden max-w-4xl mx-auto print:p-6">
+        <div ref={printRef} className="print-visible bg-white border rounded-lg shadow-sm overflow-hidden max-w-4xl mx-auto print:p-6">
           <div className="px-5 py-3 border-b flex items-center justify-between gap-3 flex-wrap">
             <div>
               <p className="text-sm font-bold text-gray-800">Bank Passbook — {bank.name}</p>

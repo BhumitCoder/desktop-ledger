@@ -247,7 +247,7 @@ function PartyStatementPage() {
     const action = pendingActionRef.current;
     if (!action) return;
     pendingActionRef.current = null;
-    if (action === "print") printOrEscapeStandalone(pdfName());
+    if (action === "print") printOrEscapeStandalone(pdfName(), undefined, handleDownloadPdf);
     else if (action === "download") handleDownloadPdf();
     else if (action === "whatsapp") handleSendWhatsApp();
     else handleShare();

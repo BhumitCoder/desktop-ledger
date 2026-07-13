@@ -198,7 +198,7 @@ function ReportsPage() {
             <Share2 className="h-4 w-4" />
           </button>
           <button
-            onClick={() => printOrEscapeStandalone(reportFilename(), { r: active })}
+            onClick={() => printOrEscapeStandalone(reportFilename(), { r: active }, handleDownloadPdf)}
             className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 h-9 px-3.5 bg-white border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 hover:bg-gray-50 hover:shadow-sm transition"
             title="Print"
           >

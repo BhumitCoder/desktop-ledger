@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { SalesRepo, CompanyRepo } from "@/repositories";
 import type { Invoice, Company, PrintFormat } from "@/types";
 import { fmtMoney } from "@/lib/format";
-import { printWithName, printOrEscapeStandalone } from "@/lib/print";
+import { printWithName, printOrEscapeStandalone, isStandalone } from "@/lib/print";
 import { downloadElementAsPdf } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { useFitScale } from "@/hooks/useFitScale";
@@ -72,12 +72,19 @@ function InvoiceDetailPage() {
     setFmt(c.printFormat ?? "a4");
   }, [id]);
 
-  // Save & Print flow: arrive with ?print=1 → auto-open the print dialog
+  // Save & Print flow: arrive with ?print=1 → auto-open the print dialog.
+  // Inside the installed home-screen app there IS no print dialog
+  // (window.print is a silent no-op there), so fall back to saving the
+  // server-rendered PDF instead — same as the Print button does.
   useEffect(() => {
     if (print && inv) {
-      const t = setTimeout(() => printWithName(inv.number), 500);
+      const t = setTimeout(() => {
+        if (isStandalone()) handleDownloadPdf();
+        else printWithName(inv.number);
+      }, 500);
       return () => clearTimeout(t);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [print, inv]);
 
   const changeFormat = (f: PrintFormat) => {
@@ -243,7 +250,7 @@ function InvoiceDetailPage() {
               <MessageCircle className="h-4 w-4" />
             </button>
             <button
-              onClick={() => printOrEscapeStandalone(inv.number)}
+              onClick={() => printOrEscapeStandalone(inv.number, undefined, handleDownloadPdf)}
               className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 h-8 px-4 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition"
               title="Print"
             >
