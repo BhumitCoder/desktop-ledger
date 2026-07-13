@@ -525,10 +525,12 @@ export function InvoiceForm({ mode, existing }: Props) {
     } else {
       partyId = party.id;
       partyName = party.name;
-      // Reusing an archived party for a new transaction means they're active
-      // again — restore them in the same batch so they reappear in pickers and
-      // the active list (matches Zoho/QuickBooks "reactivate on use").
-      if (PartyRepo.get(partyId)?.archived) {
+      // Reusing an archived party for a NEW bill means they're active again —
+      // restore them in the same batch so they reappear in pickers and the
+      // active list (Zoho/QuickBooks "reactivate on use"). Only on a new bill:
+      // merely editing an OLD bill for an already-archived party must not
+      // silently un-archive it.
+      if (!existing?.id && PartyRepo.get(partyId)?.archived) {
         PartyRepo.updateBatched(batch, partyId, { archived: false });
         setAllParties(PartyRepo.all());
       }

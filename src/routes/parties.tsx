@@ -99,6 +99,21 @@ function PartiesPage() {
     toast.success(`${r.name} archived — hidden from new transactions, history kept`);
   };
   const restoreParty = (r: Party) => {
+    // Same duplicate-name rule the create/edit dialog enforces — restoring must
+    // not leave two ACTIVE parties sharing a name (only possible when a
+    // same-name active party was created while this one was archived).
+    const clash = PartyRepo.all().find(
+      (p) =>
+        p.id !== r.id &&
+        !p.archived &&
+        p.name.trim().toLowerCase() === r.name.trim().toLowerCase(),
+    );
+    if (clash) {
+      toast.error(
+        `An active party named "${clash.name}" already exists — rename it before restoring "${r.name}".`,
+      );
+      return;
+    }
     PartyRepo.update(r.id, { archived: false });
     refresh();
     toast.success(`${r.name} restored`);

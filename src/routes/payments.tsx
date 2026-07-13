@@ -723,9 +723,11 @@ function ReceivePaymentDialog({
         if (!match)
           PartyRepo.addBatched(batch, { id: partyId, name: partyName, type: "both", openingBalance: 0 });
       }
-      // Recording a payment against an archived party reactivates them — restore
-      // in the same batch (matches the sale/purchase/return forms).
-      if (partyId && PartyRepo.get(partyId)?.archived) {
+      // Recording a NEW payment against an archived party reactivates them —
+      // restore in the same batch (matches the sale/purchase form). Only for a
+      // new payment: editing an existing payment whose party is already
+      // archived must not silently un-archive it.
+      if (!editing && partyId && PartyRepo.get(partyId)?.archived) {
         PartyRepo.updateBatched(batch, partyId, { archived: false });
       }
 
