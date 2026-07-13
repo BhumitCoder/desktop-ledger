@@ -38,6 +38,7 @@ import {
   Search,
   Calendar,
   ChevronLeft,
+  ChevronRight,
   SlidersHorizontal,
 } from "lucide-react";
 
@@ -276,12 +277,24 @@ function ReportsPage() {
                   setActive(r.key);
                   setMobileShowReport(true);
                 }}
-                className={`w-full text-left mb-0.5 px-3 py-2.5 rounded-lg flex items-center gap-2.5 transition ${isActive ? "bg-primary-soft text-primary font-semibold" : "hover:bg-gray-50 text-gray-600"}`}
+                className={`w-full text-left mb-1 px-2.5 py-2 rounded-xl flex items-center gap-3 transition ${isActive ? "bg-primary-soft" : "hover:bg-gray-50"}`}
               >
-                <Icon
-                  className={`h-4 w-4 shrink-0 ${isActive ? "text-primary" : "text-gray-400"}`}
-                />
-                <p className="text-[12.5px] truncate">{r.label}</p>
+                <div
+                  className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${isActive ? "bg-primary text-white" : "bg-gray-100 text-gray-500"}`}
+                >
+                  <Icon className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p
+                    className={`text-[13px] truncate ${isActive ? "font-semibold text-primary" : "font-medium text-gray-700"}`}
+                  >
+                    {r.label}
+                  </p>
+                  {/* Description only on the mobile full-width list — the
+                      desktop rail (w-56) is too narrow for it. */}
+                  <p className="md:hidden text-[11px] text-gray-400 truncate mt-0.5">{r.desc}</p>
+                </div>
+                <ChevronRight className="md:hidden h-4 w-4 text-gray-300 shrink-0" />
               </button>
             );
           })}
@@ -1089,22 +1102,34 @@ function TableReport({
         <div className="md:hidden table-report-mobile-cards">
           <div className="divide-y divide-gray-100">
             {sortedRows.map((row, ri) => (
-              <div key={ri} className="p-4">
-                <p className="font-semibold text-gray-800 mb-1">{row[0]}</p>
-                <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500">
-                  {cols.slice(1, -1).map((c, i) => (
-                    <span key={c}>
-                      <span className="text-gray-400">{c}:</span> {row[i + 1]}
-                    </span>
-                  ))}
-                </div>
-                {cols.length > 1 && (
-                  <p className="mt-1.5 text-right font-bold text-gray-800 tabular-nums">
-                    <span className="text-xs font-normal text-gray-400 mr-1">
-                      {cols[cols.length - 1]}:
-                    </span>
-                    {row[row.length - 1]}
+              <div key={ri} className="px-4 py-3">
+                {/* Identifier on the left, the report's last column (status /
+                    headline total, depending on the report) emphasised right */}
+                <div className="flex items-center justify-between gap-2 mb-2.5">
+                  <p className="font-semibold text-[13px] text-gray-800 truncate leading-tight">
+                    {row[0]}
                   </p>
+                  {cols.length > 1 && (
+                    <p className="font-bold text-[13px] text-gray-800 tabular-nums shrink-0 leading-tight">
+                      {row[row.length - 1]}
+                    </p>
+                  )}
+                </div>
+                {/* Middle columns as a tidy label/value grid instead of a
+                    wrapped run-on line */}
+                {cols.length > 2 && (
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                    {cols.slice(1, -1).map((c, i) => (
+                      <div key={c} className="min-w-0">
+                        <p className="text-[9.5px] uppercase tracking-wide text-gray-400 leading-none">
+                          {c}
+                        </p>
+                        <p className="text-[12px] text-gray-700 truncate mt-1 tabular-nums">
+                          {row[i + 1]}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             ))}
