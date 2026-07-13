@@ -1172,13 +1172,17 @@ function TableReport({
           </table>
         </div>
         {totalRows.length > 0 && (
-          <div className="border-t border-gray-200/80 bg-gray-50/60 px-5 py-3 flex flex-wrap items-center gap-3">
+          <div className="border-t border-gray-200/80 bg-gray-50/60 px-4 py-3.5 grid grid-cols-2 sm:flex sm:flex-wrap gap-x-8 gap-y-3">
             {totalRows.map(([k, v], i) => (
-              <div key={i} className="flex items-center gap-3">
-                {i > 0 && <span className="text-gray-300">•</span>}
-                {k && <span className="text-xs font-semibold text-gray-500">{k}</span>}
-                <span className="text-gray-300">|</span>
-                <span className="text-sm font-bold text-gray-800 tabular-nums">{v}</span>
+              <div key={i} className="min-w-0">
+                {k && (
+                  <p className="text-[10px] uppercase tracking-wide text-gray-400 leading-none mb-1.5">
+                    {k}
+                  </p>
+                )}
+                <p className="text-[15px] font-bold text-gray-800 tabular-nums leading-none truncate">
+                  {v}
+                </p>
               </div>
             ))}
           </div>
