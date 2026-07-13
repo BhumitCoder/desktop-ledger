@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { SalesRepo, PartyRepo, ItemRepo, PaymentRepo, BankRepo } from "@/repositories";
+import { SalesRepo, PartyRepo, ItemRepo, PaymentRepo, BankRepo, SaleReturnRepo } from "@/repositories";
 import { newBatch, commitBatch } from "@/repositories/base";
 import type { Invoice } from "@/types";
 import { fmtMoney, fmtDate, ymd, today } from "@/lib/format";
@@ -123,6 +123,22 @@ function SalesPage() {
   const handleDelete = (r: Invoice) => {
     if (!deleteAllowed) {
       toast.error("You don't have permission to delete sales");
+      return;
+    }
+    // A sale return credits stock and the customer's balance against THIS
+    // invoice. Deleting the invoice underneath it would leave the return as
+    // an orphan — the credit survives with no matching sale, so the customer
+    // balance goes negative (we'd "owe" them) and stock is double-counted.
+    // Block until the linked return(s) are deleted first.
+    const linkedReturns = SaleReturnRepo.all().filter(
+      (ret) => (ret.originalRef ?? "").trim() === r.number.trim(),
+    );
+    if (linkedReturns.length) {
+      toast.error(
+        `Can't delete ${r.number} — it has ${linkedReturns.length} sale return(s) against it (${linkedReturns
+          .map((x) => x.number)
+          .join(", ")}). Delete the return(s) first.`,
+      );
       return;
     }
     if (

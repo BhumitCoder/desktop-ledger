@@ -478,6 +478,33 @@ export function InvoiceForm({ mode, existing }: Props) {
     paid: number,
     andPrint: boolean,
   ) => {
+    // Changing the party on a bill that already has payments linked to it
+    // would leave that received money attributed to the OLD party — the
+    // dashboard (which reads invoice.paid) and the party statement (which
+    // reads the payment's own partyId) would then disagree, and the cash
+    // would show under the wrong name. Block it: the payment must be removed
+    // (or the bill left on its original party) first.
+    if (existing?.id) {
+      const newPartyId = "create" in party ? party.create.id : party.id;
+      if (newPartyId !== existing.partyId) {
+        const linkedPayment = PaymentRepo.all().some(
+          (p) =>
+            p.allocations?.some((a) => a.invoiceId === existing.id) ||
+            (!p.allocations?.length &&
+              (p.ref ?? "")
+                .split(",")
+                .map((s) => s.trim())
+                .includes(existing.number.trim())),
+        );
+        if (linkedPayment) {
+          toast.error(
+            "This bill has payments linked to its current party. Delete those payments (or keep the same party) before changing it — otherwise the received money would stay under the old party.",
+          );
+          return;
+        }
+      }
+    }
+
     savingRef.current = true;
     setSaving(true);
 
@@ -654,6 +681,40 @@ export function InvoiceForm({ mode, existing }: Props) {
       if (shortfalls.length) {
         toast.error(`Not enough stock — ${shortfalls.join(", ")}`);
         return;
+      }
+    }
+    // Editing an existing bill must never drop an item's quantity below what
+    // has already been returned against this exact bill — otherwise returned
+    // qty exceeds sold/purchased qty and both stock and the party balance get
+    // over-credited (with no error to signal it). The return side has its own
+    // over-return cap; this is the same guard from the bill side.
+    if (existing?.id) {
+      const returnRepo = isSale ? SaleReturnRepo : PurchaseReturnRepo;
+      const returnedByItem = new Map<string, number>();
+      for (const ret of returnRepo.all()) {
+        if ((ret.originalRef ?? "").trim() !== existing.number.trim()) continue;
+        for (const l of ret.lineItems) {
+          returnedByItem.set(l.itemId, (returnedByItem.get(l.itemId) ?? 0) + l.qty);
+        }
+      }
+      if (returnedByItem.size) {
+        const newQtyByItem = new Map<string, number>();
+        for (const l of inv.lineItems) {
+          newQtyByItem.set(l.itemId, (newQtyByItem.get(l.itemId) ?? 0) + l.qty);
+        }
+        for (const [itemId, returned] of returnedByItem) {
+          const nowQty = newQtyByItem.get(itemId) ?? 0;
+          if (nowQty < returned - 0.0001) {
+            const name =
+              inv.lineItems.find((l) => l.itemId === itemId)?.name ??
+              ItemRepo.get(itemId)?.name ??
+              "this item";
+            toast.error(
+              `Can't reduce "${name}" to ${nowQty} — ${returned} already returned against ${existing.number}. Delete or adjust that return first.`,
+            );
+            return;
+          }
+        }
       }
     }
     const number = inv.number.trim();

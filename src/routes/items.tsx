@@ -4,7 +4,14 @@ import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
 import { usePagination } from "@/components/Pagination";
 import { useAutoFocusOnDesktop } from "@/hooks/use-mobile";
-import { ItemRepo, StockAdjustmentRepo } from "@/repositories";
+import {
+  ItemRepo,
+  StockAdjustmentRepo,
+  SalesRepo,
+  PurchaseRepo,
+  SaleReturnRepo,
+  PurchaseReturnRepo,
+} from "@/repositories";
 import { newBatch, commitBatch } from "@/repositories/base";
 import type { Item } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -401,6 +408,24 @@ function ItemsPage() {
           onDelete={(r) => {
             if (!deleteAllowed) {
               toast.error("You don't have permission to delete items");
+              return;
+            }
+            // An item that still appears on any bill/return can't be safely
+            // removed: its stock movements would orphan (Inventory & Stock
+            // reports drop it silently), its history page would 404, and
+            // editing/deleting one of those old bills later would skip the
+            // stock reversal for it entirely. Block it — same protection
+            // parties and payees already have.
+            const onDoc =
+              SalesRepo.all().some((i) => i.lineItems.some((l) => l.itemId === r.id)) ||
+              PurchaseRepo.all().some((i) => i.lineItems.some((l) => l.itemId === r.id)) ||
+              SaleReturnRepo.all().some((i) => i.lineItems.some((l) => l.itemId === r.id)) ||
+              PurchaseReturnRepo.all().some((i) => i.lineItems.some((l) => l.itemId === r.id)) ||
+              StockAdjustmentRepo.all().some((a) => a.itemId === r.id);
+            if (onDoc) {
+              toast.error(
+                `Can't delete "${r.name}" — it's used on bills, returns or stock adjustments. Deleting it would break stock and profit reports for those records.`,
+              );
               return;
             }
             if (confirm(`Delete ${r.name}?`)) {

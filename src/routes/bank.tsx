@@ -225,6 +225,24 @@ function BankPage() {
               toast.error("You don't have permission to delete bank accounts");
               return;
             }
+            // Deleting an account that still has money tied to it makes that
+            // money vanish from every total: bank-mode sales/purchases/
+            // payments/expenses keep pointing at the dead account (so they're
+            // skipped from cash AND bank totals), its passbook 404s, and the
+            // cash adjustments its past deposits created are left dangling.
+            // Block until nothing references it.
+            const used =
+              BankTxnRepo.all().some((t) => t.bankId === r.id) ||
+              PaymentRepo.all().some((p) => p.bankId === r.id) ||
+              ExpenseRepo.all().some((e) => e.bankId === r.id) ||
+              SalesRepo.all().some((i) => i.bankId === r.id) ||
+              PurchaseRepo.all().some((i) => i.bankId === r.id);
+            if (used) {
+              toast.error(
+                `Can't delete "${r.name}" — it has transactions, payments or bills linked to it. Reassign or remove those first.`,
+              );
+              return;
+            }
             if (confirm(`Delete ${r.name}?`)) {
               BankRepo.remove(r.id);
               refresh();

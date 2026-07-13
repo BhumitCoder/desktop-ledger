@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { PurchaseRepo, PartyRepo, ItemRepo, PaymentRepo, BankRepo } from "@/repositories";
+import { PurchaseRepo, PartyRepo, ItemRepo, PaymentRepo, BankRepo, PurchaseReturnRepo } from "@/repositories";
 import { newBatch, commitBatch } from "@/repositories/base";
 import type { Invoice } from "@/types";
 import { fmtMoney, fmtDate, ymd, today } from "@/lib/format";
@@ -122,6 +122,21 @@ function PurchasePage() {
   const handleDelete = (r: Invoice) => {
     if (!deleteAllowed) {
       toast.error("You don't have permission to delete purchases");
+      return;
+    }
+    // A purchase return debits stock and the supplier's balance against THIS
+    // bill. Deleting the bill underneath it would orphan the return — the
+    // debit survives with no matching purchase, throwing off the supplier
+    // balance and double-counting stock. Block until the return is removed.
+    const linkedReturns = PurchaseReturnRepo.all().filter(
+      (ret) => (ret.originalRef ?? "").trim() === r.number.trim(),
+    );
+    if (linkedReturns.length) {
+      toast.error(
+        `Can't delete ${r.number} — it has ${linkedReturns.length} purchase return(s) against it (${linkedReturns
+          .map((x) => x.number)
+          .join(", ")}). Delete the return(s) first.`,
+      );
       return;
     }
     if (
