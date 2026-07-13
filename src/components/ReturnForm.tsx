@@ -297,21 +297,22 @@ export function ReturnForm({ mode }: Props) {
       }
     }
 
-    // When this return is linked to an original invoice, cap each item's
-    // return qty at what's actually left to return — otherwise the same
-    // invoice can be returned twice (or more than was ever sold/purchased),
-    // crediting stock and the party's balance more than once.
+    // When this return is LINKED to an original bill, cap each item's return
+    // qty at what's actually left to return on that bill (across all prior
+    // returns against it) — otherwise the same bill could be returned twice or
+    // beyond what it sold, crediting stock and the party's balance more than
+    // once. A typed bill number that matches nothing is rejected as a likely
+    // typo. A blank reference is a legitimate standalone credit/debit note
+    // (walk-in return, or goods whose original bill isn't in the system —
+    // common after migration); like Vyapar/Tally it isn't qty-capped, since
+    // there is no specific bill to cap against. (An earlier build capped these
+    // by the party's net transacted qty, but that both blocked legitimate
+    // cross-party/walk-in returns AND was bypassable by typing the party name
+    // instead of selecting it, so it was removed in favour of this per-bill rule.)
     const ref = (ret.originalRef ?? "").trim();
-    const thisReturnQty = new Map<string, number>();
-    for (const l of ret.lineItems) {
-      thisReturnQty.set(l.itemId, r2((thisReturnQty.get(l.itemId) ?? 0) + l.qty));
-    }
     if (ref) {
       const originalInvoice = invoiceRepo.all().find((i) => i.number.trim() === ref);
       if (!originalInvoice) {
-        // A typed reference that matches no bill is almost always a typo —
-        // don't silently skip the cap (which used to let any qty through).
-        // Clear the field for a genuine standalone return instead.
         toast.error(
           `No ${isSaleReturn ? "invoice" : "bill"} numbered "${ref}" found — check the number, or clear the field for a return without a linked bill.`,
         );
@@ -328,6 +329,10 @@ export function ReturnForm({ mode }: Props) {
           alreadyReturned.set(l.itemId, (alreadyReturned.get(l.itemId) ?? 0) + l.qty);
         }
       }
+      const thisReturnQty = new Map<string, number>();
+      for (const l of ret.lineItems) {
+        thisReturnQty.set(l.itemId, r2((thisReturnQty.get(l.itemId) ?? 0) + l.qty));
+      }
       for (const l of ret.lineItems) {
         const bought = originalQty.get(l.itemId) ?? 0;
         const already = alreadyReturned.get(l.itemId) ?? 0;
@@ -338,41 +343,6 @@ export function ReturnForm({ mode }: Props) {
             remaining > 0
               ? `"${l.name}" — only ${remaining} ${l.unit} left to return from ${ref} (already returned ${already})`
               : `"${l.name}" has already been fully returned from ${ref}`,
-          );
-          return;
-        }
-      }
-    } else if (partyId) {
-      // Unlinked (standalone) return for a KNOWN party: cap each item by that
-      // party's NET transacted quantity — everything ever sold to / purchased
-      // from them, minus everything already returned — so a blank-ref return
-      // can't credit stock and balance for goods the party never transacted.
-      // (A brand-new party has no history to validate against, so this only
-      // applies once the party exists.)
-      const soldByItem = new Map<string, number>();
-      for (const inv of invoiceRepo.all()) {
-        if (inv.partyId !== partyId) continue;
-        for (const l of inv.lineItems) {
-          soldByItem.set(l.itemId, (soldByItem.get(l.itemId) ?? 0) + l.qty);
-        }
-      }
-      const returnedByItem = new Map<string, number>();
-      for (const r of repo.all()) {
-        if (r.partyId !== partyId) continue;
-        for (const l of r.lineItems) {
-          returnedByItem.set(l.itemId, (returnedByItem.get(l.itemId) ?? 0) + l.qty);
-        }
-      }
-      for (const l of ret.lineItems) {
-        const sold = soldByItem.get(l.itemId) ?? 0;
-        const already = returnedByItem.get(l.itemId) ?? 0;
-        const remaining = r2(sold - already);
-        const returningNow = thisReturnQty.get(l.itemId) ?? l.qty;
-        if (returningNow > remaining + 0.0001) {
-          toast.error(
-            remaining > 0
-              ? `"${l.name}" — only ${remaining} ${l.unit} can be returned for this party (${sold} transacted, ${already} already returned)`
-              : `"${l.name}" — nothing left to return for this party (link a bill if this is a fresh return)`,
           );
           return;
         }

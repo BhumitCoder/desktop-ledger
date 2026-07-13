@@ -823,16 +823,15 @@ export function ItemDialog({
     setSaving(true);
     if (item) {
       // Correcting opening stock shifts current stock by the same difference.
-      // The descriptive update and the atomic opening-delta must land together
-      // as one batch — otherwise a partial failure leaves stock and the record
-      // out of sync.
+      // Apply the descriptive fields AND the opening-stock delta in ONE atomic
+      // write via adjustField's `extra` merge: it increments stock rather than
+      // full-doc-overwriting it, so a sale/return that changed this item's
+      // stock while the dialog was open is preserved, not clobbered by a stale
+      // snapshot. (A full-doc updateBatched would re-write the cached stock.)
       const openingDelta = (f.openingStock ?? 0) - (item.openingStock ?? 0);
       const patch: Partial<Item> = { ...f };
-      delete patch.stock; // stock only changes via atomic adjustments
-      const batch = newBatch();
-      ItemRepo.updateBatched(batch, item.id, patch);
-      if (openingDelta !== 0) ItemRepo.adjustFieldBatched(batch, item.id, "stock", openingDelta);
-      commitBatch(batch, "update item");
+      delete patch.stock; // stock only changes via atomic increments
+      ItemRepo.adjustField(item.id, "stock", openingDelta, patch);
       toast.success(
         openingDelta !== 0
           ? `Item updated — stock adjusted by ${openingDelta > 0 ? "+" : ""}${openingDelta}`
