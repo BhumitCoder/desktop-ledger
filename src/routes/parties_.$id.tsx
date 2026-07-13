@@ -432,10 +432,11 @@ function PartyStatementPage() {
           <div className="px-5 py-3 border-b flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
             <p className="text-sm font-bold text-gray-800">Party Statement — {party.name}</p>
+            {/* Balance intentionally NOT repeated here — the "They owe you" /
+                summary box above already shows it, and the statement's own
+                Closing Balance row shows it at the bottom. */}
             <p className="text-[11px] text-gray-400">
-              {CompanyRepo.get().name} · Generated {fmtDate(new Date().toISOString())} · Balance:{" "}
-              {fmtMoney(Math.abs(balance))}{" "}
-              {balance > 0 ? "receivable" : balance < 0 ? "payable" : ""}
+              {CompanyRepo.get().name} · Generated {fmtDate(new Date().toISOString())}
             </p>
             </div>
             <div className="no-print flex items-center gap-1.5 h-9 pl-3 pr-2.5 rounded-lg border border-gray-200 bg-gray-50/60 w-full sm:w-auto sm:shrink-0">
