@@ -43,6 +43,41 @@ export const Route = createFileRoute("/payments")({ component: PaymentsPage });
 type Tab = "all" | "in" | "out";
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
+/** Reverse a legacy payment's invoice application. Legacy payments (from
+ * before per-invoice `allocations` existed) stored only a lump `amount` and a
+ * comma-separated list of invoice numbers in `ref`, with no record of the
+ * per-invoice split. Distribute the reversal proportionally to each invoice's
+ * CURRENT paid amount — the closest fair approximation, and (unlike a fixed
+ * per-invoice amount in list order) it never leaves a remainder silently
+ * undone when an invoice's paid has since dropped. Shared by BOTH delete and
+ * edit so the two paths can never diverge — the edit path previously had no
+ * legacy reversal at all, which double-counted the money on save. */
+function reverseLegacyRefApplication(
+  batch: ReturnType<typeof newBatch>,
+  repo: typeof SalesRepo,
+  ref: string,
+  amount: number,
+) {
+  const tokens = ref
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const all = repo.all();
+  const invoices = tokens
+    .map((t) => all.find((i) => i.number === t))
+    .filter((i): i is Invoice => !!i && i.paid > 0);
+  const totalPaid = invoices.reduce((s, inv) => s + inv.paid, 0);
+  const totalReverse = Math.min(amount, totalPaid);
+  if (totalReverse <= 0) return;
+  for (const inv of invoices) {
+    const take = Math.min(inv.paid, r2((inv.paid / totalPaid) * totalReverse));
+    // Atomic decrement (not an absolute write): in the EDIT path the same
+    // invoice may also be freshly re-applied below, and two increments on one
+    // doc compose correctly where an absolute set + an increment would race.
+    if (take > 0) repo.adjustFieldBatched(batch, inv.id, "paid", -take);
+  }
+}
+
 function PaymentsPage() {
   const { isOwner, canEdit, canDelete } = usePermissions();
   const editAllowed = isOwner || canEdit("cashBank");
@@ -101,30 +136,7 @@ function PaymentsPage() {
         if (repo.get(a.invoiceId)) repo.adjustFieldBatched(batch, a.invoiceId, "paid", -a.amount);
       }
     } else if (r.ref) {
-      // Legacy payment (predates per-invoice allocations): only a lump amount
-      // and a comma-separated list of invoice numbers was stored, with no
-      // record of how much actually went to each one. There's no way to
-      // recover the true original split, so distribute the reversal
-      // proportionally to each invoice's CURRENT paid amount — this is the
-      // closest fair approximation and, unlike taking a fixed amount per
-      // invoice in list order, never leaves a leftover silently undone when
-      // an earlier invoice's paid has since dropped below its original share.
-      const tokens = r.ref
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean);
-      const all = repo.all();
-      const invoices = tokens
-        .map((t) => all.find((i) => i.number === t))
-        .filter((i): i is Invoice => !!i && i.paid > 0);
-      const totalPaid = invoices.reduce((s, inv) => s + inv.paid, 0);
-      const totalReverse = Math.min(r.amount, totalPaid);
-      if (totalReverse > 0) {
-        for (const inv of invoices) {
-          const take = Math.min(inv.paid, r2((inv.paid / totalPaid) * totalReverse));
-          if (take > 0) repo.updateBatched(batch, inv.id, { paid: r2(inv.paid - take) });
-        }
-      }
+      reverseLegacyRefApplication(batch, repo, r.ref, r.amount);
     }
     // Money that was moved onto a specific bank account when this payment
     // was recorded must be moved back off it, or the account balance stays
@@ -697,11 +709,18 @@ function ReceivePaymentDialog({
 
       const repo = isIn ? SalesRepo : PurchaseRepo;
 
-      // Editing: first reverse this payment's previous applications (atomic)
+      // Editing: first reverse this payment's previous applications (atomic).
+      // Both the allocations model AND the legacy ref model must be handled —
+      // a legacy payment being edited previously reversed NOTHING here, so the
+      // new allocation was applied on top of the old lump, overstating each
+      // invoice's paid. The legacy branch below fixes that; `ref: undefined`
+      // in the update patch then migrates the record cleanly to allocations.
       if (editing?.allocations?.length) {
         for (const a of editing.allocations) {
           if (repo.get(a.invoiceId)) repo.adjustFieldBatched(batch, a.invoiceId, "paid", -a.amount);
         }
+      } else if (editing?.ref) {
+        reverseLegacyRefApplication(batch, repo, editing.ref, editing.amount);
       }
       // Editing: reverse the old bank-account effect too, before applying
       // the new one below — handles both "same account, new amount" and
@@ -758,6 +777,10 @@ function ReceivePaymentDialog({
           mode,
           bankId: mode === "bank" ? bankId : undefined,
           allocations: allocations.length ? allocations : undefined,
+          // Clear any legacy `ref` — its application was just reversed above,
+          // so leaving it would double-count on the NEXT edit/delete and show
+          // a stale linked-invoice list. The record is now allocations-based.
+          ref: undefined,
         });
       } else {
         const payment: Payment = {
