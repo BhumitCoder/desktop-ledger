@@ -288,6 +288,16 @@
   body {
     background: #fff !important;
   }
+  /* The screen shell locks html/body/#root to the viewport (height: 100% +
+     overflow: hidden, see @layer base) so only <main> ever scrolls. Printing
+     lays the whole document out on paper instead — left locked, a statement
+     longer than one screen clips to a single printed page. */
+  html,
+  body,
+  #root {
+    height: auto !important;
+    overflow: visible !important;
+  }
   body * {
     visibility: hidden !important;
   }
