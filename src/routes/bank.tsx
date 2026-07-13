@@ -12,6 +12,7 @@ import {
   BankTxnRepo,
   CashAdjustmentRepo,
 } from "@/repositories";
+import { newBatch, commitBatch } from "@/repositories/base";
 import { bankFlows, netFlow } from "@/lib/ledger";
 import type { BankAccount } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -301,25 +302,34 @@ function BankTxnDialog({
       return;
     }
     setSaving(true);
-    BankTxnRepo.add({
+    // The passbook txn, the account balance change, and the linked cash
+    // adjustment must land together or not at all — one shared batch commits
+    // them atomically (a partial write, e.g. a cash reduction with no matching
+    // balance move, would silently corrupt the totals). The balance change is
+    // an atomic increment, NOT an absolute write off a stale in-memory
+    // snapshot, so two devices moving money at once can't lose one another's
+    // update (which is exactly what made the stored balance drift from the
+    // derived passbook before).
+    const batch = newBatch();
+    const delta = type === "deposit" ? n : -n;
+    BankTxnRepo.addBatched(batch, {
       bankId: bank.id,
       date,
       type,
       amount: n,
       notes: notes.trim() || undefined,
     } as any);
-    BankRepo.update(bank.id, {
-      balance: Math.round((bank.balance + (type === "deposit" ? n : -n)) * 100) / 100,
-    });
+    BankRepo.adjustFieldBatched(batch, bank.id, "balance", delta);
     if (linkCash) {
       // Deposit takes cash from the counter into the bank; withdrawal brings it back
-      CashAdjustmentRepo.add({
+      CashAdjustmentRepo.addBatched(batch, {
         date,
         type: type === "deposit" ? "reduce" : "add",
         amount: n,
         reason: `Bank ${type} — ${bank.name}`,
       } as any);
     }
+    commitBatch(batch, "bank txn");
     toast.success(
       `${type === "deposit" ? "Deposited" : "Withdrawn"} ${fmtMoney(n)} ${type === "deposit" ? "to" : "from"} ${bank.name}`,
     );
@@ -440,8 +450,18 @@ function BankDialog({
       return;
     }
     setSaving(true);
-    if (bank) BankRepo.update(bank.id, f as BankAccount);
-    else
+    if (bank) {
+      // Stored balance = opening balance + net of all transactions. The
+      // transactions don't change on an account edit, so if the opening
+      // balance is corrected the stored balance must shift by the SAME delta
+      // — otherwise the list balance and the derived passbook (which recomputes
+      // from the new opening) disagree permanently.
+      const openingDelta = (f.openingBalance ?? 0) - (bank.openingBalance ?? 0);
+      BankRepo.update(bank.id, {
+        ...f,
+        balance: Math.round(((bank.balance ?? 0) + openingDelta) * 100) / 100,
+      } as BankAccount);
+    } else
       BankRepo.add({
         ...f,
         name: f.name!,
