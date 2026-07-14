@@ -41,6 +41,7 @@ import {
   ChevronLeft,
   ChevronRight,
   SlidersHorizontal,
+  Loader2,
 } from "lucide-react";
 
 export const Route = createFileRoute("/reports")({
@@ -202,10 +203,11 @@ function ReportsPage() {
           </button>
           <button
             onClick={() => printOrEscapeStandalone(reportFilename(), { r: active }, handleDownloadPdf)}
-            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 h-9 px-3.5 bg-white border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 hover:bg-gray-50 hover:shadow-sm transition"
+            disabled={!!pdfBusy}
+            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 h-9 px-3.5 bg-white border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 hover:bg-gray-50 hover:shadow-sm transition disabled:opacity-60 disabled:cursor-not-allowed"
             title="Print"
           >
-            <Printer className="h-3.5 w-3.5" /> Print
+            {pdfBusy ? (<><Loader2 className="h-3.5 w-3.5 animate-spin" /> Preparing…</>) : (<><Printer className="h-3.5 w-3.5" /> Print</>)}
           </button>
         </div>
       </div>

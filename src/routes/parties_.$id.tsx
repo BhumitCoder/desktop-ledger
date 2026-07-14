@@ -39,6 +39,7 @@ import {
   MessageCircle,
   Calendar,
   X,
+  Loader2,
   type LucideIcon,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -405,10 +406,11 @@ function PartyStatementPage() {
           </button>
           <button
             onClick={() => promptFormat("print")}
-            className="flex-1 inline-flex items-center justify-center gap-1.5 h-8 px-3 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition"
+            disabled={!!pdfBusy}
+            className="flex-1 inline-flex items-center justify-center gap-1.5 h-8 px-3 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition disabled:opacity-60 disabled:cursor-not-allowed"
             title="Print"
           >
-            <Printer className="h-4 w-4" /> Print
+            {pdfBusy ? (<><Loader2 className="h-4 w-4 animate-spin" /> Preparing…</>) : (<><Printer className="h-4 w-4" /> Print</>)}
           </button>
         </div>
       </div>

@@ -21,6 +21,7 @@ import {
   FileText,
   FileDown,
   Share2,
+  Loader2,
 } from "lucide-react";
 
 export const Route = createFileRoute("/purchase/$id")({
@@ -176,10 +177,11 @@ function BillDetailPage() {
           </button>
           <button
             onClick={() => printOrEscapeStandalone(inv.number, undefined, handleDownloadPdf)}
-            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 h-8 px-4 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition"
+            disabled={!!pdfBusy}
+            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 h-8 px-4 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition disabled:opacity-60 disabled:cursor-not-allowed"
             title="Print"
           >
-            <Printer className="h-4 w-4" /> Print
+            {pdfBusy ? (<><Loader2 className="h-4 w-4 animate-spin" /> Preparing…</>) : (<><Printer className="h-4 w-4" /> Print</>)}
           </button>
         </div>
       </div>
