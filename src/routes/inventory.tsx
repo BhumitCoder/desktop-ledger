@@ -12,6 +12,7 @@ import {
   PurchaseReturnRepo,
   StockAdjustmentRepo,
 } from "@/repositories";
+import { useRepoData } from "@/hooks/useRepoData";
 import type { Item } from "@/types";
 import { fmtMoney } from "@/lib/format";
 import { Boxes, Package, Search } from "lucide-react";
@@ -19,6 +20,7 @@ import { Boxes, Package, Search } from "lucide-react";
 export const Route = createFileRoute("/inventory")({ component: InventoryPage });
 
 function InventoryPage() {
+  const _repoV = useRepoData();
   const searchRef = useRef<HTMLInputElement>(null);
   useAutoFocusOnDesktop(searchRef);
   const [rows, setRows] = useState<Item[]>([]);
@@ -33,7 +35,7 @@ function InventoryPage() {
     // indefinitely.
     window.addEventListener("focus", refresh);
     return () => window.removeEventListener("focus", refresh);
-  }, []);
+  }, [_repoV]);
 
   // Stock In = purchases + sale returns + manual additions
   // Stock Out = sales + purchase returns + manual reductions

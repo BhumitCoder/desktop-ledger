@@ -17,6 +17,7 @@ import { buildBankLedger, paidViaPayments } from "@/lib/ledger";
 import { fmtMoney, fmtDate, today, ymd } from "@/lib/format";
 import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
+import { useRepoData } from "@/hooks/useRepoData";
 import { downloadElementAsPdf } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { usePagination, PaginationBar } from "@/components/Pagination";
@@ -75,6 +76,7 @@ interface DayRow {
 }
 
 function DaybookPage() {
+  const _repoV = useRepoData();
   const navigate = useNavigate();
   const { date: dateFromUrl } = Route.useSearch();
   const [date, setDate] = useState(() => dateFromUrl ?? dateCache ?? today());
@@ -193,9 +195,9 @@ function DaybookPage() {
       });
     list.sort((a, b) => (a.created ?? "").localeCompare(b.created ?? ""));
     return list;
-  }, [date]);
+  }, [date, _repoV]);
 
-  const bankNameById = useMemo(() => new Map(BankRepo.all().map((b) => [b.id, b.name])), []);
+  const bankNameById = useMemo(() => new Map(BankRepo.all().map((b) => [b.id, b.name])), [_repoV]);
   // "Bank (unspecified)" — not "Bank" — for older records saved before bank
   // selection existed, so it reads as "this one's missing data" rather than
   // looking like the bank name feature silently isn't working.
@@ -226,7 +228,7 @@ function DaybookPage() {
         : b.openingBalance || 0;
       return { bank: b, in: dayOnly.totalCredit, out: dayOnly.totalDebit, closing };
     });
-  }, [date]);
+  }, [date, _repoV]);
 
   const sum = (type: string) =>
     rows.filter((r) => r.type === type).reduce((s, r) => s + Math.abs(r.amount), 0);

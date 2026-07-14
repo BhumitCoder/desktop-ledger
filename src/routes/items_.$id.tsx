@@ -12,6 +12,7 @@ import { fmtMoney, fmtDate } from "@/lib/format";
 import { usePagination, PaginationBar } from "@/components/Pagination";
 import { ItemDialog, StockAdjustDialog } from "./items";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useRepoData } from "@/hooks/useRepoData";
 import type { Item, Invoice, Return } from "@/types";
 import {
   ArrowLeft,
@@ -42,6 +43,7 @@ interface HistoryRow {
 }
 
 function ItemDetailPage() {
+  const _repoV = useRepoData();
   const { id } = Route.useParams();
   const navigate = useNavigate();
   const { isOwner, canEdit } = usePermissions();
@@ -53,7 +55,7 @@ function ItemDetailPage() {
 
   useEffect(() => {
     setItem(ItemRepo.get(id) ?? null);
-  }, [id, refreshKey]);
+  }, [id, refreshKey, _repoV]);
 
   const { rows, soldQty, profit } = useMemo(() => {
     const entries: HistoryRow[] = [];
@@ -121,7 +123,7 @@ function ItemDetailPage() {
       (a, b) => b.date.localeCompare(a.date) || (b.created ?? "").localeCompare(a.created ?? ""),
     );
     return { rows: entries, soldQty, boughtQty, profit };
-  }, [item, id, refreshKey]);
+  }, [item, id, refreshKey, _repoV]);
 
   const pg = usePagination(rows);
 

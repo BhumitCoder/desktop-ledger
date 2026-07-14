@@ -4,6 +4,7 @@ import { PayeeRepo, ExpenseRepo, BankRepo, CompanyRepo } from "@/repositories";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
+import { useRepoData } from "@/hooks/useRepoData";
 import { downloadElementAsPdf } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { downloadXlsx } from "@/lib/xlsx";
@@ -22,6 +23,7 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 let dateCache: { dateFrom: string; dateTo: string } | null = null;
 
 function PayeeLedgerPage() {
+  const _repoV = useRepoData();
   const { id } = Route.useParams();
   const navigate = useNavigate();
   const [payee, setPayee] = useState<Payee | null | undefined>(undefined);
@@ -32,13 +34,13 @@ function PayeeLedgerPage() {
 
   useEffect(() => {
     setPayee(PayeeRepo.get(id) ?? null);
-  }, [id]);
+  }, [id, _repoV]);
 
   useEffect(() => {
     dateCache = { dateFrom, dateTo };
   }, [dateFrom, dateTo]);
 
-  const bankNameById = useMemo(() => new Map(BankRepo.all().map((b) => [b.id, b.name])), []);
+  const bankNameById = useMemo(() => new Map(BankRepo.all().map((b) => [b.id, b.name])), [_repoV]);
 
   // Every expense ever paid to this payee, oldest first, with a running
   // total — same shape as the party ledgers, but one-directional (an
@@ -48,7 +50,7 @@ function PayeeLedgerPage() {
     return ExpenseRepo.all()
       .filter((e) => e.payeeId === payee.id)
       .sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
-  }, [payee]);
+  }, [payee, _repoV]);
 
   const rows = useMemo(() => {
     let running = 0;

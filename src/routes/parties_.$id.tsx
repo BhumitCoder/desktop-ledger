@@ -13,6 +13,7 @@ import { buildPartyStatement, type PartyStatementRow } from "@/lib/ledger";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
+import { useRepoData } from "@/hooks/useRepoData";
 import { downloadXlsx } from "@/lib/xlsx";
 import { downloadElementAsPdf } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
@@ -58,6 +59,7 @@ type LedgerRow = PartyStatementRow;
 let dateCache: { dateFrom: string; dateTo: string } | null = null;
 
 function PartyStatementPage() {
+  const _repoV = useRepoData();
   const { id } = Route.useParams();
   const navigate = useNavigate();
   const { isOwner, canEdit } = usePermissions();
@@ -89,7 +91,7 @@ function PartyStatementPage() {
 
   useEffect(() => {
     setParty(PartyRepo.get(id) ?? null);
-  }, [id, refreshKey]);
+  }, [id, refreshKey, _repoV]);
 
   useEffect(() => {
     dateCache = { dateFrom, dateTo };
@@ -109,7 +111,7 @@ function PartyStatementPage() {
       dateFrom,
       dateTo,
     );
-  }, [party, refreshKey, dateFrom, dateTo]);
+  }, [party, refreshKey, dateFrom, dateTo, _repoV]);
 
   // The plain Date/Particulars/Qty/Credit/Debit/Balance ledger the client
   // asked for, alongside the existing detailed statement — not replacing it.

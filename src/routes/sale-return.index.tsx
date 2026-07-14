@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { SaleReturnRepo, ItemRepo } from "@/repositories";
+import { useRepoData } from "@/hooks/useRepoData";
 import { newBatch, commitBatch } from "@/repositories/base";
 import type { Return } from "@/types";
 import { fmtMoney, fmtDate } from "@/lib/format";
@@ -20,7 +21,8 @@ function SaleReturnPage() {
   const deleteAllowed = isOwner || canDelete("sales");
   const [rows, setRows] = useState<Return[]>([]);
   const refresh = () => setRows(SaleReturnRepo.all().sort((a, b) => b.date.localeCompare(a.date)));
-  useEffect(refresh, []);
+  const _repoV = useRepoData();
+  useEffect(refresh, [_repoV]);
 
   const pg = usePagination(rows);
 

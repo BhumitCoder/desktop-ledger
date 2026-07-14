@@ -1,5 +1,6 @@
 import { collection, doc, onSnapshot, setDoc, updateDoc, writeBatch } from "firebase/firestore";
 import { Repository, handlePostHydrationError } from "./base";
+export { subscribeRepos, repoStoreVersion } from "./base";
 import { db, isBrowser } from "@/lib/firebase";
 import { toast } from "sonner";
 import type {
@@ -306,7 +307,13 @@ const MODULE_REPOS: Record<ModuleKey, Repository<{ id: string }>[]> = {
  * distinction is the whole point: "View: off" has to mean the data never
  * arrives, not that it arrives and is merely not displayed.
  */
+let backgroundHydration: Promise<void> | null = null;
+
 export async function hydrateRepos(uid: string, email: string): Promise<void> {
+  // These two are small, awaited, and gate the whole app: permissions decide
+  // what's even reachable, and company settings feed the shell (name, invoice
+  // prefix). If EITHER fails (e.g. Firestore rules not deployed, or offline
+  // with no cache) the caller shows the "couldn't load" screen.
   await Promise.all([hydrateCurrentTeamUser(uid, email), hydrateCompany()]);
   const me = teamUserCache;
   if (!me || !me.active) return; // no access at all yet — AuthGate handles this state
@@ -315,7 +322,27 @@ export async function hydrateRepos(uid: string, email: string): Promise<void> {
     : (Object.keys(MODULE_REPOS) as ModuleKey[])
         .filter((m) => me.permissions[m]?.view)
         .flatMap((m) => MODULE_REPOS[m]);
-  await Promise.all(toHydrate.map((r) => r.hydrate()));
+  // Start every collection's live listener but DON'T block the app on them.
+  // Screens are reactive (useRepoData), so they fill in the instant each
+  // snapshot arrives. This is the difference between opening in ~1s and waiting
+  // 30-40s for every collection's first server snapshot (worst on iOS Safari,
+  // where a cold/evicted cache means each one is a fresh server round-trip).
+  // A per-collection first-load failure is logged, not fatal — that one screen
+  // just stays empty until it recovers, while the rest of the app works.
+  backgroundHydration = Promise.all(
+    toHydrate.map((r) =>
+      r.hydrate().catch((err) => {
+        console.error("Background collection hydration failed", err);
+      }),
+    ),
+  ).then(() => {});
+}
+
+/** Resolves once every collection started by the last hydrateRepos() has had
+ * its first snapshot. Used for the one-time localStorage→cloud migration, whose
+ * "is the cloud empty?" check is only meaningful after data has loaded. */
+export function whenReposHydrated(): Promise<void> {
+  return backgroundHydration ?? Promise.resolve();
 }
 
 /** Stop all listeners and clear caches (on logout). */

@@ -12,6 +12,7 @@ import {
   PurchaseReturnRepo,
   PaymentRepo,
 } from "@/repositories";
+import { useRepoData } from "@/hooks/useRepoData";
 import type { Party } from "@/types";
 import { newBatch, commitBatch, genId } from "@/repositories/base";
 import { downloadCsv } from "@/lib/csv";
@@ -171,7 +172,8 @@ function PartiesPage() {
   const [bulkOpen, setBulkOpen] = useState(false);
 
   const refresh = () => setRows(PartyRepo.all());
-  useEffect(refresh, []);
+  const _repoV = useRepoData();
+  useEffect(refresh, [_repoV]);
 
   const activeCount = rows.filter((r) => !r.archived).length;
   const archivedCount = rows.filter((r) => r.archived).length;

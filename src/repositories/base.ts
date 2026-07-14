@@ -40,6 +40,33 @@ export function handlePostHydrationError(err: FirestoreError, name: string) {
 
 export const genId = () => nanoid(10);
 
+/**
+ * Tiny global store so React can re-render live as repository data changes —
+ * on first load, on background cloud sync, and on local writes. One monotonic
+ * version is bumped on ANY repo change; components subscribe once (via the
+ * useRepoData hook) and read whatever repos they need in render. This is what
+ * lets the app open immediately after login and fill screens in as each
+ * collection's data arrives, instead of blocking on all of them up front.
+ */
+let repoVersion = 0;
+const repoStoreListeners = new Set<() => void>();
+
+export function subscribeRepos(cb: () => void): () => void {
+  repoStoreListeners.add(cb);
+  return () => {
+    repoStoreListeners.delete(cb);
+  };
+}
+
+export function repoStoreVersion(): number {
+  return repoVersion;
+}
+
+function emitRepoChange(): void {
+  repoVersion++;
+  repoStoreListeners.forEach((cb) => cb());
+}
+
 /** Start a batch of writes across one or more repositories that must all
  * commit together (e.g. an invoice plus the stock adjustments it triggers) —
  * see `commitBatch`. Returns null outside the browser, matching every other
@@ -106,6 +133,9 @@ export class Repository<T extends { id: string }> {
               ((a as Record<string, unknown>).createdAt as string) ?? "",
             ),
           );
+          // Notify subscribers on EVERY snapshot (first load + every live
+          // update), so screens fill in and stay current as data arrives.
+          emitRepoChange();
           if (first) {
             first = false;
             resolve();
@@ -127,6 +157,7 @@ export class Repository<T extends { id: string }> {
     this.unsub?.();
     this.unsub = undefined;
     this.cache = [];
+    emitRepoChange();
   }
 
   all(): T[] {
@@ -146,6 +177,7 @@ export class Repository<T extends { id: string }> {
       createdAt: new Date().toISOString(),
     } as unknown as T;
     this.cache.unshift(record);
+    emitRepoChange();
     if (isBrowser) {
       setDoc(doc(db, this.name, record.id), stripUndefined(record)).catch(writeError("add"));
     }
@@ -162,6 +194,7 @@ export class Repository<T extends { id: string }> {
       createdAt: new Date().toISOString(),
     } as unknown as T;
     this.cache.unshift(record);
+    emitRepoChange();
     if (isBrowser && batch) {
       batch.set(doc(db, this.name, record.id), stripUndefined(record));
     }
@@ -173,6 +206,7 @@ export class Repository<T extends { id: string }> {
     if (idx < 0) return undefined;
     const merged = { ...this.cache[idx], ...patch };
     this.cache[idx] = merged;
+    emitRepoChange();
     if (isBrowser) {
       // Write the full merged record so the cloud doc always mirrors the cache
       setDoc(doc(db, this.name, id), stripUndefined(merged)).catch(writeError("update"));
@@ -186,6 +220,7 @@ export class Repository<T extends { id: string }> {
     if (idx < 0) return undefined;
     const merged = { ...this.cache[idx], ...patch };
     this.cache[idx] = merged;
+    emitRepoChange();
     if (isBrowser && batch) {
       batch.set(doc(db, this.name, id), stripUndefined(merged));
     }
@@ -212,6 +247,7 @@ export class Repository<T extends { id: string }> {
       [field]: Math.round((cur + delta) * 100) / 100,
     } as T;
     this.cache[idx] = merged;
+    emitRepoChange();
     if (isBrowser) {
       // set+merge, NOT update: update() fails on a missing doc, and inside a
       // batch that failure would void the whole invoice write
@@ -241,6 +277,7 @@ export class Repository<T extends { id: string }> {
       [field]: Math.round((cur + delta) * 100) / 100,
     } as T;
     this.cache[idx] = merged;
+    emitRepoChange();
     if (isBrowser && batch) {
       batch.set(
         doc(db, this.name, id),
@@ -253,6 +290,7 @@ export class Repository<T extends { id: string }> {
 
   remove(id: string) {
     this.cache = this.cache.filter((i) => i.id !== id);
+    emitRepoChange();
     if (isBrowser) {
       deleteDoc(doc(db, this.name, id)).catch(writeError("delete"));
     }
@@ -261,6 +299,7 @@ export class Repository<T extends { id: string }> {
   /** Batched counterpart to remove() — see addBatched(). */
   removeBatched(batch: WriteBatch | null, id: string) {
     this.cache = this.cache.filter((i) => i.id !== id);
+    emitRepoChange();
     if (isBrowser && batch) {
       batch.delete(doc(db, this.name, id));
     }
@@ -269,6 +308,7 @@ export class Repository<T extends { id: string }> {
   bulkRemove(ids: string[]) {
     const set = new Set(ids);
     this.cache = this.cache.filter((i) => !set.has(i.id));
+    emitRepoChange();
     if (!isBrowser) return;
     void this.batchedDelete([...set]);
   }
@@ -291,6 +331,7 @@ export class Repository<T extends { id: string }> {
   async clearAll(): Promise<void> {
     const ids = this.cache.map((r) => r.id);
     this.cache = [];
+    emitRepoChange();
     await this.batchedDelete(ids);
   }
 

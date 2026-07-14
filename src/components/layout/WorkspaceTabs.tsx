@@ -31,8 +31,10 @@ import {
   PurchaseReturnRepo,
   BankRepo,
 } from "@/repositories";
+import { useRepoData } from "@/hooks/useRepoData";
 
 export function WorkspaceTabs() {
+  useRepoData();
   const { tabs, closeTab, openTab } = useWorkspace();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });

@@ -23,7 +23,13 @@ import {
 } from "@/lib/chunk-reload";
 import { AppShell } from "@/components/layout/AppShell";
 import { auth, isBrowser } from "@/lib/firebase";
-import { hydrateRepos, migrateFromLocalStorage, stopRepos, TeamUserRepo } from "@/repositories";
+import {
+  hydrateRepos,
+  whenReposHydrated,
+  migrateFromLocalStorage,
+  stopRepos,
+  TeamUserRepo,
+} from "@/repositories";
 import { usePermissions } from "@/hooks/usePermissions";
 import type { ModuleKey } from "@/types";
 import { LoginPage } from "./login";
@@ -265,18 +271,28 @@ function AuthGate() {
     let cancelled = false;
     (async () => {
       try {
+        // Resolves as soon as permissions + company are known and every
+        // collection's live listener has been STARTED (not finished). The app
+        // opens now; each screen fills in live as its data arrives.
         await hydrateRepos(user.uid, user.email ?? "");
+        if (!cancelled) setDataReady(true);
+
         // Legacy localStorage → cloud migration only ever applies to the
         // owner's own original device/browser — a freshly created team
-        // member's browser has no old data to migrate, and since their repos
-        // are only partially hydrated by design (permission-scoped), the
-        // "is the cloud already populated" check below isn't meaningful for
-        // them anyway.
+        // member's browser has no old data to migrate, and its repos are only
+        // partially hydrated by design (permission-scoped). Run it in the
+        // background AFTER all collections have loaded, since the "is the cloud
+        // already populated?" guard is only meaningful once data is present —
+        // running it early could wrongly re-upload localStorage as duplicates.
         if (TeamUserRepo.current()?.isOwner) {
-          const migrated = await migrateFromLocalStorage();
-          if (migrated > 0) toast.success(`Moved ${migrated} records from this device to cloud`);
+          whenReposHydrated()
+            .then(() => migrateFromLocalStorage())
+            .then((migrated) => {
+              if (migrated > 0 && !cancelled)
+                toast.success(`Moved ${migrated} records from this device to cloud`);
+            })
+            .catch((err) => console.error("Background migration failed", err));
         }
-        if (!cancelled) setDataReady(true);
       } catch (err) {
         console.error("Data load failed", err);
         if (!cancelled)

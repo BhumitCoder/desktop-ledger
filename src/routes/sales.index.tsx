@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { SalesRepo, PartyRepo, ItemRepo, PaymentRepo, BankRepo, SaleReturnRepo } from "@/repositories";
+import { useRepoData } from "@/hooks/useRepoData";
 import { newBatch, commitBatch } from "@/repositories/base";
 import type { Invoice } from "@/types";
 import { fmtMoney, fmtDate, ymd, today } from "@/lib/format";
@@ -62,7 +63,8 @@ function SalesPage() {
     setRows(SalesRepo.all());
     setParties(PartyRepo.all().map((p) => ({ id: p.id, name: p.name })));
   };
-  useEffect(refresh, []);
+  const _repoV = useRepoData();
+  useEffect(refresh, [_repoV]);
 
   const filtered = useMemo(() => {
     return rows.filter((r) => {

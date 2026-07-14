@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { PurchaseReturnRepo, ItemRepo } from "@/repositories";
+import { useRepoData } from "@/hooks/useRepoData";
 import { newBatch, commitBatch } from "@/repositories/base";
 import type { Return } from "@/types";
 import { fmtMoney, fmtDate } from "@/lib/format";
@@ -21,7 +22,8 @@ function PurchaseReturnPage() {
   const [rows, setRows] = useState<Return[]>([]);
   const refresh = () =>
     setRows(PurchaseReturnRepo.all().sort((a, b) => b.date.localeCompare(a.date)));
-  useEffect(refresh, []);
+  const _repoV = useRepoData();
+  useEffect(refresh, [_repoV]);
 
   const pg = usePagination(rows);
 

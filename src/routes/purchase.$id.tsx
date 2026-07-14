@@ -10,6 +10,7 @@ import { useFitScale } from "@/hooks/useFitScale";
 import { fmtMode } from "@/components/ModePills";
 import { PrintableInvoice } from "@/components/PrintableInvoice";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useRepoData } from "@/hooks/useRepoData";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -38,6 +39,7 @@ const A4_W = 794;
 const A4_H = 1123;
 
 function BillDetailPage() {
+  const _repoV = useRepoData();
   const { id } = Route.useParams();
   const { print } = Route.useSearch();
   const navigate = useNavigate();
@@ -52,7 +54,7 @@ function BillDetailPage() {
   useEffect(() => {
     setInv(PurchaseRepo.get(id) ?? null);
     setCo(CompanyRepo.get());
-  }, [id]);
+  }, [id, _repoV]);
 
   // Save & Print flow: arrive with ?print=1 → auto-open the print dialog.
   // Inside the installed home-screen app there IS no print dialog

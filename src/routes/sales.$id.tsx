@@ -12,6 +12,7 @@ import { fmtMode } from "@/components/ModePills";
 import { ThermalReceipt } from "@/components/ThermalReceipt";
 import { PrintableInvoice } from "@/components/PrintableInvoice";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useRepoData } from "@/hooks/useRepoData";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -51,6 +52,7 @@ const A4_2UP_W = 1120;
 const A4_2UP_H = 793;
 
 function InvoiceDetailPage() {
+  const _repoV = useRepoData();
   const { id } = Route.useParams();
   const { print } = Route.useSearch();
   const navigate = useNavigate();
@@ -70,7 +72,7 @@ function InvoiceDetailPage() {
     const c = CompanyRepo.get();
     setCo(c);
     setFmt(c.printFormat ?? "a4");
-  }, [id]);
+  }, [id, _repoV]);
 
   // Save & Print flow: arrive with ?print=1 → auto-open the print dialog.
   // Inside the installed home-screen app there IS no print dialog

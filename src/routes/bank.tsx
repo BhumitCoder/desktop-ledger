@@ -12,6 +12,7 @@ import {
   BankTxnRepo,
   CashAdjustmentRepo,
 } from "@/repositories";
+import { useRepoData } from "@/hooks/useRepoData";
 import { newBatch, commitBatch } from "@/repositories/base";
 import { bankFlows, netFlow } from "@/lib/ledger";
 import type { BankAccount } from "@/types";
@@ -36,7 +37,8 @@ function BankPage() {
   const [edit, setEdit] = useState<BankAccount | null>(null);
   const [txnOpen, setTxnOpen] = useState(false);
   const refresh = () => setRows(BankRepo.all());
-  useEffect(refresh, []);
+  const _repoV = useRepoData();
+  useEffect(refresh, [_repoV]);
 
   const pg = usePagination(rows);
 

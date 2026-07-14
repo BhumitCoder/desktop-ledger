@@ -12,6 +12,7 @@ import {
   PurchaseReturnRepo,
   CashAdjustmentRepo,
 } from "@/repositories";
+import { useRepoData } from "@/hooks/useRepoData";
 import { fmtMoney, ymd } from "@/lib/format";
 import { partyBalances, cashFlows, netFlow, computeCogs, bankFlows, type PartyBalance } from "@/lib/ledger";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -89,6 +90,7 @@ function fmt(n: number) {
 }
 
 function Dashboard() {
+  const _repoV = useRepoData();
   const navigate = useNavigate();
   const [period, setPeriod] = useState<Period>("this_month");
   const [showPeriodMenu, setShowPeriodMenu] = useState(false);
@@ -119,7 +121,7 @@ function Dashboard() {
       purchaseReturns: PurchaseReturnRepo.all(),
       cashAdjustments: CashAdjustmentRepo.all(),
     });
-  }, []);
+  }, [_repoV]);
 
   // Memoize the range so it's a stable reference while `period` is unchanged —
   // otherwise every downstream useMemo keyed on start/end (chart, COGS) would

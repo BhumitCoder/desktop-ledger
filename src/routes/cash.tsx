@@ -8,6 +8,7 @@ import {
   PaymentRepo,
   CashAdjustmentRepo,
 } from "@/repositories";
+import { useRepoData } from "@/hooks/useRepoData";
 import { cashFlows, type FlowEntry } from "@/lib/ledger";
 import { fmtMoney, fmtDate, today } from "@/lib/format";
 import { DataTable } from "@/components/DataTable";
@@ -42,7 +43,8 @@ function CashPage() {
         CashAdjustmentRepo.all(),
       ),
     );
-  useEffect(refresh, []);
+  const _repoV = useRepoData();
+  useEffect(refresh, [_repoV]);
 
   // Balance is the true running cash-in-hand as of now — it doesn't change
   // when a date range is applied, only the period's In/Out totals do.

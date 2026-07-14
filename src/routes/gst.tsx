@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { SalesRepo, PurchaseRepo, SaleReturnRepo, PurchaseReturnRepo } from "@/repositories";
+import { useRepoData } from "@/hooks/useRepoData";
 import type { Invoice, LineItem, Return } from "@/types";
 import { fmtMoney, ymd } from "@/lib/format";
 import { downloadElementAsPdf } from "@/lib/pdf";
@@ -61,6 +62,7 @@ function bucketsFor(invoices: Invoice[], returns: Return[]): Bucket[] {
 }
 
 function GstPage() {
+  const _repoV = useRepoData();
   const [period, setPeriod] = useState(currentPeriod);
   const [sales, setSales] = useState<Invoice[]>([]);
   const [purchases, setPurchases] = useState<Invoice[]>([]);
@@ -73,7 +75,7 @@ function GstPage() {
     setPurchases(PurchaseRepo.all());
     setSaleReturns(SaleReturnRepo.all());
     setPurchaseReturns(PurchaseReturnRepo.all());
-  }, []);
+  }, [_repoV]);
 
   const { start, end } = periodRange(period);
   const inPeriod = <T extends { date: string }>(docs: T[]) =>

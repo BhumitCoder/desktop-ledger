@@ -5,6 +5,7 @@ import { buildBankLedger, type BankLedgerRow } from "@/lib/ledger";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
+import { useRepoData } from "@/hooks/useRepoData";
 import { downloadCsv } from "@/lib/csv";
 import { downloadElementAsPdf } from "@/lib/pdf";
 import type { BankAccount } from "@/types";
@@ -28,6 +29,7 @@ export const Route = createFileRoute("/bank_/$id")({ component: BankStatementPag
 let dateCache: { dateFrom: string; dateTo: string } | null = null;
 
 function BankStatementPage() {
+  const _repoV = useRepoData();
   const { id } = Route.useParams();
   const navigate = useNavigate();
   const [bank, setBank] = useState<BankAccount | null | undefined>(undefined);
@@ -38,7 +40,7 @@ function BankStatementPage() {
 
   useEffect(() => {
     setBank(BankRepo.get(id) ?? null);
-  }, [id]);
+  }, [id, _repoV]);
 
   useEffect(() => {
     dateCache = { dateFrom, dateTo };
@@ -63,7 +65,7 @@ function BankStatementPage() {
       dateFrom,
       dateTo,
     );
-  }, [bank, dateFrom, dateTo]);
+  }, [bank, dateFrom, dateTo, _repoV]);
 
   const openRow = (e: BankLedgerRow) => {
     if (!e.docId || !e.docKind) return;

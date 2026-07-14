@@ -2,12 +2,14 @@ import { Search, Plus, Building2, ChevronDown, Menu, LogOut } from "lucide-react
 import { useWorkspace } from "@/store/workspace";
 import { useNavigate } from "@tanstack/react-router";
 import { CompanyRepo, stopRepos } from "@/repositories";
+import { useRepoData } from "@/hooks/useRepoData";
 import { useEffect, useState } from "react";
 import { signOut } from "firebase/auth";
 import { auth, isBrowser } from "@/lib/firebase";
 import { toast } from "sonner";
 
 export function Topbar() {
+  useRepoData();
   const { setGlobalSearch, toggleMobileNav } = useWorkspace();
   const navigate = useNavigate();
   const [company, setCompany] = useState(() => CompanyRepo.get());

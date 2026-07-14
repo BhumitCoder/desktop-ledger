@@ -21,6 +21,7 @@ import { genId, newBatch, commitBatch } from "@/repositories/base";
 import { stockShortfalls } from "@/lib/stock";
 import { NumInput } from "@/components/NumInput";
 import { QuickAddPartyDialog, type QuickAddPartyDetails } from "@/components/QuickAddPartyDialog";
+import { useRepoData } from "@/hooks/useRepoData";
 
 interface Props {
   mode: "sale-return" | "purchase-return";
@@ -29,6 +30,7 @@ interface Props {
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 export function ReturnForm({ mode }: Props) {
+  useRepoData();
   const navigate = useNavigate();
   const company = CompanyRepo.get();
   const isSaleReturn = mode === "sale-return";

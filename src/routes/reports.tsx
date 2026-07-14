@@ -14,6 +14,7 @@ import {
 import { fmtMoney, fmtDate, today, ymd } from "@/lib/format";
 import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
+import { useRepoData } from "@/hooks/useRepoData";
 import { computeCogs, buildPartyStatement } from "@/lib/ledger";
 import { downloadCsv } from "@/lib/csv";
 import { downloadXlsx } from "@/lib/xlsx";
@@ -81,6 +82,7 @@ let activeReportCache: string | null = null;
 let dateCache: { dateFrom: string; dateTo: string } | null = null;
 
 function ReportsPage() {
+  useRepoData();
   const { r } = Route.useSearch();
   const [active, setActive] = useState(() =>
     REPORTS.some((x) => x.key === r) ? (r as string) : (activeReportCache ?? "pl"),
@@ -334,33 +336,34 @@ function ReportView({
 }) {
   const label = REPORTS.find((r) => r.key === which)?.label ?? which;
   const navigate = useNavigate();
+  const _repoV = useRepoData();
 
   const sales = useMemo(
     () => SalesRepo.all().filter((s) => inRange(s.date, dateFrom, dateTo)),
-    [dateFrom, dateTo],
+    [dateFrom, dateTo, _repoV],
   );
   const purchases = useMemo(
     () => PurchaseRepo.all().filter((s) => inRange(s.date, dateFrom, dateTo)),
-    [dateFrom, dateTo],
+    [dateFrom, dateTo, _repoV],
   );
   const expenses = useMemo(
     () => ExpenseRepo.all().filter((s) => inRange(s.date, dateFrom, dateTo)),
-    [dateFrom, dateTo],
+    [dateFrom, dateTo, _repoV],
   );
   const saleReturns = useMemo(
     () => SaleReturnRepo.all().filter((s) => inRange(s.date, dateFrom, dateTo)),
-    [dateFrom, dateTo],
+    [dateFrom, dateTo, _repoV],
   );
   const purchaseReturns = useMemo(
     () => PurchaseReturnRepo.all().filter((s) => inRange(s.date, dateFrom, dateTo)),
-    [dateFrom, dateTo],
+    [dateFrom, dateTo, _repoV],
   );
   const payments = useMemo(
     () => PaymentRepo.all().filter((s) => inRange(s.date, dateFrom, dateTo)),
-    [dateFrom, dateTo],
+    [dateFrom, dateTo, _repoV],
   );
-  const parties = useMemo(() => PartyRepo.all(), []);
-  const items = useMemo(() => ItemRepo.all(), []);
+  const parties = useMemo(() => PartyRepo.all(), [_repoV]);
+  const items = useMemo(() => ItemRepo.all(), [_repoV]);
   const [partySearch, setPartySearch] = useState("");
 
   // Every party's full statement, built ONCE per (report, date-range) — not on
@@ -381,7 +384,7 @@ function ReportView({
       .map((p) => ({ party: p, ledger: buildPartyStatement(p, data, dateFrom, dateTo) }))
       .filter(({ ledger }) => ledger.rows.length > 0)
       .sort((a, b) => a.party.name.localeCompare(b.party.name));
-  }, [which, dateFrom, dateTo, parties]);
+  }, [which, dateFrom, dateTo, parties, _repoV]);
 
   if (which === "pl") {
     const revenue = sales.reduce((a, s) => a + s.total, 0);

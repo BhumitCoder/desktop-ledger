@@ -6,12 +6,14 @@ import { fmtMoney } from "@/lib/format";
 import { printOrEscapeStandalone } from "@/lib/print";
 import { downloadElementAsPdf } from "@/lib/pdf";
 import { PrintableReturn } from "@/components/PrintableReturn";
+import { useRepoData } from "@/hooks/useRepoData";
 import { toast } from "sonner";
 import { ArrowLeft, Printer, AlertCircle, CornerDownLeft, FileDown } from "lucide-react";
 
 export const Route = createFileRoute("/sale-return/$id")({ component: SaleReturnDetailPage });
 
 function SaleReturnDetailPage() {
+  const _repoV = useRepoData();
   const { id } = Route.useParams();
   const navigate = useNavigate();
   const [ret, setRet] = useState<Return | null>(null);
@@ -22,7 +24,7 @@ function SaleReturnDetailPage() {
   useEffect(() => {
     setRet(SaleReturnRepo.get(id) ?? null);
     setCo(CompanyRepo.get());
-  }, [id]);
+  }, [id, _repoV]);
 
   // Server-rendered PDF — also the fallback Print uses inside the installed
   // app, where window.print() is a silent no-op (see lib/print.ts).

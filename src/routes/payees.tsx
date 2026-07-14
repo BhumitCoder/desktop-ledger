@@ -5,6 +5,7 @@ import { DataTable, type Column } from "@/components/DataTable";
 import { usePagination } from "@/components/Pagination";
 import { useAutoFocusOnDesktop } from "@/hooks/use-mobile";
 import { PayeeRepo, ExpenseRepo, CompanyRepo } from "@/repositories";
+import { useRepoData } from "@/hooks/useRepoData";
 import type { Payee } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -30,7 +31,8 @@ function PayeesPage() {
   const [edit, setEdit] = useState<Payee | null>(null);
 
   const refresh = () => setRows(PayeeRepo.all());
-  useEffect(refresh, []);
+  const _repoV = useRepoData();
+  useEffect(refresh, [_repoV]);
 
   const filtered = rows.filter((r) => {
     const s = q.toLowerCase();

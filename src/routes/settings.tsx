@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PageHeader } from "@/components/PageHeader";
 import { CompanyRepo, REPO_BY_KEY } from "@/repositories";
+import { useRepoData } from "@/hooks/useRepoData";
 import { Field } from "@/components/Field";
 import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState } from "react";
@@ -31,6 +32,7 @@ import {
 export const Route = createFileRoute("/settings")({ component: SettingsPage });
 
 function SettingsPage() {
+  useRepoData();
   const [c, setC] = useState<Company>(() => CompanyRepo.get());
   const [busy, setBusy] = useState(false);
   const [newCategory, setNewCategory] = useState("");

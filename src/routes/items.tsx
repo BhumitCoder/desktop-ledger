@@ -12,6 +12,7 @@ import {
   SaleReturnRepo,
   PurchaseReturnRepo,
 } from "@/repositories";
+import { useRepoData } from "@/hooks/useRepoData";
 import { newBatch, commitBatch } from "@/repositories/base";
 import type { Item } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -85,7 +86,8 @@ function ItemsPage() {
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const refresh = () => setRows(ItemRepo.all());
-  useEffect(refresh, []);
+  const _repoV = useRepoData();
+  useEffect(refresh, [_repoV]);
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {

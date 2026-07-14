@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
 import { usePagination } from "@/components/Pagination";
 import { ExpenseRepo, BankRepo, PayeeRepo, CompanyRepo } from "@/repositories";
+import { useRepoData } from "@/hooks/useRepoData";
 import { newBatch, commitBatch, genId } from "@/repositories/base";
 import type { Expense, BankAccount, Payee } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -27,7 +28,8 @@ function ExpensesPage() {
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<Expense | null>(null);
   const refresh = () => setRows(ExpenseRepo.all());
-  useEffect(refresh, []);
+  const _repoV = useRepoData();
+  useEffect(refresh, [_repoV]);
 
   const pg = usePagination(rows);
 

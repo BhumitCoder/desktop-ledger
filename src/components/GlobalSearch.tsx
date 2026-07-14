@@ -12,9 +12,11 @@ import {
 } from "@/components/ui/command";
 import { PartyRepo, ItemRepo, SalesRepo, PurchaseRepo } from "@/repositories";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useRepoData } from "@/hooks/useRepoData";
 import { Users, Package, ShoppingCart, Truck } from "lucide-react";
 
 export function GlobalSearch() {
+  useRepoData();
   const { globalSearchOpen, setGlobalSearch } = useWorkspace();
   const navigate = useNavigate();
   const { isOwner, canView } = usePermissions();

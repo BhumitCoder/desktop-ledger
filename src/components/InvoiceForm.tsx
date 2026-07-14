@@ -39,6 +39,7 @@ import { ModePills } from "@/components/ModePills";
 import { QuickAddPartyDialog, type QuickAddPartyDetails } from "@/components/QuickAddPartyDialog";
 import { genId, newBatch, commitBatch } from "@/repositories/base";
 import { stockShortfalls } from "@/lib/stock";
+import { useRepoData } from "@/hooks/useRepoData";
 
 interface Props {
   mode: "sale" | "purchase";
@@ -46,6 +47,7 @@ interface Props {
 }
 
 export function InvoiceForm({ mode, existing }: Props) {
+  useRepoData();
   const navigate = useNavigate();
   const company = CompanyRepo.get();
   const isSale = mode === "sale";

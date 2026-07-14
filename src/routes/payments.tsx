@@ -9,6 +9,7 @@ import {
   PurchaseReturnRepo,
   BankRepo,
 } from "@/repositories";
+import { useRepoData } from "@/hooks/useRepoData";
 import { newBatch, commitBatch } from "@/repositories/base";
 import type { Payment, PaymentAllocation, PaymentMode, Invoice, BankAccount, Party } from "@/types";
 import { fmtMoney, fmtDate, today } from "@/lib/format";
@@ -91,7 +92,8 @@ function PaymentsPage() {
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   const refresh = () => setRows(PaymentRepo.all().sort((a, b) => b.date.localeCompare(a.date)));
-  useEffect(refresh, []);
+  const _repoV = useRepoData();
+  useEffect(refresh, [_repoV]);
 
   const filtered = rows.filter((r) => {
     if (tab !== "all" && r.type !== tab) return false;
