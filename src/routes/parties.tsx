@@ -393,27 +393,41 @@ function PartiesPage() {
     },
   ];
 
+  // The Active/Archived toggle (shared markup). On mobile it sits in the free
+  // space to the right of the title (via PageHeader's mobileAction slot); on
+  // sm+ it stays inline in the actions row. Same buttons either way.
+  const viewToggleButtons = (
+    <>
+      <button
+        onClick={() => setView("active")}
+        className={`h-8 px-3 text-xs font-semibold transition ${view === "active" ? "bg-primary text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}
+      >
+        Active ({activeCount})
+      </button>
+      <button
+        onClick={() => setView("archived")}
+        className={`h-8 px-3 text-xs font-semibold transition ${view === "archived" ? "bg-primary text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}
+      >
+        Archived ({archivedCount})
+      </button>
+    </>
+  );
+
   return (
     <div className="flex flex-col h-full">
       <PageHeader
         title="Parties"
         subtitle={`${rows.length} customers / suppliers`}
         icon={<Users className="h-5 w-5" />}
+        mobileAction={
+          <div className="inline-flex rounded-md border border-gray-200 bg-white overflow-hidden shrink-0">
+            {viewToggleButtons}
+          </div>
+        }
         actions={
           <>
-            <div className="inline-flex rounded-md border border-gray-200 bg-white overflow-hidden shrink-0">
-              <button
-                onClick={() => setView("active")}
-                className={`h-8 px-3 text-xs font-semibold transition ${view === "active" ? "bg-primary text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}
-              >
-                Active ({activeCount})
-              </button>
-              <button
-                onClick={() => setView("archived")}
-                className={`h-8 px-3 text-xs font-semibold transition ${view === "archived" ? "bg-primary text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}
-              >
-                Archived ({archivedCount})
-              </button>
+            <div className="hidden sm:inline-flex rounded-md border border-gray-200 bg-white overflow-hidden shrink-0">
+              {viewToggleButtons}
             </div>
             <div className="relative w-full sm:w-44 lg:w-56">
               <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
