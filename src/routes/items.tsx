@@ -1052,19 +1052,24 @@ function buildPreview(table: string[][], existing: Item[]): PreviewRow[] {
       continue;
     }
 
-    const match = existing.find((it) => it.name.trim().toLowerCase() === name.toLowerCase());
+    // Block a repeated name anywhere in the file — in EVERY case, whether the
+    // row would create a new item or update an existing one. Two rows with the
+    // same name are never allowed (a name is unique across items), so the
+    // second is flagged in the preview instead of silently creating a
+    // duplicate / updating the same item twice.
+    const dupKey = name.toLowerCase();
+    const dupRow = seenNew.get(dupKey);
+    if (dupRow) {
+      out.push({ ...rec, status: "error", error: `Duplicate name of row ${dupRow} in this file` });
+      continue;
+    }
+    seenNew.set(dupKey, rowNum);
 
+    const match = existing.find((it) => it.name.trim().toLowerCase() === dupKey);
     if (match) {
       rec.status = "update";
       rec.matchId = match.id;
     } else {
-      const dupKey = name.toLowerCase();
-      const dupRow = seenNew.get(dupKey);
-      if (dupRow) {
-        out.push({ ...rec, status: "error", error: `Duplicate of row ${dupRow} in this file` });
-        continue;
-      }
-      seenNew.set(dupKey, rowNum);
       rec.status = "new";
     }
     out.push(rec);
