@@ -67,7 +67,7 @@ interface PartyPreviewRow {
   openingBalance: number;
   creditLimit?: number;
   gstin?: string;
-  status: "new" | "update" | "error";
+  status: "new" | "update" | "error" | "duplicate";
   error?: string;
   matchId?: string;
 }
@@ -128,14 +128,17 @@ function buildPartyPreview(table: string[][], existing: Party[]): PartyPreviewRo
       out.push({ ...rec, status: "error", error: "Name is required" });
       continue;
     }
-    // In-file duplicate (same name or phone appearing twice in the sheet)
+    // In-file duplicate (same name or phone appearing twice in the sheet) is a
+    // normal human slip — quietly marked "duplicate" and skipped (the first
+    // occurrence is kept), so the rest of the file still imports. This is not a
+    // scary "error" the user must fix; a name/phone is just never imported twice.
     const nameKey = name.toLowerCase();
     if (seenName.has(nameKey)) {
-      out.push({ ...rec, status: "error", error: `Duplicate of row ${seenName.get(nameKey)}` });
+      out.push({ ...rec, status: "duplicate", error: `Same name as row ${seenName.get(nameKey)} — skipped` });
       continue;
     }
     if (phone && seenPhone.has(phone)) {
-      out.push({ ...rec, status: "error", error: `Same phone as row ${seenPhone.get(phone)}` });
+      out.push({ ...rec, status: "duplicate", error: `Same phone as row ${seenPhone.get(phone)} — skipped` });
       continue;
     }
     seenName.set(nameKey, rowNum);
@@ -645,9 +648,11 @@ function BulkPartyImportDialog({
   const newCount = rows.filter((r) => r.status === "new").length;
   const updateCount = rows.filter((r) => r.status === "update").length;
   const errorCount = rows.filter((r) => r.status === "error").length;
+  const dupCount = rows.filter((r) => r.status === "duplicate").length;
 
   const doImport = async () => {
-    const valid = rows.filter((r) => r.status !== "error");
+    // Only new/update rows import — "duplicate" and "error" rows are skipped.
+    const valid = rows.filter((r) => r.status === "new" || r.status === "update");
     if (!valid.length || importing) return;
     setImporting(true);
     try {
@@ -727,6 +732,11 @@ function BulkPartyImportDialog({
               <div className="flex gap-4 text-sm">
                 <span className="text-success font-medium">{newCount} new</span>
                 <span className="text-primary font-medium">{updateCount} update</span>
+                {dupCount > 0 && (
+                  <span className="text-amber-600 font-medium">
+                    {dupCount} duplicate{dupCount > 1 ? "s" : ""} (skipped)
+                  </span>
+                )}
                 {errorCount > 0 && (
                   <span className="text-destructive font-medium">
                     {errorCount} error{errorCount > 1 ? "s" : ""} (skipped)
@@ -757,6 +767,9 @@ function BulkPartyImportDialog({
                           {r.status === "new" && <span className="text-success font-medium">New</span>}
                           {r.status === "update" && (
                             <span className="text-primary font-medium">Update</span>
+                          )}
+                          {r.status === "duplicate" && (
+                            <span className="text-amber-600 font-medium">{r.error}</span>
                           )}
                           {r.status === "error" && (
                             <span className="text-destructive font-medium">{r.error}</span>

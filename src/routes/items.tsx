@@ -981,7 +981,7 @@ interface PreviewRow {
   wholesalePrice?: number;
   minStock?: number;
   openingStock: number;
-  status: "new" | "update" | "error";
+  status: "new" | "update" | "error" | "duplicate";
   matchId?: string;
   error?: string;
 }
@@ -1052,15 +1052,15 @@ function buildPreview(table: string[][], existing: Item[]): PreviewRow[] {
       continue;
     }
 
-    // Block a repeated name anywhere in the file — in EVERY case, whether the
-    // row would create a new item or update an existing one. Two rows with the
-    // same name are never allowed (a name is unique across items), so the
-    // second is flagged in the preview instead of silently creating a
-    // duplicate / updating the same item twice.
+    // A name repeated within the file is a normal human slip, not something to
+    // scold the user over — it's quietly marked "duplicate" and skipped (the
+    // first occurrence is kept), so the rest of the file still imports. This is
+    // distinct from a real "error" (missing name / negative price) that the
+    // user actually needs to fix. Either way a name is never imported twice.
     const dupKey = name.toLowerCase();
     const dupRow = seenNew.get(dupKey);
     if (dupRow) {
-      out.push({ ...rec, status: "error", error: `Duplicate name of row ${dupRow} in this file` });
+      out.push({ ...rec, status: "duplicate", error: `Same name as row ${dupRow} — skipped` });
       continue;
     }
     seenNew.set(dupKey, rowNum);
@@ -1126,9 +1126,11 @@ function BulkImportDialog({
   const newCount = rows.filter((r) => r.status === "new").length;
   const updateCount = rows.filter((r) => r.status === "update").length;
   const errorCount = rows.filter((r) => r.status === "error").length;
+  const dupCount = rows.filter((r) => r.status === "duplicate").length;
 
   const doImport = async () => {
-    const valid = rows.filter((r) => r.status !== "error");
+    // Only new/update rows import — "duplicate" and "error" rows are skipped.
+    const valid = rows.filter((r) => r.status === "new" || r.status === "update");
     if (!valid.length || importing) return;
     setImporting(true);
     try {
@@ -1212,6 +1214,11 @@ function BulkImportDialog({
               <div className="flex gap-4 text-sm">
                 <span className="text-success font-medium">{newCount} new</span>
                 <span className="text-primary font-medium">{updateCount} update</span>
+                {dupCount > 0 && (
+                  <span className="text-amber-600 font-medium">
+                    {dupCount} duplicate{dupCount > 1 ? "s" : ""} (skipped)
+                  </span>
+                )}
                 {errorCount > 0 && (
                   <span className="text-destructive font-medium">
                     {errorCount} error{errorCount > 1 ? "s" : ""} (skipped)
@@ -1242,6 +1249,9 @@ function BulkImportDialog({
                           {r.status === "new" && <span className="text-success font-medium">New</span>}
                           {r.status === "update" && (
                             <span className="text-primary font-medium">Update</span>
+                          )}
+                          {r.status === "duplicate" && (
+                            <span className="text-amber-600 font-medium">{r.error}</span>
                           )}
                           {r.status === "error" && (
                             <span className="text-destructive font-medium">{r.error}</span>
