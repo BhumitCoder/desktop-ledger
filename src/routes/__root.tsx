@@ -16,6 +16,11 @@ import { Toaster } from "@/components/ui/sonner";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import {
+  isModuleLoadError,
+  reloadOnceForChunkError,
+  installChunkErrorAutoReload,
+} from "@/lib/chunk-reload";
 import { AppShell } from "@/components/layout/AppShell";
 import { auth, isBrowser } from "@/lib/firebase";
 import { hydrateRepos, migrateFromLocalStorage, stopRepos, TeamUserRepo } from "@/repositories";
@@ -91,9 +96,35 @@ function NotFoundComponent() {
 
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   const router = useRouter();
+  // A stale-chunk error after a deploy is a browser-cache problem, not a real
+  // app failure — auto-reload once to pull the fresh HTML + new chunks so the
+  // user never even sees this screen. (Guarded so a truly broken deploy can't
+  // loop.) Only if the reload is on cooldown do we fall through to the UI.
+  const chunkError = isModuleLoadError(error);
   useEffect(() => {
     reportLovableError(error, { boundary: "root" });
-  }, [error]);
+    if (chunkError) reloadOnceForChunkError();
+  }, [error, chunkError]);
+
+  if (chunkError) {
+    // Reload is in flight (or was just attempted) — show a neutral "updating"
+    // state instead of a scary error, since this self-heals.
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+        <div className="max-w-md text-center">
+          <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary" />
+          <p className="mt-3 text-sm text-muted-foreground">Updating to the latest version…</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 rounded-md bg-primary text-primary-foreground px-3 py-1.5 text-sm"
+          >
+            Reload now
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
@@ -179,6 +210,11 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  // Self-heal chunk import failures that happen during navigation (outside the
+  // error boundary) — e.g. a deploy landed while the tab was open.
+  useEffect(() => {
+    installChunkErrorAutoReload();
+  }, []);
   return (
     <QueryClientProvider client={queryClient}>
       <AuthGate />
