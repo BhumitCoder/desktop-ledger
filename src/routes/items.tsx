@@ -19,7 +19,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Field } from "@/components/Field";
 import { NumField } from "@/components/NumInput";
 import { fmtMoney, today } from "@/lib/format";
-import { downloadCsv, parseCsv } from "@/lib/csv";
+import { downloadCsv } from "@/lib/csv";
+import { parseImportFile, normalizeHeader } from "@/lib/sheetImport";
 import {
   Plus,
   Search,
@@ -995,51 +996,6 @@ const HEADER_ALIASES: Record<string, string[]> = {
   openingStock: ["openingstock", "opening", "stock"],
 };
 
-function normalizeHeader(h: string): string {
-  return h.toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
-/** Read a parsed .xlsx workbook into a string table, defending against two
- * real-world quirks that made a filled template import as "No valid rows":
- *  1) A truncated `!ref` used-range — WPS Office (and some re-saved Excel
- *     files) write a range covering only the header row, so sheet_to_json
- *     silently drops every data row. We recompute the range from the actual
- *     cell addresses so all rows survive.
- *  2) Data on a non-first sheet, or an empty sheet ordered first — we scan
- *     every sheet and keep the largest one that has a recognisable header
- *     (falling back to the largest overall). */
-function workbookToTable(XLSX: any, wb: any): string[][] {
-  let best: string[][] = [];
-  let bestNamed: string[][] = [];
-  for (const name of wb.SheetNames as string[]) {
-    const sheet = wb.Sheets[name];
-    if (!sheet) continue;
-    let minR = Infinity,
-      minC = Infinity,
-      maxR = -1,
-      maxC = -1;
-    for (const k of Object.keys(sheet)) {
-      if (k[0] === "!") continue;
-      const cell = XLSX.utils.decode_cell(k);
-      if (cell.r < minR) minR = cell.r;
-      if (cell.c < minC) minC = cell.c;
-      if (cell.r > maxR) maxR = cell.r;
-      if (cell.c > maxC) maxC = cell.c;
-    }
-    if (maxR >= 0) {
-      sheet["!ref"] = XLSX.utils.encode_range({ s: { r: minR, c: minC }, e: { r: maxR, c: maxC } });
-    }
-    const t = (
-      XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" }) as unknown[][]
-    ).map((row) => (Array.isArray(row) ? row.map((c) => String(c ?? "")) : []));
-    if (t.length > best.length) best = t;
-    const hdr = (t[0] ?? []).map(normalizeHeader);
-    if (HEADER_ALIASES.name.some((a) => hdr.includes(a)) && t.length > bestNamed.length) {
-      bestNamed = t;
-    }
-  }
-  return bestNamed.length ? bestNamed : best;
-}
 
 /** Turn a parsed bulk-import table (from CSV or an Excel sheet) into preview
  * rows, matching each against existing items by Name (same rule the New/Edit
@@ -1143,31 +1099,9 @@ function BulkImportDialog({
     const file = e.target.files?.[0];
     if (!file) return;
     setFileName(file.name);
-    const buf = await file.arrayBuffer();
-    const isExcel = /\.(xlsx|xls)$/i.test(file.name);
-    let table: string[][];
-    if (isExcel) {
-      // Real Excel workbook, not CSV text — read via the same xlsx library
-      // already used for exports. workbookToTable picks the populated sheet
-      // and repairs a truncated used-range (the WPS-Office quirk that made a
-      // filled template import as "No valid rows"). Cells come back as strings
-      // so downstream parsing (num(), trim()) matches the CSV path exactly.
-      // Loaded on demand — xlsx is ~400KB and only this import flow needs it.
-      const XLSX = await import("xlsx");
-      const wb = XLSX.read(new Uint8Array(buf), { type: "array" });
-      table = workbookToTable(XLSX, wb);
-    } else {
-      // Decode by BOM — Excel's "Unicode Text" export is UTF-16, which read
-      // as UTF-8 turns into garbage and every row silently errors
-      const b = new Uint8Array(buf);
-      const text =
-        b[0] === 0xff && b[1] === 0xfe
-          ? new TextDecoder("utf-16le").decode(buf)
-          : b[0] === 0xfe && b[1] === 0xff
-            ? new TextDecoder("utf-16be").decode(buf)
-            : new TextDecoder("utf-8").decode(buf);
-      table = parseCsv(text);
-    }
+    // Shared parser — handles .xlsx (incl. the WPS truncated-range quirk) and
+    // CSV/UTF-16 identically for both item and party import (see sheetImport).
+    const table = await parseImportFile(file);
     if (!table.length) {
       toast.error("File looks empty or unreadable — export it as CSV/Excel and try again");
       setRows([]);

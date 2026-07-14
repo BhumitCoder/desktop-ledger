@@ -13,17 +13,146 @@ import {
   PaymentRepo,
 } from "@/repositories";
 import type { Party } from "@/types";
+import { newBatch, commitBatch, genId } from "@/repositories/base";
+import { downloadCsv } from "@/lib/csv";
+import { parseImportFile, normalizeHeader } from "@/lib/sheetImport";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/Field";
 import { NumField } from "@/components/NumInput";
 import { fmtMoney } from "@/lib/format";
 import { partyBalances } from "@/lib/ledger";
-import { Plus, Search, Pencil, FileText, Users, AlertTriangle, Archive, ArchiveRestore, Trash2 } from "lucide-react";
+import {
+  Plus,
+  Search,
+  Pencil,
+  FileText,
+  Users,
+  AlertTriangle,
+  Archive,
+  ArchiveRestore,
+  Trash2,
+  Upload,
+  Download,
+} from "lucide-react";
 import { toast } from "sonner";
 import { usePermissions } from "@/hooks/usePermissions";
 
 export const Route = createFileRoute("/parties")({ component: PartiesPage });
+
+// ── Bulk party import ────────────────────────────────────────────────────
+const PARTY_BULK_COLUMNS = [
+  "Name",
+  "Phone",
+  "Type",
+  "Opening Balance",
+  "Credit Limit",
+  "GSTIN",
+] as const;
+
+const PARTY_ALIASES: Record<string, string[]> = {
+  name: ["name", "partyname"],
+  phone: ["phone", "mobile", "contact", "phoneno", "mobileno", "phonenumber"],
+  type: ["type", "partytype"],
+  openingBalance: ["openingbalance", "opening", "balance", "openingbal"],
+  creditLimit: ["creditlimit", "credit", "limit"],
+  gstin: ["gstin", "gst", "gstno", "gstnumber"],
+};
+
+interface PartyPreviewRow {
+  rowNum: number;
+  name: string;
+  phone?: string;
+  type: Party["type"];
+  openingBalance: number;
+  creditLimit?: number;
+  gstin?: string;
+  status: "new" | "update" | "error";
+  error?: string;
+  matchId?: string;
+}
+
+/** Turn a parsed bulk-import table into party preview rows. Matches existing
+ * parties by phone (unique) then name — the same rule the party form/quick-add
+ * already use to prevent duplicates. Opening balance is only applied to NEW
+ * parties; a matched party's opening balance is never changed by import (it
+ * feeds their ledger, exactly like item stock is protected on item import). */
+function buildPartyPreview(table: string[][], existing: Party[]): PartyPreviewRow[] {
+  if (table.length < 2) return [];
+  const header = table[0].map(normalizeHeader);
+  const colIndex: Partial<Record<string, number>> = {};
+  for (const [key, aliases] of Object.entries(PARTY_ALIASES)) {
+    const idx = header.findIndex((h) => aliases.includes(h));
+    if (idx >= 0) colIndex[key] = idx;
+  }
+  const cell = (row: string[], key: string) => {
+    const idx = colIndex[key];
+    return idx != null ? (row[idx] ?? "").trim() : "";
+  };
+  const num = (s: string, fallback = 0) => {
+    if (!s) return fallback;
+    const n = parseFloat(s.replace(/,/g, ""));
+    return isNaN(n) ? fallback : n;
+  };
+  const parseType = (s: string): Party["type"] => {
+    const t = s.trim().toLowerCase();
+    if (t === "customer" || t === "cust" || t === "c") return "customer";
+    if (t === "supplier" || t === "vendor" || t === "s") return "supplier";
+    return "both";
+  };
+
+  const seenName = new Map<string, number>();
+  const seenPhone = new Map<string, number>();
+  const out: PartyPreviewRow[] = [];
+
+  for (let i = 1; i < table.length; i++) {
+    const row = table[i];
+    if (row.every((c) => !c.trim())) continue;
+    const rowNum = i + 1;
+    const name = cell(row, "name");
+    const phone = cell(row, "phone");
+    const creditRaw = cell(row, "creditLimit");
+    const gstin = cell(row, "gstin");
+    const rec: PartyPreviewRow = {
+      rowNum,
+      name,
+      phone: phone || undefined,
+      type: parseType(cell(row, "type")),
+      openingBalance: num(cell(row, "openingBalance"), 0),
+      creditLimit: creditRaw ? num(creditRaw) : undefined,
+      gstin: gstin || undefined,
+      status: "new",
+    };
+
+    if (!name) {
+      out.push({ ...rec, status: "error", error: "Name is required" });
+      continue;
+    }
+    // In-file duplicate (same name or phone appearing twice in the sheet)
+    const nameKey = name.toLowerCase();
+    if (seenName.has(nameKey)) {
+      out.push({ ...rec, status: "error", error: `Duplicate of row ${seenName.get(nameKey)}` });
+      continue;
+    }
+    if (phone && seenPhone.has(phone)) {
+      out.push({ ...rec, status: "error", error: `Same phone as row ${seenPhone.get(phone)}` });
+      continue;
+    }
+    seenName.set(nameKey, rowNum);
+    if (phone) seenPhone.set(phone, rowNum);
+
+    // Match existing by phone first (unique), then by name — mirrors the form
+    const match =
+      (phone ? existing.find((p) => (p.phone ?? "").trim() === phone) : undefined) ??
+      existing.find((p) => p.name.trim().toLowerCase() === nameKey);
+    if (match) {
+      rec.status = "update";
+      rec.matchId = match.id;
+    }
+    out.push(rec);
+  }
+  return out;
+}
 
 function PartiesPage() {
   const navigate = useNavigate();
@@ -36,6 +165,7 @@ function PartiesPage() {
   const [view, setView] = useState<"active" | "archived">("active");
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<Party | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const refresh = () => setRows(PartyRepo.all());
   useEffect(refresh, []);
@@ -295,6 +425,16 @@ function PartiesPage() {
             {editAllowed && (
               <Button
                 size="sm"
+                variant="outline"
+                onClick={() => setBulkOpen(true)}
+                className="w-full sm:w-auto"
+              >
+                <Upload className="h-3.5 w-3.5" /> Bulk Import
+              </Button>
+            )}
+            {editAllowed && (
+              <Button
+                size="sm"
                 onClick={() => {
                   setEdit(null);
                   setOpen(true);
@@ -452,7 +592,203 @@ function PartiesPage() {
           refresh();
         }}
       />
+      <BulkPartyImportDialog open={bulkOpen} onOpenChange={setBulkOpen} onSaved={refresh} />
     </div>
+  );
+}
+
+function BulkPartyImportDialog({
+  open,
+  onOpenChange,
+  onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onSaved: () => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [fileName, setFileName] = useState("");
+  const [rows, setRows] = useState<PartyPreviewRow[]>([]);
+  const [importing, setImporting] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setFileName("");
+      setRows([]);
+      setImporting(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }, [open]);
+
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+    // Shared parser — same WPS/Excel/CSV handling as item import.
+    const table = await parseImportFile(file);
+    if (!table.length) {
+      toast.error("File looks empty or unreadable — export it as CSV/Excel and try again");
+      setRows([]);
+      return;
+    }
+    const header = table[0].map(normalizeHeader);
+    if (!PARTY_ALIASES.name.some((a) => header.includes(a))) {
+      toast.error(
+        `No "Name" column found. First row of your file: "${table[0].join(", ").slice(0, 100)}" — download the Sample to see the expected format`,
+      );
+      setRows([]);
+      return;
+    }
+    setRows(buildPartyPreview(table, PartyRepo.all()));
+  };
+
+  const newCount = rows.filter((r) => r.status === "new").length;
+  const updateCount = rows.filter((r) => r.status === "update").length;
+  const errorCount = rows.filter((r) => r.status === "error").length;
+
+  const doImport = async () => {
+    const valid = rows.filter((r) => r.status !== "error");
+    if (!valid.length || importing) return;
+    setImporting(true);
+    try {
+      for (let i = 0; i < valid.length; i += 400) {
+        const chunk = valid.slice(i, i + 400);
+        const batch = newBatch();
+        for (const r of chunk) {
+          if (r.status === "update" && r.matchId) {
+            // Descriptive fields only — opening balance is NEVER changed on an
+            // existing party by import (it feeds their ledger balance).
+            PartyRepo.updateBatched(batch, r.matchId, {
+              phone: r.phone,
+              type: r.type,
+              creditLimit: r.creditLimit,
+              gstin: r.gstin,
+            });
+          } else {
+            PartyRepo.addBatched(batch, {
+              id: genId(),
+              name: r.name,
+              type: r.type,
+              phone: r.phone,
+              gstin: r.gstin,
+              openingBalance: r.openingBalance,
+              creditLimit: r.creditLimit,
+              createdAt: new Date().toISOString(),
+            } as Party);
+          }
+        }
+        await commitBatch(batch, "bulk party import");
+      }
+      toast.success(
+        `Imported: ${newCount} new, ${updateCount} updated` +
+          (errorCount ? `, ${errorCount} skipped (errors)` : ""),
+      );
+      onSaved();
+      onOpenChange(false);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-4xl">
+        <DialogHeader>
+          <DialogTitle>Bulk Import Parties</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-sm text-muted-foreground max-w-lg">
+              Matches by <b>Phone</b> then <b>Name</b> — matched rows update the existing party,
+              unmatched rows create a new one. Opening Balance is only set for new parties; an
+              existing party's balance is never changed by import.
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => downloadCsv("parties-template", [...PARTY_BULK_COLUMNS], [])}
+            >
+              <Download className="h-3.5 w-3.5" /> Sample CSV
+            </Button>
+          </div>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,.xlsx,.xls,text/csv,text/comma-separated-values,application/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain"
+            onChange={onFile}
+            className="text-sm file:mr-3 file:h-8 file:px-3 file:rounded-md file:border file:bg-background file:text-sm file:font-medium file:cursor-pointer"
+          />
+          {fileName && rows.length === 0 && (
+            <p className="text-sm text-destructive">No valid rows found in {fileName}.</p>
+          )}
+          {rows.length > 0 && (
+            <>
+              <div className="flex gap-4 text-sm">
+                <span className="text-success font-medium">{newCount} new</span>
+                <span className="text-primary font-medium">{updateCount} update</span>
+                {errorCount > 0 && (
+                  <span className="text-destructive font-medium">
+                    {errorCount} error{errorCount > 1 ? "s" : ""} (skipped)
+                  </span>
+                )}
+              </div>
+              <div className="border rounded max-h-80 overflow-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr>
+                      <th className="sticky top-0 z-10 bg-muted text-left p-1.5">Row</th>
+                      <th className="sticky top-0 z-10 bg-muted text-left p-1.5">Name</th>
+                      <th className="sticky top-0 z-10 bg-muted text-left p-1.5">Phone</th>
+                      <th className="sticky top-0 z-10 bg-muted text-right p-1.5">Opening Bal.</th>
+                      <th className="sticky top-0 z-10 bg-muted text-left p-1.5">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r) => (
+                      <tr key={r.rowNum} className="border-t">
+                        <td className="p-1.5">{r.rowNum}</td>
+                        <td className="p-1.5">{r.name || "—"}</td>
+                        <td className="p-1.5">{r.phone ?? "—"}</td>
+                        <td className="p-1.5 text-right tabular-nums">
+                          {r.status === "update" ? "—" : fmtMoney(r.openingBalance)}
+                        </td>
+                        <td className="p-1.5">
+                          {r.status === "new" && <span className="text-success font-medium">New</span>}
+                          {r.status === "update" && (
+                            <span className="text-primary font-medium">Update</span>
+                          )}
+                          {r.status === "error" && (
+                            <span className="text-destructive font-medium">{r.error}</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+          <div className="flex justify-end gap-2 pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={importing}
+              onClick={() => onOpenChange(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={importing || newCount + updateCount === 0}
+              onClick={doImport}
+            >
+              {importing ? "Importing…" : `Import ${newCount + updateCount || ""}`.trim()}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
