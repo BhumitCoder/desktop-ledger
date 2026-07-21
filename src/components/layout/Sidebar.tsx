@@ -179,7 +179,7 @@ export function Sidebar() {
             {!collapsed && (
               <div className="flex flex-col leading-tight overflow-hidden">
                 <span className="font-bold tracking-tight text-[15px] text-sidebar-foreground">
-                  AIM
+                  OM IMPEX
                 </span>
                 <span className="text-[10px] uppercase tracking-widest text-sidebar-muted">
                   Billing · Inventory
@@ -252,24 +252,31 @@ export function Sidebar() {
           })}
         </nav>
 
-        {/* Logout — mobile drawer only; desktop keeps it in the Topbar.
-            Extra bottom padding for phones with a home indicator, same
-            reasoning as the Brand section's top padding above. */}
-        <button
-          onClick={async () => {
-            if (!confirm("Logout from AIM?")) return;
-            try {
-              stopRepos();
-              await signOut(auth);
-            } catch {
-              toast.error("Logout failed — check your connection");
-            }
-          }}
-          className="md:hidden border-t border-sidebar-border min-h-11 flex items-center justify-center gap-2 text-[12px] font-medium text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition"
-          style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)" }}
+        {/* Logout — mobile drawer only; desktop keeps it in the Topbar. The
+            home-indicator safe-area inset is padding on this wrapping div,
+            not the button itself — padding inside the button pushed its
+            centered icon/label up and left a tall dead strip underneath on
+            phones with a tall safe area. The button now keeps a fixed,
+            comfortable height with its content centered inside it. */}
+        <div
+          className="md:hidden shrink-0 border-t border-sidebar-border"
+          style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
         >
-          <LogOut className="h-4 w-4" /> Logout
-        </button>
+          <button
+            onClick={async () => {
+              if (!confirm("Logout from OM IMPEX?")) return;
+              try {
+                stopRepos();
+                await signOut(auth);
+              } catch {
+                toast.error("Logout failed — check your connection");
+              }
+            }}
+            className="w-full h-12 flex items-center justify-center gap-2 text-[13px] font-semibold text-rose-500 hover:bg-rose-50 transition"
+          >
+            <LogOut className="h-4 w-4" /> Logout
+          </button>
+        </div>
 
         <button
           onClick={toggle}

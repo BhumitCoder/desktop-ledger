@@ -24,7 +24,6 @@ import { usePermissions } from "@/hooks/usePermissions";
 import type { Party } from "@/types";
 import { toast } from "sonner";
 import {
-  ArrowLeft,
   Pencil,
   Printer,
   AlertCircle,
@@ -318,13 +317,6 @@ function PartyStatementPage() {
       <div className="no-print bg-white border-b px-5 py-3 flex flex-col gap-3">
         <div className="flex items-center justify-between gap-2.5">
           <div className="flex items-center gap-2.5 min-w-0">
-            <button
-              onClick={() => navigate({ to: "/parties" })}
-              className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 flex items-center justify-center text-gray-600 transition shadow-sm"
-              title="Back to Parties"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </button>
             <div className="h-8 w-8 shrink-0 rounded-full bg-primary-soft text-primary flex items-center justify-center font-bold text-[13px] uppercase">
               {party.name.trim().charAt(0) || "?"}
             </div>
@@ -343,19 +335,68 @@ function PartyStatementPage() {
               </p>
             </div>
           </div>
-          {editAllowed && (
+          {/* Export/share actions — kept to the left of the edit button so
+              the whole action set (Excel/PDF/Share/WhatsApp/Print) reads as
+              one group with Edit, instead of its own row competing with the
+              balance cards for vertical space. Pure layout move — none of
+              the handlers below changed. */}
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
-              onClick={() => setEditOpen(true)}
+              onClick={downloadExcel}
               className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition"
-              title="Edit party"
+              title="Download full ledger as Excel"
             >
-              <Pencil className="h-4 w-4" />
+              <Download className="h-4 w-4" />
             </button>
-          )}
+            <button
+              onClick={() => promptFormat("download")}
+              disabled={pdfBusy !== null}
+              className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50"
+              title="Download statement as PDF"
+            >
+              <FileDown className="h-4 w-4" />
+            </button>
+            <button
+              // Once a PDF is already prepared and waiting for confirmation
+              // (shareReady), this tap must go straight to handleShare() — a
+              // direct, fresh click — rather than back through the format
+              // modal, or the share sheet loses the user gesture it needs.
+              onClick={() => (shareReady ? handleShare() : promptFormat("share"))}
+              disabled={pdfBusy !== null}
+              className={`h-8 w-8 shrink-0 rounded-md border bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50 ${shareReady ? "border-primary ring-2 ring-primary animate-pulse" : "border-gray-200"}`}
+              title={shareReady ? "PDF ready — tap again to share" : "Share statement PDF"}
+            >
+              <Share2 className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => promptFormat("whatsapp")}
+              disabled={pdfBusy !== null}
+              className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50"
+              title="Send statement on WhatsApp"
+            >
+              <MessageCircle className="h-4 w-4" />
+            </button>
+            {editAllowed && (
+              <button
+                onClick={() => setEditOpen(true)}
+                className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition"
+                title="Edit party"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+            )}
+            <button
+              onClick={() => promptFormat("print")}
+              disabled={!!pdfBusy}
+              className="h-8 w-8 shrink-0 rounded-md bg-primary text-white flex items-center justify-center transition hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
+              title="Print"
+            >
+              {pdfBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+            </button>
+          </div>
         </div>
 
-        {/* Balance summary — its own row, evenly split, instead of three
-            fixed-width cards competing with the action buttons for space. */}
+        {/* Balance summary — its own row, evenly split. */}
         <div className="grid grid-cols-3 gap-2">
           <StatementCard icon={Receipt} label="Total Billed" value={totalBilled} tone="gray" />
           <StatementCard icon={CheckCircle2} label="Received / Paid" value={totalReceived} tone="emerald" />
@@ -365,53 +406,6 @@ function PartyStatementPage() {
             value={Math.abs(balance)}
             tone={balance > 0 ? "rose" : balance < 0 ? "amber" : "emerald"}
           />
-        </div>
-
-        {/* Export/share actions */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={downloadExcel}
-            className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition"
-            title="Download full ledger as Excel"
-          >
-            <Download className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => promptFormat("download")}
-            disabled={pdfBusy !== null}
-            className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50"
-            title="Download statement as PDF"
-          >
-            <FileDown className="h-4 w-4" />
-          </button>
-          <button
-            // Once a PDF is already prepared and waiting for confirmation
-            // (shareReady), this tap must go straight to handleShare() — a
-            // direct, fresh click — rather than back through the format
-            // modal, or the share sheet loses the user gesture it needs.
-            onClick={() => (shareReady ? handleShare() : promptFormat("share"))}
-            disabled={pdfBusy !== null}
-            className={`h-8 w-8 shrink-0 rounded-md border bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50 ${shareReady ? "border-primary ring-2 ring-primary animate-pulse" : "border-gray-200"}`}
-            title={shareReady ? "PDF ready — tap again to share" : "Share statement PDF"}
-          >
-            <Share2 className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => promptFormat("whatsapp")}
-            disabled={pdfBusy !== null}
-            className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50"
-            title="Send statement on WhatsApp"
-          >
-            <MessageCircle className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => promptFormat("print")}
-            disabled={!!pdfBusy}
-            className="flex-1 inline-flex items-center justify-center gap-1.5 h-8 px-3 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition disabled:opacity-60 disabled:cursor-not-allowed"
-            title="Print"
-          >
-            {pdfBusy ? (<><Loader2 className="h-4 w-4 animate-spin" /> Preparing…</>) : (<><Printer className="h-4 w-4" /> Print</>)}
-          </button>
         </div>
       </div>
 
@@ -435,13 +429,13 @@ function PartyStatementPage() {
           )}
           <div className="px-5 py-3 border-b flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-            <p className="text-sm font-bold text-gray-800">Party Statement — {party.name}</p>
-            {/* Balance intentionally NOT repeated here — the "They owe you" /
+              <p className="text-sm font-bold text-gray-800">Party Statement — {party.name}</p>
+              {/* Balance intentionally NOT repeated here — the "They owe you" /
                 summary box above already shows it, and the statement's own
                 Closing Balance row shows it at the bottom. */}
-            <p className="text-[11px] text-gray-400">
-              {CompanyRepo.get().name} · Generated {fmtDate(new Date().toISOString())}
-            </p>
+              <p className="text-[11px] text-gray-400">
+                {CompanyRepo.get().name} · Generated {fmtDate(new Date().toISOString())}
+              </p>
             </div>
             <div className="no-print flex items-center gap-1.5 h-9 pl-3 pr-2.5 rounded-lg border border-gray-200 bg-gray-50/60 w-full sm:w-auto sm:shrink-0">
               <Calendar className="h-3.5 w-3.5 text-gray-400 shrink-0" />
@@ -788,13 +782,12 @@ export function PartyStatementRowBlock({
         <td className="px-3 py-2.5 whitespace-nowrap">
           {e.status && (
             <span
-              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-                e.status === "Paid"
-                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                  : e.status === "Partial"
-                    ? "bg-amber-50 text-amber-700 border-amber-200"
-                    : "bg-rose-50 text-rose-700 border-rose-200"
-              }`}
+              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${e.status === "Paid"
+                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                : e.status === "Partial"
+                  ? "bg-amber-50 text-amber-700 border-amber-200"
+                  : "bg-rose-50 text-rose-700 border-rose-200"
+                }`}
             >
               {e.status}
             </span>
@@ -930,13 +923,12 @@ export function PartyStatementCardBlock({
         </div>
         {e.status && (
           <span
-            className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-              e.status === "Paid"
-                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                : e.status === "Partial"
-                  ? "bg-amber-50 text-amber-700 border-amber-200"
-                  : "bg-rose-50 text-rose-700 border-rose-200"
-            }`}
+            className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${e.status === "Paid"
+              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+              : e.status === "Partial"
+                ? "bg-amber-50 text-amber-700 border-amber-200"
+                : "bg-rose-50 text-rose-700 border-rose-200"
+              }`}
           >
             {e.status}
           </span>
