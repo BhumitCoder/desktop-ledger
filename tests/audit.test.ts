@@ -31,6 +31,7 @@ import type {
 } from "@/types";
 import { Repository } from "@/repositories/base";
 import { correctBankPaidAmount, planBankRepair } from "@/lib/bankRepair";
+import { planStockRepair } from "@/lib/dataRepair";
 
 let passed = 0,
   failed = 0;
@@ -861,6 +862,79 @@ console.log(`\n═════════════════════�
     allocations: [{ invoiceId: "D1", number: "INV-5001", amount: 20000, discount: 500 }],
   } as unknown as Payment;
   assert(advanceAmount(partial) === 300, "T14: surplus cash is an advance; the write-off is not");
+}
+
+/* ═══ TEST 15: stock recomputed from its movements ═══
+   Item.stock is a stored running total, so it CAN drift (a half-committed
+   bill, a reversal that never landed). The repair rebuilds it from
+   opening + purchases + sale returns − sales − purchase returns ± adjustments. */
+{
+  const item = {
+    id: "SR_I1",
+    name: "Widget",
+    unit: "pcs",
+    gstRate: 0,
+    purchasePrice: 10,
+    salePrice: 20,
+    openingStock: 100,
+    stock: 999, // deliberately wrong
+    createdAt: "",
+  } as unknown as Item;
+
+  const line = (qty: number) => ({
+    id: "l",
+    itemId: "SR_I1",
+    name: "Widget",
+    unit: "pcs",
+    qty,
+    price: 10,
+    discountPct: 0,
+    gstRate: 0,
+    amount: qty * 10,
+  });
+  const sale = { id: "s", lineItems: [line(30)] } as unknown as Invoice;
+  const purchase = { id: "p", lineItems: [line(50)] } as unknown as Invoice;
+  const saleRet = { id: "sr", lineItems: [line(5)] } as unknown as Return;
+  const purRet = { id: "pr", lineItems: [line(2)] } as unknown as Return;
+  const adjAdd = { id: "a1", itemId: "SR_I1", type: "add", qty: 7 } as never;
+  const adjCut = { id: "a2", itemId: "SR_I1", type: "reduce", qty: 4 } as never;
+
+  // 100 + 50 purchased + 5 returned in − 30 sold − 2 returned out + 7 − 4 = 126
+  const plan = planStockRepair({
+    items: [item],
+    sales: [sale],
+    purchases: [purchase],
+    saleReturns: [saleRet],
+    purchaseReturns: [purRet],
+    stockAdjustments: [adjAdd, adjCut],
+  });
+  assert(plan.length === 1, "T15: drift detected");
+  assert(plan[0].correct === 126, `T15: rebuilt stock should be 126, got ${plan[0]?.correct}`);
+  assert(plan[0].stored === 999, "T15: reports what was stored");
+  assert(plan[0].delta === 126 - 999, "T15: delta is correct − stored");
+
+  // Applying it and re-planning must find nothing left.
+  const fixed = { ...item, stock: plan[0].correct } as Item;
+  const after = planStockRepair({
+    items: [fixed],
+    sales: [sale],
+    purchases: [purchase],
+    saleReturns: [saleRet],
+    purchaseReturns: [purRet],
+    stockAdjustments: [adjAdd, adjCut],
+  });
+  assert(after.length === 0, "T15: repair is idempotent");
+
+  // A correct book must never be flagged.
+  const clean = planStockRepair({
+    items: [{ ...item, stock: 100 } as Item],
+    sales: [],
+    purchases: [],
+    saleReturns: [],
+    purchaseReturns: [],
+    stockAdjustments: [],
+  });
+  assert(clean.length === 0, "T15: an untouched item reports no drift");
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);

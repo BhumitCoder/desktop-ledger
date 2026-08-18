@@ -435,16 +435,16 @@ export async function run(): Promise<Results> {
   const staffSettings = await renderRoute("/settings");
   has(staffSettings, "Company Details", "settings (staff): ordinary section");
   assert(
-    !staffSettings.includes("Bank Reconciliation"),
-    "settings (staff): owner-only Bank Reconciliation must be hidden",
+    !staffSettings.includes("Fix Calculations"),
+    "settings (staff): the owner-only recalculation tool must be hidden",
   );
   assert(!staffSettings.includes("Team"), "settings (staff): owner-only Team must be hidden");
 
   globalThis.__TEST_IS_OWNER__ = true;
   const ownerSettings = await renderRoute("/settings");
-  has(ownerSettings, "Bank Reconciliation", "settings (owner): reconciliation section");
-  has(ownerSettings, "Opening Balance Review", "settings (owner): opening balance repair tool");
-  has(ownerSettings, "Check Bank Balances", "settings (owner): the reconciliation action");
+  has(ownerSettings, "Fix Calculations", "settings (owner): the recalculation tool");
+  has(ownerSettings, "Check Calculations", "settings (owner): the recalculation action");
+  has(ownerSettings, "Check Calculations", "settings (owner): the recalculation action");
   has(ownerSettings, "Team", "settings (owner): team section");
 
   /* ── Every remaining screen must render real content, not blow up ───── */

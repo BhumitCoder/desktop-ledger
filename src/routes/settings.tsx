@@ -10,10 +10,13 @@ import {
   BankRepo,
   BankTxnRepo,
   ExpenseRepo,
+  ItemRepo,
+  SaleReturnRepo,
+  PurchaseReturnRepo,
+  StockAdjustmentRepo,
 } from "@/repositories";
 import { newBatch, commitBatch } from "@/repositories/base";
-import { planBankRepair, type BankRepairPlan, type BankRepairData } from "@/lib/bankRepair";
-import { OpeningBalanceReview } from "@/components/OpeningBalanceReview";
+import { planDataRepair, type DataRepairPlan, type DataRepairData } from "@/lib/dataRepair";
 import { useRepoData } from "@/hooks/useRepoData";
 import { Field } from "@/components/Field";
 import { Button } from "@/components/ui/button";
@@ -61,16 +64,20 @@ function SettingsPage() {
   // with that payment's money a second time. The save path is fixed, but
   // balances already inflated in the live data stay inflated until they're
   // re-derived from the documents — that's what this does.
-  const [bankPlan, setBankPlan] = useState<BankRepairPlan | null>(null);
+  const [bankPlan, setBankPlan] = useState<DataRepairPlan | null>(null);
   const [checkingBank, setCheckingBank] = useState(false);
 
-  const bankRepairData = (): BankRepairData => ({
+  const bankRepairData = (): DataRepairData => ({
     sales: SalesRepo.all(),
     purchases: PurchaseRepo.all(),
     payments: PaymentRepo.all(),
     banks: BankRepo.all(),
     bankTxns: BankTxnRepo.all(),
     expenses: ExpenseRepo.all(),
+    items: ItemRepo.all(),
+    saleReturns: SaleReturnRepo.all(),
+    purchaseReturns: PurchaseReturnRepo.all(),
+    stockAdjustments: StockAdjustmentRepo.all(),
   });
 
   const checkBanks = () => {
@@ -80,7 +87,7 @@ function SettingsPage() {
     }
     setCheckingBank(true);
     try {
-      const plan = planBankRepair(bankRepairData());
+      const plan = planDataRepair(bankRepairData());
       setBankPlan(plan);
       if (!plan.hasWork) toast.success("All bank balances match your transactions");
     } finally {
@@ -96,7 +103,7 @@ function SettingsPage() {
     // Re-plan against the live cache rather than trusting the on-screen
     // report, which may have been produced minutes ago on another device's
     // data. This also makes the button safe to press twice.
-    const plan = planBankRepair(bankRepairData());
+    const plan = planDataRepair(bankRepairData());
     if (!plan.hasWork) {
       setBankPlan(plan);
       toast.success("Nothing to correct — balances already match");
@@ -104,11 +111,12 @@ function SettingsPage() {
     }
     if (
       !confirm(
-        `Correct ${plan.bills.length} bill record(s) and ${plan.accounts.length} account balance(s)?
+        `Recalculate ${plan.accounts.length} bank balance(s), ${plan.items.length} item stock(s) and ${plan.bills.length} bill record(s)?
 
 ` +
-          "This only rewrites the bank figures so they match your actual bills, payments and " +
-          "deposits. No bill, payment or stock is added, changed or deleted.",
+          "These are the only running totals the app stores. They are rebuilt from your own " +
+          "bills, payments, returns, deposits and adjustments. No bill, payment or return is " +
+          "added, changed or deleted.",
       )
     )
       return;
@@ -124,10 +132,15 @@ function SettingsPage() {
         // bank-balance write in the app — never an absolute overwrite.
         BankRepo.adjustFieldBatched(batch, a.id, "balance", a.delta);
       }
-      await commitBatch(batch, "bank reconciliation");
-      setBankPlan(planBankRepair(bankRepairData()));
+      for (const it of plan.items) {
+        // Same rule for stock: nudge by the difference so a sale landing
+        // mid-repair still counts, rather than overwriting the total.
+        ItemRepo.adjustFieldBatched(batch, it.id, "stock", it.delta);
+      }
+      await commitBatch(batch, "recalculate stored totals");
+      setBankPlan(planDataRepair(bankRepairData()));
       toast.success(
-        `Corrected ${plan.bills.length} bill record(s) and ${plan.accounts.length} account balance(s)`,
+        `Corrected ${plan.accounts.length} bank balance(s), ${plan.items.length} item stock(s) and ${plan.bills.length} bill record(s)`,
       );
     } finally {
       setBusy(false);
@@ -139,7 +152,6 @@ function SettingsPage() {
   const teamRef = useRef<HTMLDivElement>(null);
   const whatsappRef = useRef<HTMLDivElement>(null);
   const bankRef = useRef<HTMLDivElement>(null);
-  const openingRef = useRef<HTMLDivElement>(null);
   const dataRef = useRef<HTMLDivElement>(null);
   const shortcutsRef = useRef<HTMLDivElement>(null);
 
@@ -150,12 +162,7 @@ function SettingsPage() {
     ...(isOwner
       ? [{ key: "whatsapp", label: "WhatsApp", icon: MessageCircle, ref: whatsappRef }]
       : []),
-    ...(isOwner && !c.openingReviewDone
-      ? [{ key: "opening", label: "Opening Balances", icon: AlertTriangle, ref: openingRef }]
-      : []),
-    ...(isOwner
-      ? [{ key: "banks", label: "Bank Reconciliation", icon: Landmark, ref: bankRef }]
-      : []),
+    ...(isOwner ? [{ key: "banks", label: "Fix Calculations", icon: Landmark, ref: bankRef }] : []),
     { key: "data", label: "Account & Data", icon: Database, ref: dataRef },
     { key: "shortcuts", label: "Keyboard Shortcuts", icon: Keyboard, ref: shortcutsRef },
   ];
@@ -513,20 +520,6 @@ function SettingsPage() {
               </div>
             )}
 
-            {isOwner && !c.openingReviewDone && (
-              <div
-                ref={openingRef}
-                className="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden scroll-mt-6"
-              >
-                <SectionHeader
-                  icon={<AlertTriangle className="h-4 w-4" />}
-                  title="Opening Balance Review"
-                  description="Check each party's opening balance sits on the right side"
-                />
-                <OpeningBalanceReview onHidden={() => setC({ ...c, openingReviewDone: true })} />
-              </div>
-            )}
-
             {isOwner && (
               <div
                 ref={bankRef}
@@ -534,16 +527,17 @@ function SettingsPage() {
               >
                 <SectionHeader
                   icon={<Landmark className="h-4 w-4" />}
-                  title="Bank Reconciliation"
-                  description="Check each account's balance against its actual transactions"
+                  title="Fix Calculations"
+                  description="Rebuild stored totals from your own bills, payments and returns"
                 />
                 <div className="p-5">
                   <p className="text-xs text-gray-500 mb-4">
-                    Recalculates every bank account from your bills, payments, expenses and deposits
-                    — the same figures the passbook page shows — and reports any account whose
-                    running balance has drifted. Safe to run any time: checking changes nothing, and
-                    the correction only ever rewrites bank figures, never a bill, payment or stock
-                    record.
+                    Rebuilds every <span className="font-semibold">stored running total</span> —
+                    bank balances and item stock — from your own bills, purchases, returns,
+                    payments, deposits and adjustments, and reports anything that has drifted from
+                    what the documents say. Everything else (party balances, ledgers, statements,
+                    P&amp;L, GST) is worked out fresh each time it's shown, so there is nothing
+                    stored there to repair. Safe to run any time — checking changes nothing.
                   </p>
                   <div className="flex flex-col sm:flex-row gap-2 sm:flex-wrap">
                     <Button
@@ -554,7 +548,7 @@ function SettingsPage() {
                       className="w-full sm:w-auto"
                     >
                       <ShieldCheck className="h-3.5 w-3.5" />
-                      {checkingBank ? "Checking…" : "Check Bank Balances"}
+                      {checkingBank ? "Checking…" : "Check Calculations"}
                     </Button>
                     {bankPlan?.hasWork && (
                       <Button
@@ -572,13 +566,42 @@ function SettingsPage() {
                     <div className="mt-4 flex items-start gap-2 text-xs bg-emerald-50/60 border border-emerald-100 rounded-md px-3 py-2.5">
                       <ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
                       <p className="text-gray-700">
-                        Every bank account matches its transactions exactly. Nothing to correct.
+                        Every stored total matches your documents exactly. Nothing to correct.
                       </p>
                     </div>
                   )}
 
                   {bankPlan?.hasWork && (
                     <div className="mt-4 space-y-4">
+                      {bankPlan.items.length > 0 && (
+                        <div>
+                          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                            Item stock that doesn't match its movements ({bankPlan.items.length})
+                          </p>
+                          <div className="border border-gray-100 rounded-md overflow-hidden max-h-64 overflow-y-auto">
+                            {bankPlan.items.map((i) => (
+                              <div
+                                key={i.id}
+                                className="flex items-center justify-between gap-3 px-3 py-2 text-xs border-b border-gray-100 last:border-b-0"
+                              >
+                                <span className="font-medium text-gray-800 truncate">{i.name}</span>
+                                <span className="tabular-nums shrink-0 text-gray-500">
+                                  shows {i.stored} → should be{" "}
+                                  <span
+                                    className={
+                                      i.delta < 0
+                                        ? "font-semibold text-rose-600"
+                                        : "font-semibold text-emerald-600"
+                                    }
+                                  >
+                                    {i.correct} {i.unit}
+                                  </span>
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       {bankPlan.accounts.length > 0 && (
                         <div>
                           <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
