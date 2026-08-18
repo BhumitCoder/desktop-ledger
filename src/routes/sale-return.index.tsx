@@ -9,7 +9,7 @@ import { Plus, CornerDownLeft, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { DataTable } from "@/components/DataTable";
 import { PageHeader } from "@/components/PageHeader";
-import { usePagination } from "@/components/Pagination";
+import { usePagination } from "@/hooks/usePagination";
 import { usePermissions } from "@/hooks/usePermissions";
 
 export const Route = createFileRoute("/sale-return/")({ component: SaleReturnPage });
@@ -138,7 +138,12 @@ function SaleReturnPage() {
               render: (r) => <span className="font-mono">{r.number}</span>,
               sortValue: (r) => r.number,
             },
-            { key: "date", label: "Date", render: (r) => fmtDate(r.date), sortValue: (r) => r.date },
+            {
+              key: "date",
+              label: "Date",
+              render: (r) => fmtDate(r.date),
+              sortValue: (r) => r.date,
+            },
             {
               key: "original",
               label: "Original Inv #",
@@ -157,7 +162,12 @@ function SaleReturnPage() {
               render: (r) => r.lineItems.length,
               sortValue: (r) => r.lineItems.length,
             },
-            { key: "gst", label: "GST", align: "right", render: (r) => (r.gstEnabled ? "Yes" : "No") },
+            {
+              key: "gst",
+              label: "GST",
+              align: "right",
+              render: (r) => (r.gstEnabled ? "Yes" : "No"),
+            },
             {
               key: "total",
               label: "Total",

@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-import { APP_VERSION } from "@/lib/version";
+import { APP_NAME, APP_VERSION } from "@/lib/version";
 import { toast } from "sonner";
 import {
   Sparkles,
@@ -94,7 +94,7 @@ export function LoginPage() {
             <Sparkles className="h-5 w-5" />
           </div>
           <div className="leading-tight">
-            <p className="font-bold tracking-tight text-[20px]">AIM</p>
+            <p className="font-bold tracking-tight text-[20px]">{APP_NAME}</p>
             <p className="text-[11px] uppercase tracking-[0.2em] opacity-80">Billing · Inventory</p>
           </div>
         </div>
@@ -143,7 +143,7 @@ export function LoginPage() {
               <Sparkles className="h-5 w-5" />
             </div>
             <div className="leading-tight">
-              <p className="font-bold tracking-tight text-[18px]">AIM</p>
+              <p className="font-bold tracking-tight text-[18px]">{APP_NAME}</p>
               <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
                 Billing · Inventory
               </p>

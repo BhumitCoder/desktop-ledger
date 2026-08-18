@@ -4,7 +4,6 @@ import {
   doc,
   onSnapshot,
   setDoc,
-  updateDoc,
   deleteDoc,
   writeBatch,
   increment,
@@ -62,7 +61,7 @@ export function repoStoreVersion(): number {
   return repoVersion;
 }
 
-function emitRepoChange(): void {
+export function emitRepoChange(): void {
   repoVersion++;
   repoStoreListeners.forEach((cb) => cb());
 }
@@ -111,6 +110,15 @@ const writeError = (action: string) => (err: unknown) => {
  * reads are served from the cache, writes update the cache immediately and
  * sync to Firestore in the background (offline persistence queues them).
  */
+/** A record on its way in: everything the type needs except `id` and
+ * `createdAt`, which the repository fills in — but both are still ACCEPTED,
+ * because form drafts carry `id: ""`/`createdAt: ""` placeholders and
+ * restore/migration paths pass whole documents. */
+export type NewRecord<T> = Omit<T, "id" | "createdAt"> & {
+  id?: string;
+  createdAt?: string;
+};
+
 export class Repository<T extends { id: string }> {
   private cache: T[] = [];
   private unsub?: () => void;
@@ -168,7 +176,7 @@ export class Repository<T extends { id: string }> {
     return this.cache.find((i) => i.id === id);
   }
 
-  add(item: Omit<T, "id" | "createdAt"> & { id?: string }): T {
+  add(item: NewRecord<T>): T {
     const record = {
       ...item,
       // `||` not `??` — form drafts carry id: "" and an empty Firestore
@@ -187,7 +195,7 @@ export class Repository<T extends { id: string }> {
   /** Same as add(), but stages the write on a shared batch (see `newBatch`)
    * instead of writing immediately, so it commits atomically with other
    * staged writes — e.g. an invoice plus the stock adjustments it triggers. */
-  addBatched(batch: WriteBatch | null, item: Omit<T, "id" | "createdAt"> & { id?: string }): T {
+  addBatched(batch: WriteBatch | null, item: NewRecord<T>): T {
     const record = {
       ...item,
       id: item.id || genId(),

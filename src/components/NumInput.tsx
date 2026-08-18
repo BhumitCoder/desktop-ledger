@@ -31,6 +31,9 @@ export const NumInput = forwardRef<
   // clamped to 100 which it already was) doesn't change the prop, so a
   // [value]-keyed effect would never fire and the box would keep showing
   // the unclamped text.
+  // No dependency array ON PURPOSE (see above). The lastNum guard is what
+  // stops this looping: setText only fires when the prop genuinely moved.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (value !== lastNum.current) {
       setText(value === 0 ? "" : String(value));

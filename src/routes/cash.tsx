@@ -12,7 +12,7 @@ import { useRepoData } from "@/hooks/useRepoData";
 import { cashFlows, type FlowEntry } from "@/lib/ledger";
 import { fmtMoney, fmtDate, today } from "@/lib/format";
 import { DataTable } from "@/components/DataTable";
-import { usePagination } from "@/components/Pagination";
+import { usePagination } from "@/hooks/usePagination";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/Field";
@@ -202,7 +202,10 @@ function CashPage() {
         ) : (
           <div className="divide-y divide-gray-100">
             {pg.paged.map((e, i) => (
-              <div key={`${e.date}-${e.type}-${e.ref}-${e.in}-${e.out}-${i}`} className="bg-white p-4">
+              <div
+                key={`${e.date}-${e.type}-${e.ref}-${e.in}-${e.out}-${i}`}
+                className="bg-white p-4"
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="font-semibold text-gray-800 truncate">{e.type}</p>
@@ -210,7 +213,9 @@ function CashPage() {
                       {fmtDate(e.date)} · {e.ref}
                     </p>
                   </div>
-                  <p className={`font-bold tabular-nums shrink-0 ${e.in ? "text-emerald-600" : e.out ? "text-rose-600" : "text-gray-800"}`}>
+                  <p
+                    className={`font-bold tabular-nums shrink-0 ${e.in ? "text-emerald-600" : e.out ? "text-rose-600" : "text-gray-800"}`}
+                  >
                     {e.in ? `+${fmtMoney(e.in)}` : e.out ? `−${fmtMoney(e.out)}` : "—"}
                   </p>
                 </div>
@@ -258,7 +263,9 @@ function CashPage() {
           ]}
           rows={filtered}
           rowKey={(e) => `${e.date}-${e.type}-${e.ref}-${e.in}-${e.out}`}
-          emptyMessage={entries.length === 0 ? "No cash transactions yet" : "No matches for your search"}
+          emptyMessage={
+            entries.length === 0 ? "No cash transactions yet" : "No matches for your search"
+          }
           footer={
             <tr>
               <td colSpan={3}>
@@ -318,7 +325,7 @@ function CashAdjustDialog({
       return;
     }
     setSaving(true);
-    CashAdjustmentRepo.add({ date, type, amount: n, reason: reason.trim() || undefined } as any);
+    CashAdjustmentRepo.add({ date, type, amount: n, reason: reason.trim() || undefined });
     toast.success(`Cash ${type === "add" ? "added" : "reduced"}: ${fmtMoney(n)}`);
     onSaved();
     onOpenChange(false);

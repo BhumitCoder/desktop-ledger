@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
-import { usePagination } from "@/components/Pagination";
+import { usePagination } from "@/hooks/usePagination";
 import { useAutoFocusOnDesktop } from "@/hooks/use-mobile";
 import {
   ItemRepo,

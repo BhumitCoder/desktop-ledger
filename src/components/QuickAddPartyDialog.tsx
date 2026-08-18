@@ -106,7 +106,9 @@ export function QuickAddPartyDialog({
               <div className="absolute z-30 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-elevated max-h-52 overflow-auto">
                 <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600 bg-amber-50 border-b flex items-center gap-1.5">
                   <AlertTriangle className="h-3 w-3" />
-                  {similarPartiesAll.length === 1 ? "Similar party exists" : "Similar parties exist"}
+                  {similarPartiesAll.length === 1
+                    ? "Similar party exists"
+                    : "Similar parties exist"}
                   — click to use it instead
                 </div>
                 {similarParties.map((p) => (
@@ -120,7 +122,9 @@ export function QuickAddPartyDialog({
                     className="px-3 py-2 text-sm cursor-pointer hover:bg-accent flex items-center justify-between"
                   >
                     <span className="font-medium">{p.name}</span>
-                    {p.phone && <span className="text-[11px] text-muted-foreground">{p.phone}</span>}
+                    {p.phone && (
+                      <span className="text-[11px] text-muted-foreground">{p.phone}</span>
+                    )}
                   </div>
                 ))}
                 {similarPartiesAll.length > similarParties.length && (

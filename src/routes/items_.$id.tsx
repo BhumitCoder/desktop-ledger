@@ -9,10 +9,11 @@ import {
   StockAdjustmentRepo,
 } from "@/repositories";
 import { fmtMoney, fmtDate } from "@/lib/format";
-import { usePagination, PaginationBar } from "@/components/Pagination";
+import { PaginationBar } from "@/components/Pagination";
+import { usePagination } from "@/hooks/usePagination";
 import { ItemDialog, StockAdjustDialog } from "./items";
 import { usePermissions } from "@/hooks/usePermissions";
-import { useRepoData } from "@/hooks/useRepoData";
+import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 import type { Item, Invoice, Return } from "@/types";
 import {
   ArrowLeft,
@@ -57,7 +58,7 @@ function ItemDetailPage() {
     setItem(ItemRepo.get(id) ?? null);
   }, [id, refreshKey, _repoV]);
 
-  const { rows, soldQty, profit } = useMemo(() => {
+  const { rows, soldQty, profit } = useRepoMemo(() => {
     const entries: HistoryRow[] = [];
     let soldQty = 0;
     let boughtQty = 0;
@@ -123,7 +124,7 @@ function ItemDetailPage() {
       (a, b) => b.date.localeCompare(a.date) || (b.created ?? "").localeCompare(a.created ?? ""),
     );
     return { rows: entries, soldQty, boughtQty, profit };
-  }, [item, id, refreshKey, _repoV]);
+  }, [item, id, refreshKey]);
 
   const pg = usePagination(rows);
 
@@ -225,7 +226,10 @@ function ItemDetailPage() {
             value={`${item.stock} ${item.unit}`}
             color={item.stock < 0 ? "text-rose-600" : "text-gray-800"}
           />
-          <MobileStatCard label="Stock Value" value={fmtMoney(r2(item.stock * item.purchasePrice))} />
+          <MobileStatCard
+            label="Stock Value"
+            value={fmtMoney(r2(item.stock * item.purchasePrice))}
+          />
           <MobileStatCard label="Purchase Price" value={fmtMoney(item.purchasePrice)} />
           <MobileStatCard label="Sale Price" value={fmtMoney(item.salePrice)} />
           <MobileStatCard label="Total Sold" value={`${soldQty} ${item.unit}`} />

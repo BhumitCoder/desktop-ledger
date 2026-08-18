@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
-import { usePagination } from "@/components/Pagination";
+import { usePagination } from "@/hooks/usePagination";
 import { useAutoFocusOnDesktop } from "@/hooks/use-mobile";
 import { PayeeRepo, ExpenseRepo, CompanyRepo } from "@/repositories";
 import { useRepoData } from "@/hooks/useRepoData";
@@ -10,7 +10,13 @@ import type { Payee } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/Field";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { Plus, Search, Pencil, FileText, Wallet2 } from "lucide-react";
 import { toast } from "sonner";
@@ -294,7 +300,7 @@ function PayeeDialog({
       PayeeRepo.update(payee.id, form as Payee);
       toast.success("Payee updated");
     } else {
-      PayeeRepo.add({ name: form.name!, defaultCategory: form.defaultCategory } as any);
+      PayeeRepo.add({ name: form.name!, defaultCategory: form.defaultCategory });
       toast.success("Payee created");
     }
     onSaved();
@@ -318,7 +324,9 @@ function PayeeDialog({
             <span className="text-muted-foreground font-medium">Default Category</span>
             <Select
               value={form.defaultCategory ?? "__none__"}
-              onValueChange={(v) => setForm({ ...form, defaultCategory: v === "__none__" ? undefined : v })}
+              onValueChange={(v) =>
+                setForm({ ...form, defaultCategory: v === "__none__" ? undefined : v })
+              }
             >
               <SelectTrigger className="h-8 text-sm">
                 <SelectValue />

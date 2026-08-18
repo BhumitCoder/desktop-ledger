@@ -65,13 +65,18 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     set({ sidebarCollapsed: v });
     try {
       localStorage.setItem(SIDEBAR_KEY, v ? "1" : "0");
-    } catch {}
+    } catch {
+      // Private browsing blocks localStorage — the sidebar just won't
+      // remember its state, which is not worth failing the click over.
+    }
   },
   setSidebarCollapsed: (v) => {
     set({ sidebarCollapsed: v });
     try {
       localStorage.setItem(SIDEBAR_KEY, v ? "1" : "0");
-    } catch {}
+    } catch {
+      // See toggleSidebar above.
+    }
   },
   mobileNavOpen: false,
   setMobileNavOpen: (v) => set({ mobileNavOpen: v }),

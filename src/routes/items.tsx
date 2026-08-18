@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
-import { usePagination } from "@/components/Pagination";
+import { usePagination } from "@/hooks/usePagination";
 import { useAutoFocusOnDesktop } from "@/hooks/use-mobile";
 import {
   ItemRepo,
@@ -306,9 +306,7 @@ function ItemsPage() {
             />
             Select all {filtered.length}
           </label>
-          <span className="text-xs font-semibold text-foreground">
-            {selectedIds.size} selected
-          </span>
+          <span className="text-xs font-semibold text-foreground">{selectedIds.size} selected</span>
           <div className="flex items-center gap-2 ml-auto">
             <Button size="sm" variant="outline" onClick={() => setBulkEditOpen(true)}>
               <Pencil className="h-3.5 w-3.5" /> Bulk Edit
@@ -515,7 +513,7 @@ export function StockAdjustDialog({
       type,
       qty: n,
       reason: reason.trim() || undefined,
-    } as any);
+    });
     commitBatch(batch, "stock adjustment");
     toast.success(
       `${item.name}: stock ${type === "add" ? "increased" : "reduced"} by ${n} → now ${newStock} ${item.unit}`,
@@ -850,7 +848,7 @@ export function ItemDialog({
         salePrice: f.salePrice ?? 0,
         stock: f.openingStock ?? 0,
         openingStock: f.openingStock ?? 0,
-      } as any);
+      });
       toast.success("Item created");
     }
     onSaved();
@@ -997,7 +995,6 @@ const HEADER_ALIASES: Record<string, string[]> = {
   minStock: ["minstock", "min"],
   openingStock: ["openingstock", "opening", "stock"],
 };
-
 
 /** Turn a parsed bulk-import table (from CSV or an Excel sheet) into preview
  * rows, matching each against existing items by Name (same rule the New/Edit
@@ -1188,9 +1185,9 @@ function BulkImportDialog({
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <p className="text-sm text-muted-foreground max-w-lg">
-              Matches by <b>Name</b> — matched rows update the existing item, unmatched rows
-              create a new one. Stock is only set for new items; existing items' stock is never
-              changed by bulk import.
+              Matches by <b>Name</b> — matched rows update the existing item, unmatched rows create
+              a new one. Stock is only set for new items; existing items' stock is never changed by
+              bulk import.
             </p>
             <Button
               type="button"
@@ -1248,7 +1245,9 @@ function BulkImportDialog({
                         <td className="p-1.5 text-right">{fmtMoney(r.salePrice)}</td>
                         <td className="p-1.5 text-right">{r.openingStock}</td>
                         <td className="p-1.5">
-                          {r.status === "new" && <span className="text-success font-medium">New</span>}
+                          {r.status === "new" && (
+                            <span className="text-success font-medium">New</span>
+                          )}
                           {r.status === "update" && (
                             <span className="text-primary font-medium">Update</span>
                           )}

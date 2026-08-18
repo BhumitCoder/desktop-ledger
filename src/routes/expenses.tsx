@@ -1,18 +1,25 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
-import { usePagination } from "@/components/Pagination";
+import { usePagination } from "@/hooks/usePagination";
 import { ExpenseRepo, BankRepo, PayeeRepo, CompanyRepo } from "@/repositories";
-import { useRepoData } from "@/hooks/useRepoData";
+import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 import { newBatch, commitBatch, genId } from "@/repositories/base";
 import type { Expense, BankAccount, Payee } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/Field";
 import { NumField } from "@/components/NumInput";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { ModePills, fmtMode } from "@/components/ModePills";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
+import { ModePills } from "@/components/ModePills";
+import { fmtMode } from "@/lib/paymentMode";
 import { fmtMoney, fmtDate, today } from "@/lib/format";
 import { Plus, Receipt, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -214,8 +221,11 @@ function ExpenseDialog({
   // Synchronous double-submit guard — prevents a same-tick double Enter from
   // recording the expense (and its bank-balance move) twice.
   const savingRef = useRef(false);
-  const [banks] = useState(() => BankRepo.all());
-  const [payees, setPayees] = useState<Payee[]>([]);
+  // Live reads — these used to be snapshotted when the dialog opened, so on a
+  // cold open (the app renders before collections load) "bank" mode had no
+  // account to pick and the save was blocked outright.
+  const banks = useRepoMemo(() => BankRepo.all());
+  const payees = useRepoMemo(() => PayeeRepo.all());
   const [categories] = useState(() => CompanyRepo.get().expenseCategories ?? []);
   // An older expense's category can be a free-text value from before this
   // list existed, or one an admin has since removed — keep it selectable
@@ -225,7 +235,6 @@ function ExpenseDialog({
   useEffect(() => {
     if (open) {
       setF(expense ?? { date: today(), paymentMode: "cash", amount: 0, category: "" });
-      setPayees(PayeeRepo.all());
       setPayeeQ(expense?.payeeName ?? "");
       setSaving(false);
       savingRef.current = false;

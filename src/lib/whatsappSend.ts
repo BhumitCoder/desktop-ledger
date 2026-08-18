@@ -23,14 +23,20 @@ export async function sendElementViaWhatsApp(opts: {
   const callerIdToken = await auth.currentUser?.getIdToken();
   if (!callerIdToken) throw new Error("Not signed in");
 
-  const pdfBase64 = await elementToPdfBase64(opts.el, opts.orientation ?? "landscape", opts.pageWidthMm);
+  const pdfBase64 = await elementToPdfBase64(
+    opts.el,
+    opts.orientation ?? "landscape",
+    opts.pageWidthMm,
+  );
   await sendWhatsAppMessageServerFn({
     data: {
       callerIdToken,
       phone,
       message: opts.message,
       pdfBase64,
-      fileName: opts.fileName.toLowerCase().endsWith(".pdf") ? opts.fileName : `${opts.fileName}.pdf`,
+      fileName: opts.fileName.toLowerCase().endsWith(".pdf")
+        ? opts.fileName
+        : `${opts.fileName}.pdf`,
     },
   });
 }

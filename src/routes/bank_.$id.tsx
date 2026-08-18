@@ -1,11 +1,19 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BankRepo, SalesRepo, PurchaseRepo, PaymentRepo, BankTxnRepo, ExpenseRepo, CompanyRepo } from "@/repositories";
+import {
+  BankRepo,
+  SalesRepo,
+  PurchaseRepo,
+  PaymentRepo,
+  BankTxnRepo,
+  ExpenseRepo,
+  CompanyRepo,
+} from "@/repositories";
 import { buildBankLedger, type BankLedgerRow } from "@/lib/ledger";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
-import { useRepoData } from "@/hooks/useRepoData";
+import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 import { downloadCsv } from "@/lib/csv";
 import { downloadElementAsPdf } from "@/lib/pdf";
 import type { BankAccount } from "@/types";
@@ -52,7 +60,7 @@ function BankStatementPage() {
   // immediately once the bank account has loaded.
   useAutoPrintFromUrl(bank ? `Bank-${bank.name.replace(/\s+/g, "-")}` : null, !!bank);
 
-  const { rows } = useMemo(() => {
+  const { rows } = useRepoMemo(() => {
     if (!bank) return { rows: [] as BankLedgerRow[] };
     return buildBankLedger(
       bank,
@@ -66,7 +74,7 @@ function BankStatementPage() {
       dateFrom,
       dateTo,
     );
-  }, [bank, dateFrom, dateTo, _repoV]);
+  }, [bank, dateFrom, dateTo]);
 
   const openRow = (e: BankLedgerRow) => {
     if (!e.docId || !e.docKind) return;
@@ -102,7 +110,9 @@ function BankStatementPage() {
       [`Bank: ${bank.name}`],
       [`Account No: ${bank.accountNumber || "—"}`],
       [`IFSC: ${bank.ifsc || "—"}`],
-      [`Period: ${dateFrom ? fmtDate(dateFrom) : "Beginning"} to ${dateTo ? fmtDate(dateTo) : "Today"}`],
+      [
+        `Period: ${dateFrom ? fmtDate(dateFrom) : "Beginning"} to ${dateTo ? fmtDate(dateTo) : "Today"}`,
+      ],
       [`Generated: ${fmtDate(new Date().toISOString())}`],
       [],
     ];
@@ -115,7 +125,14 @@ function BankStatementPage() {
       e.credit ? fmtMoney(e.credit) : "",
       fmtMoney(e.balance),
     ]);
-    const closing = ["", "", "Closing Balance", fmtMoney(totalDebit), fmtMoney(totalCredit), fmtMoney(balance)];
+    const closing = [
+      "",
+      "",
+      "Closing Balance",
+      fmtMoney(totalDebit),
+      fmtMoney(totalCredit),
+      fmtMoney(balance),
+    ];
     const allRows = [...meta, header, ...body, [], closing];
     downloadCsv(`Passbook-${bank.name}`, allRows[0], allRows.slice(1));
   };
@@ -127,7 +144,11 @@ function BankStatementPage() {
     if (!printRef.current || pdfBusy) return;
     setPdfBusy(true);
     try {
-      await downloadElementAsPdf(printRef.current, `Bank-${bank.name.replace(/\s+/g, "-")}`, "portrait");
+      await downloadElementAsPdf(
+        printRef.current,
+        `Bank-${bank.name.replace(/\s+/g, "-")}`,
+        "portrait",
+      );
       toast.success("Passbook downloaded as PDF");
     } catch {
       toast.error("Could not generate PDF — try again once online");
@@ -169,12 +190,26 @@ function BankStatementPage() {
             <Download className="h-4 w-4" /> Download Excel
           </button>
           <button
-            onClick={() => printOrEscapeStandalone(`Bank-${bank.name.replace(/\s+/g, "-")}`, undefined, handleDownloadPdf)}
+            onClick={() =>
+              printOrEscapeStandalone(
+                `Bank-${bank.name.replace(/\s+/g, "-")}`,
+                undefined,
+                handleDownloadPdf,
+              )
+            }
             disabled={!!pdfBusy}
             className="inline-flex items-center gap-1.5 h-8 px-4 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition disabled:opacity-60 disabled:cursor-not-allowed"
             title="Print, or choose 'Save as PDF' in the print dialog"
           >
-            {pdfBusy ? (<><Loader2 className="h-4 w-4 animate-spin" /> Preparing…</>) : (<><Printer className="h-4 w-4" /> Print / PDF</>)}
+            {pdfBusy ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" /> Preparing…
+              </>
+            ) : (
+              <>
+                <Printer className="h-4 w-4" /> Print / PDF
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -205,13 +240,16 @@ function BankStatementPage() {
 
       {/* Passbook (also the printable area) */}
       <div className="flex-1 overflow-auto p-5">
-        <div ref={printRef} className="print-visible bg-white border rounded-lg shadow-sm overflow-hidden max-w-4xl mx-auto print:p-6">
+        <div
+          ref={printRef}
+          className="print-visible bg-white border rounded-lg shadow-sm overflow-hidden max-w-4xl mx-auto print:p-6"
+        >
           <div className="px-5 py-3 border-b flex items-center justify-between gap-3 flex-wrap">
             <div>
               <p className="text-sm font-bold text-gray-800">Bank Passbook — {bank.name}</p>
               <p className="text-[11px] text-gray-400">
-                {CompanyRepo.get().name} · Generated {fmtDate(new Date().toISOString())} ·
-                Balance: {fmtMoney(balance)}
+                {CompanyRepo.get().name} · Generated {fmtDate(new Date().toISOString())} · Balance:{" "}
+                {fmtMoney(balance)}
               </p>
             </div>
             <div className="no-print flex items-center gap-1.5 text-xs text-gray-500">

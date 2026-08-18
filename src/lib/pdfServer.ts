@@ -25,7 +25,11 @@ const LOCAL_CHROME_CANDIDATES = [
  * Chromium and renders `html` to raw PDF bytes. Not exported: callers only
  * ever want one of the two response shapes below (Blob for download/share,
  * base64 for the WhatsApp send), never these raw bytes directly. */
-async function renderPdfBuffer(html: string, landscape: boolean, pageWidthMm?: number): Promise<Buffer> {
+async function renderPdfBuffer(
+  html: string,
+  landscape: boolean,
+  pageWidthMm?: number,
+): Promise<Buffer> {
   const chromium = (await import("@sparticuz/chromium")).default;
   const { launch } = await import("puppeteer-core");
 

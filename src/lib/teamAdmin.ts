@@ -27,7 +27,8 @@ export const createTeamUserServerFn = createServerFn({ method: "POST" })
     const d = data as Partial<CreateTeamUserInput>;
     if (!d?.callerIdToken) throw new Error("Not authenticated");
     if (!d.email?.trim()) throw new Error("Email is required");
-    if (!d.password || d.password.length < 6) throw new Error("Password must be at least 6 characters");
+    if (!d.password || d.password.length < 6)
+      throw new Error("Password must be at least 6 characters");
     if (!d.name?.trim()) throw new Error("Name is required");
     return {
       callerIdToken: d.callerIdToken,

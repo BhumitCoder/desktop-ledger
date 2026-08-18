@@ -3,7 +3,13 @@ import { TeamUserRepo, subscribeTeamRoster } from "@/repositories";
 import { auth } from "@/lib/firebase";
 import { createTeamUserServerFn, deleteTeamUserServerFn } from "@/lib/teamAdmin";
 import type { ModuleKey, ModulePermission, TeamUser } from "@/types";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field } from "@/components/Field";
@@ -19,10 +25,9 @@ const MODULES: { key: ModuleKey; label: string }[] = [
 ];
 
 const emptyPermissions = (): Record<ModuleKey, ModulePermission> =>
-  Object.fromEntries(MODULES.map((m) => [m.key, { view: false, edit: false, delete: false }])) as Record<
-    ModuleKey,
-    ModulePermission
-  >;
+  Object.fromEntries(
+    MODULES.map((m) => [m.key, { view: false, edit: false, delete: false }]),
+  ) as Record<ModuleKey, ModulePermission>;
 
 export function TeamSection() {
   const roster = useSyncExternalStore(subscribeTeamRoster, TeamUserRepo.roster, () => []);
@@ -100,7 +105,12 @@ export function TeamSection() {
             </div>
             {!u.isOwner && (
               <div className="flex items-center gap-1.5 shrink-0">
-                <Button size="sm" variant="outline" onClick={() => setEditing(u)} className="flex-1 sm:flex-none">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setEditing(u)}
+                  className="flex-1 sm:flex-none"
+                >
                   <UserCog className="h-3.5 w-3.5" /> Permissions
                 </Button>
                 <Button
@@ -196,7 +206,8 @@ function AddTeamMemberDialog({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [permissions, setPermissions] = useState<Record<ModuleKey, ModulePermission>>(emptyPermissions());
+  const [permissions, setPermissions] =
+    useState<Record<ModuleKey, ModulePermission>>(emptyPermissions());
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -276,14 +287,16 @@ function EditPermissionsDialog({
   user: TeamUser | null;
   onOpenChange: (v: boolean) => void;
 }) {
-  const [permissions, setPermissions] = useState<Record<ModuleKey, ModulePermission>>(emptyPermissions());
+  const [permissions, setPermissions] =
+    useState<Record<ModuleKey, ModulePermission>>(emptyPermissions());
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (user) {
       const merged = emptyPermissions();
       for (const m of MODULES) {
-        if (user.permissions[m.key]) merged[m.key] = { ...merged[m.key], ...user.permissions[m.key] };
+        if (user.permissions[m.key])
+          merged[m.key] = { ...merged[m.key], ...user.permissions[m.key] };
       }
       setPermissions(merged);
     }

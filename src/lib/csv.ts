@@ -75,7 +75,7 @@ export function parseCsv(text: string): string[][] {
  * extra text (e.g. a trailing " Dr"/" Cr" ledger suffix) don't match and are
  * left untouched, since those are meant to display as text anyway. */
 function cleanMoneyCell(s: string): string {
-  const t = s.replace(/[  ]/g, " ").trim();
+  const t = s.replace(/[\u00A0\u202F]/g, " ").trim(); // NBSP (U+00A0) and narrow NBSP (U+202F), as escapes so they stay visible
   const m = t.match(/^([+\-−]?)\s*₹\s?([\d,]+(?:\.\d+)?)$/);
   if (!m) return s;
   const sign = m[1] === "−" || m[1] === "-" ? "-" : "";

@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
-import { usePagination } from "@/components/Pagination";
+import { usePagination } from "@/hooks/usePagination";
 import { useAutoFocusOnDesktop } from "@/hooks/use-mobile";
 import {
   PartyRepo,
@@ -135,11 +135,19 @@ function buildPartyPreview(table: string[][], existing: Party[]): PartyPreviewRo
     // scary "error" the user must fix; a name/phone is just never imported twice.
     const nameKey = name.toLowerCase();
     if (seenName.has(nameKey)) {
-      out.push({ ...rec, status: "duplicate", error: `Same name as row ${seenName.get(nameKey)} — skipped` });
+      out.push({
+        ...rec,
+        status: "duplicate",
+        error: `Same name as row ${seenName.get(nameKey)} — skipped`,
+      });
       continue;
     }
     if (phone && seenPhone.has(phone)) {
-      out.push({ ...rec, status: "duplicate", error: `Same phone as row ${seenPhone.get(phone)} — skipped` });
+      out.push({
+        ...rec,
+        status: "duplicate",
+        error: `Same phone as row ${seenPhone.get(phone)} — skipped`,
+      });
       continue;
     }
     seenName.set(nameKey, rowNum);
@@ -218,7 +226,9 @@ function PartiesPage() {
     rows.filter((p) => p.type !== "customer"),
     "supplier",
   );
-  const receivableByParty = new Map(customerBalances.map((b) => [b.partyId, Math.max(0, b.balance)]));
+  const receivableByParty = new Map(
+    customerBalances.map((b) => [b.partyId, Math.max(0, b.balance)]),
+  );
   const payableByParty = new Map(supplierBalances.map((b) => [b.partyId, Math.max(0, b.balance)]));
   // Footer totals cover the same rows the table shows — searching narrows
   // the table, so an all-party total next to a filtered count would lie.
@@ -239,9 +249,7 @@ function PartiesPage() {
     // same-name active party was created while this one was archived).
     const clash = PartyRepo.all().find(
       (p) =>
-        p.id !== r.id &&
-        !p.archived &&
-        p.name.trim().toLowerCase() === r.name.trim().toLowerCase(),
+        p.id !== r.id && !p.archived && p.name.trim().toLowerCase() === r.name.trim().toLowerCase(),
     );
     if (clash) {
       toast.error(
@@ -780,7 +788,9 @@ function BulkPartyImportDialog({
                           {r.status === "update" ? "—" : fmtMoney(r.openingBalance)}
                         </td>
                         <td className="p-1.5">
-                          {r.status === "new" && <span className="text-success font-medium">New</span>}
+                          {r.status === "new" && (
+                            <span className="text-success font-medium">New</span>
+                          )}
                           {r.status === "update" && (
                             <span className="text-primary font-medium">Update</span>
                           )}
@@ -876,7 +886,7 @@ export function PartyDialog({
         name: form.name!,
         type: "both",
         openingBalance: form.openingBalance ?? 0,
-      } as any);
+      });
       toast.success("Party created");
     }
     onSaved();
@@ -889,7 +899,9 @@ export function PartyDialog({
   // they commit to a possible duplicate.
   const nameQ = (form.name ?? "").trim().toLowerCase();
   const similarPartiesAll = nameQ
-    ? PartyRepo.all().filter((p) => p.id !== party?.id && p.name.trim().toLowerCase().includes(nameQ))
+    ? PartyRepo.all().filter(
+        (p) => p.id !== party?.id && p.name.trim().toLowerCase().includes(nameQ),
+      )
     : [];
   const similarParties = similarPartiesAll.slice(0, 5);
 
@@ -922,13 +934,17 @@ export function PartyDialog({
               <div className="absolute z-30 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-elevated max-h-52 overflow-auto">
                 <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600 bg-amber-50 border-b flex items-center gap-1.5">
                   <AlertTriangle className="h-3 w-3" />
-                  {similarPartiesAll.length === 1 ? "Similar party exists" : "Similar parties exist"}
+                  {similarPartiesAll.length === 1
+                    ? "Similar party exists"
+                    : "Similar parties exist"}
                   — check before saving
                 </div>
                 {similarParties.map((p) => (
                   <div key={p.id} className="px-3 py-2 text-sm flex items-center justify-between">
                     <span className="font-medium">{p.name}</span>
-                    {p.phone && <span className="text-[11px] text-muted-foreground">{p.phone}</span>}
+                    {p.phone && (
+                      <span className="text-[11px] text-muted-foreground">{p.phone}</span>
+                    )}
                   </div>
                 ))}
                 {similarPartiesAll.length > similarParties.length && (

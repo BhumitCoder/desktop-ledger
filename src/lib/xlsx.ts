@@ -5,7 +5,11 @@ export interface XlsxSheet {
 
 /** Excel sheet names must be ≤31 chars, unique, and can't contain : \ / ? * [ ] */
 function safeSheetName(name: string, used: Set<string>): string {
-  const base = name.replace(/[:\\/?*[\]]/g, " ").trim().slice(0, 31) || "Sheet";
+  const base =
+    name
+      .replace(/[:\\/?*[\]]/g, " ")
+      .trim()
+      .slice(0, 31) || "Sheet";
   let candidate = base;
   let n = 2;
   while (used.has(candidate.toLowerCase())) {

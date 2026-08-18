@@ -33,7 +33,7 @@ function collectAppStylesheets(): string {
 function buildPrintableHtml(el: HTMLElement): string {
   const css = collectAppStylesheets();
   return (
-    "<!DOCTYPE html><html><head><meta charset=\"utf-8\">" +
+    '<!DOCTYPE html><html><head><meta charset="utf-8">' +
     `<base href="${window.location.origin}/">` +
     `<style>${css}</style></head><body>${el.outerHTML}</body></html>`
   );

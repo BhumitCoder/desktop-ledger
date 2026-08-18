@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Inbox } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { usePagination, PaginationBar } from "@/components/Pagination";
+import { PaginationBar } from "@/components/Pagination";
+import { usePagination } from "@/hooks/usePagination";
 
 export interface Column<T> {
   key: string;
@@ -127,26 +128,26 @@ export function DataTable<T>({
             </tr>
           </thead>
           <tbody>
-            {paged.length === 0 ? null : (
-              paged.map((row, i) => (
-                <tr
-                  key={rowKey(row)}
-                  data-selected={i === selectedIdx}
-                  onClick={() => {
-                    setSelectedIdx(i);
-                    if (activateOnClick) onRowActivate?.(row);
-                  }}
-                  onDoubleClick={() => onRowActivate?.(row)}
-                  className="cursor-pointer"
-                >
-                  {columns.map((c) => (
-                    <td key={c.key} style={{ textAlign: c.align ?? "left" }}>
-                      {c.render(row)}
-                    </td>
-                  ))}
-                </tr>
-              ))
-            )}
+            {paged.length === 0
+              ? null
+              : paged.map((row, i) => (
+                  <tr
+                    key={rowKey(row)}
+                    data-selected={i === selectedIdx}
+                    onClick={() => {
+                      setSelectedIdx(i);
+                      if (activateOnClick) onRowActivate?.(row);
+                    }}
+                    onDoubleClick={() => onRowActivate?.(row)}
+                    className="cursor-pointer"
+                  >
+                    {columns.map((c) => (
+                      <td key={c.key} style={{ textAlign: c.align ?? "left" }}>
+                        {c.render(row)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
           </tbody>
           {footer && paged.length > 0 && <tfoot>{footer}</tfoot>}
         </table>

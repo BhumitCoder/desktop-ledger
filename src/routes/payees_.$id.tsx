@@ -4,11 +4,11 @@ import { PayeeRepo, ExpenseRepo, BankRepo, CompanyRepo } from "@/repositories";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
-import { useRepoData } from "@/hooks/useRepoData";
+import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 import { downloadElementAsPdf } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { downloadXlsx } from "@/lib/xlsx";
-import { fmtMode } from "@/components/ModePills";
+import { fmtMode } from "@/lib/paymentMode";
 import type { Payee } from "@/types";
 import { ArrowLeft, Printer, FileDown, Share2, Download, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
@@ -40,17 +40,17 @@ function PayeeLedgerPage() {
     dateCache = { dateFrom, dateTo };
   }, [dateFrom, dateTo]);
 
-  const bankNameById = useMemo(() => new Map(BankRepo.all().map((b) => [b.id, b.name])), [_repoV]);
+  const bankNameById = useRepoMemo(() => new Map(BankRepo.all().map((b) => [b.id, b.name])));
 
   // Every expense ever paid to this payee, oldest first, with a running
   // total — same shape as the party ledgers, but one-directional (an
   // expense only ever adds to what's been paid, never reduces it).
-  const allRows = useMemo(() => {
+  const allRows = useRepoMemo(() => {
     if (!payee) return [];
     return ExpenseRepo.all()
       .filter((e) => e.payeeId === payee.id)
       .sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
-  }, [payee, _repoV]);
+  }, [payee]);
 
   const rows = useMemo(() => {
     let running = 0;
@@ -110,13 +110,18 @@ function PayeeLedgerPage() {
     const sheetRows = rows.map((r) => [
       fmtDate(r.date),
       r.category,
-      r.paymentMode === "bank" ? `Bank — ${bankNameById.get(r.bankId ?? "") ?? "unspecified"}` : fmtMode(r.paymentMode),
+      r.paymentMode === "bank"
+        ? `Bank — ${bankNameById.get(r.bankId ?? "") ?? "unspecified"}`
+        : fmtMode(r.paymentMode),
       r.notes ?? "",
       r.amount,
       r.running,
     ]);
     downloadXlsx(`Payee-Ledger-${payee.name}`, [
-      { name: payee.name, rows: [[company.name], [`Ledger Of ${payee.name}`], [], header, ...sheetRows] },
+      {
+        name: payee.name,
+        rows: [[company.name], [`Ledger Of ${payee.name}`], [], header, ...sheetRows],
+      },
     ]);
     toast.success("Ledger downloaded as Excel");
   };
@@ -295,7 +300,9 @@ function PayeeLedgerPage() {
                 ) : (
                   rows.map((r) => (
                     <tr key={r.id} className="border-b border-gray-100">
-                      <td className="px-3 py-2.5 text-gray-600 whitespace-nowrap">{fmtDate(r.date)}</td>
+                      <td className="px-3 py-2.5 text-gray-600 whitespace-nowrap">
+                        {fmtDate(r.date)}
+                      </td>
                       <td className="px-3 py-2.5 font-medium text-gray-800 whitespace-nowrap">
                         {r.category}
                       </td>
@@ -304,7 +311,9 @@ function PayeeLedgerPage() {
                           ? `Bank — ${bankNameById.get(r.bankId ?? "") ?? "unspecified"}`
                           : fmtMode(r.paymentMode)}
                       </td>
-                      <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap">{r.notes ?? "—"}</td>
+                      <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap">
+                        {r.notes ?? "—"}
+                      </td>
                       <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">
                         {fmtMoney(r.amount)}
                       </td>

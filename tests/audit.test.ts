@@ -1,5 +1,5 @@
 /**
- * AIM production audit harness.
+ * OM IMPEX production audit harness.
  * Imports the REAL calculation library (src/lib/ledger.ts) and hammers it
  * with randomized business scenarios ("monkey testing"), asserting the
  * accounting invariants that must never break.
@@ -14,6 +14,8 @@ import {
   allocatedAmount,
   advanceAmount,
   paidViaPayments,
+  valueExTax,
+  buildBankLedger,
 } from "@/lib/ledger";
 import type {
   Invoice,
@@ -24,8 +26,10 @@ import type {
   LineItem,
   CashAdjustment,
   PaymentMode,
+  BankAccount,
 } from "@/types";
 import { Repository } from "@/repositories/base";
+import { correctBankPaidAmount, planBankRepair } from "@/lib/bankRepair";
 
 let passed = 0,
   failed = 0;
@@ -494,13 +498,28 @@ for (let t = 0; t < 300; t++) {
    bankId) must still be counted in cashFlows. Regression guard for A1. */
 {
   const bankExp: Expense[] = [
-    { id: nid(), date: "2026-07-01", category: "Rent", amount: 5000, paymentMode: "bank", bankId: "bk1", createdAt: "" },
+    {
+      id: nid(),
+      date: "2026-07-01",
+      category: "Rent",
+      amount: 5000,
+      paymentMode: "bank",
+      bankId: "bk1",
+      createdAt: "",
+    },
   ];
   const bankOut = netFlow(bankFlows([], [], bankExp, []));
   assert(bankOut === 0, `T10: bank expense must not appear in bankFlows (got ${bankOut})`);
 
   const cashExp: Expense[] = [
-    { id: nid(), date: "2026-07-01", category: "Tea", amount: 50, paymentMode: "cash", createdAt: "" },
+    {
+      id: nid(),
+      date: "2026-07-01",
+      category: "Tea",
+      amount: 50,
+      paymentMode: "cash",
+      createdAt: "",
+    },
   ];
   const cashOut = netFlow(cashFlows([], [], cashExp, [], []));
   assert(cashOut === -50, `T10: cash expense must still count in cashFlows (got ${cashOut})`);
@@ -511,7 +530,7 @@ console.log(`\n═════════════════════�
 /* ═══ TEST 9: opening balance sign convention — never double counted ═══ */
 {
   const partiesOB = [
-    { id: "pA", name: "A", openingBalance: 5000 },  // they owe us
+    { id: "pA", name: "A", openingBalance: 5000 }, // they owe us
     { id: "pB", name: "B", openingBalance: -3000 }, // we owe them
   ];
   const cust = partyBalances([], [], [], partiesOB, "customer");
@@ -540,6 +559,243 @@ console.log(`\n═════════════════════�
   assert(repo.get(a.id)!.total === 70, "T8: adjustField cache math");
   repo.remove(b.id);
   assert(repo.all().length === 2, "T8: remove");
+}
+
+/* ═══ TEST 11: a bill's bank snapshot excludes Payment-record money ═══
+   Regression for the highest-severity bug found in the Aug-2026 review:
+   InvoiceForm stored the WHOLE of invoice.paid as bankPaidAmount. Once a
+   Payment record was allocated to the bill, invoice.paid included money that
+   had arrived by another route (often cash) and had already moved on its own
+   mode — so merely re-saving the bill credited the bank account with it a
+   second time, inventing money that existed nowhere. The correct snapshot is
+   the "direct portion": paid minus whatever Payment records supplied — the
+   same formula modeFlows() uses for the cash side. */
+{
+  // The REAL function InvoiceForm.finalizeSave calls — not a copy of it, so
+  // this test can't pass while production drifts.
+  const bankSnapshot = (inv: Invoice, paid: number, payments: Payment[]) =>
+    correctBankPaidAmount({ ...inv, paid } as Invoice, payments);
+
+  const bank: BankAccount = {
+    id: "B1",
+    name: "HDFC",
+    openingBalance: 0,
+    balance: 0,
+    createdAt: "",
+  } as BankAccount;
+
+  let sale = {
+    id: "S1",
+    number: "INV-9001",
+    date: "2026-08-01",
+    partyId: "P1",
+    partyName: "Ramesh",
+    gstEnabled: false,
+    lineItems: [],
+    subtotal: 1000,
+    discount: 0,
+    taxAmount: 0,
+    total: 1000,
+    paid: 400,
+    paymentMode: "bank",
+    bankId: "B1",
+    bankPaidAmount: 400,
+    createdAt: "2026-08-01T10:00:00Z",
+  } as unknown as Invoice;
+  bank.balance = 400; // moved at billing
+
+  // A later CASH payment settles the rest and pushes invoice.paid to 1000.
+  const pay = {
+    id: "PY1",
+    type: "in",
+    date: "2026-08-05",
+    partyId: "P1",
+    partyName: "Ramesh",
+    amount: 600,
+    mode: "cash",
+    allocations: [{ invoiceId: "S1", number: "INV-9001", amount: 600 }],
+    createdAt: "2026-08-05T10:00:00Z",
+  } as unknown as Payment;
+  sale = { ...sale, paid: 1000 };
+
+  const totalMoney = () =>
+    r2(
+      netFlow(cashFlows([sale], [], [], [pay], [])) +
+        bank.balance +
+        netFlow(bankFlows([sale], [], [], [pay])),
+    );
+
+  assert(totalMoney() === 1000, "T11: baseline — 400 bank + 600 cash");
+
+  // Re-save the bill three times over. Each save reverses the stored snapshot
+  // and applies the freshly computed one, exactly as finalizeSave does.
+  for (let i = 0; i < 3; i++) {
+    const next = bankSnapshot(sale, sale.paid, [pay]);
+    bank.balance = r2(bank.balance - (sale.bankPaidAmount ?? 0) + (next ?? 0));
+    sale = { ...sale, bankPaidAmount: next };
+    assert(totalMoney() === 1000, `T11: re-save #${i + 1} must not create money`);
+    assert(sale.bankPaidAmount === 400, `T11: re-save #${i + 1} keeps the direct portion`);
+  }
+
+  // The passbook derives from bankPaidAmount, so it must agree too.
+  const passbook = buildBankLedger(bank, {
+    sales: [sale],
+    purchases: [],
+    payments: [pay],
+    bankTxns: [],
+  }).fullBalance;
+  assert(passbook === bank.balance, "T11: passbook must match the stored balance");
+
+  // Reducing the bill to 800 leaves 600 payment-backed, so the bank keeps 200.
+  const reduced = bankSnapshot(sale, 800, [pay]);
+  bank.balance = r2(bank.balance - (sale.bankPaidAmount ?? 0) + (reduced ?? 0));
+  sale = { ...sale, total: 800, paid: 800, bankPaidAmount: reduced };
+  assert(reduced === 200, "T11: reduced bill keeps only its own direct portion");
+  assert(totalMoney() === 800, "T11: reduced bill totals 800");
+
+  // A non-bank bill must never carry a bank snapshot at all.
+  const cashBill = { ...sale, paymentMode: "cash" } as Invoice;
+  assert(
+    bankSnapshot(cashBill, cashBill.paid, [pay]) === undefined,
+    "T11: non-bank bill has no bank snapshot",
+  );
+}
+
+/* ═══ TEST 12: profit excludes output GST ═══
+   invoice.total is tax-INCLUSIVE while COGS is a tax-exclusive line cost, so
+   the P&L and the dashboard were reporting the GST collected as earnings. */
+{
+  const gstBill = {
+    id: "G1",
+    total: 1180,
+    taxAmount: 180,
+    gstEnabled: true,
+  } as unknown as Invoice;
+  const plainBill = {
+    id: "G2",
+    total: 500,
+    taxAmount: 0,
+    gstEnabled: false,
+  } as unknown as Invoice;
+  // A legacy/imported doc marked non-GST but carrying a stale taxAmount must
+  // NOT have that phantom tax stripped out of revenue.
+  const legacyBill = {
+    id: "G3",
+    total: 300,
+    taxAmount: 45,
+    gstEnabled: false,
+  } as unknown as Invoice;
+
+  assert(valueExTax([gstBill]) === 1000, "T12: strips output GST");
+  assert(valueExTax([plainBill]) === 500, "T12: non-GST bill untouched");
+  assert(valueExTax([legacyBill]) === 300, "T12: gstEnabled:false ignores stale taxAmount");
+  assert(valueExTax([gstBill, plainBill]) === 1500, "T12: sums correctly");
+  assert(valueExTax([]) === 0, "T12: empty set");
+  assert(
+    valueExTax([{ total: 1180, taxAmount: 180 } as unknown as Invoice]) === 1000,
+    "T12: undefined gstEnabled treated as GST bill",
+  );
+  // The invariant that actually matters: gross profit on a GST bill must equal
+  // the ex-tax margin, never the tax-inflated one.
+  const cogs = 700;
+  assert(valueExTax([gstBill]) - cogs === 300, "T12: gross profit is ex-GST margin");
+}
+
+/* ═══ TEST 13: the bank reconciliation repair ═══
+   Builds a book that HAS the historical corruption in it and checks the
+   planner both spots it and lands the account on the derived truth. */
+{
+  const bank = {
+    id: "BR1",
+    name: "ICICI",
+    openingBalance: 5000,
+    balance: 99999, // deliberately wrong, as production is
+    createdAt: "",
+  } as unknown as BankAccount;
+
+  const sale = {
+    id: "RS1",
+    number: "INV-7001",
+    date: "2026-05-02",
+    partyId: "P9",
+    partyName: "Suresh",
+    gstEnabled: false,
+    lineItems: [],
+    subtotal: 2000,
+    discount: 0,
+    taxAmount: 0,
+    total: 2000,
+    paid: 2000,
+    paymentMode: "bank",
+    bankId: "BR1",
+    bankPaidAmount: 2000, // corrupted: 1500 of this came via a cash payment
+    createdAt: "2026-05-02T09:00:00Z",
+  } as unknown as Invoice;
+
+  const pay = {
+    id: "RP1",
+    type: "in",
+    date: "2026-05-09",
+    partyId: "P9",
+    partyName: "Suresh",
+    amount: 1500,
+    mode: "cash",
+    allocations: [{ invoiceId: "RS1", number: "INV-7001", amount: 1500 }],
+    createdAt: "2026-05-09T09:00:00Z",
+  } as unknown as Payment;
+
+  const plan = planBankRepair({
+    sales: [sale],
+    purchases: [],
+    payments: [pay],
+    banks: [bank],
+    bankTxns: [],
+    expenses: [],
+  });
+
+  assert(plan.hasWork, "T13: corruption must be detected");
+  assert(plan.bills.length === 1, "T13: exactly one bill needs correcting");
+  assert(plan.bills[0].stored === 2000, "T13: reports the stored snapshot");
+  assert(plan.bills[0].correct === 500, "T13: only the direct portion is genuinely bank money");
+  assert(plan.accounts.length === 1, "T13: the account balance is off");
+  // opening 5000 + the bill's real 500 = 5500
+  assert(plan.accounts[0].correct === 5500, "T13: balance re-derived from documents");
+  assert(plan.accounts[0].delta === r2(5500 - 99999), "T13: delta is correct - stored");
+
+  // Applying the plan and re-planning must find nothing left to do.
+  const repairedSale = { ...sale, bankPaidAmount: plan.bills[0].correct } as Invoice;
+  const repairedBank = { ...bank, balance: plan.accounts[0].correct } as BankAccount;
+  const after = planBankRepair({
+    sales: [repairedSale],
+    purchases: [],
+    payments: [pay],
+    banks: [repairedBank],
+    bankTxns: [],
+    expenses: [],
+  });
+  assert(!after.hasWork, "T13: repair must be idempotent — nothing left on a second pass");
+
+  // A healthy book must never be flagged (no spurious "corrections").
+  const clean = planBankRepair({
+    sales: [],
+    purchases: [],
+    payments: [],
+    banks: [{ ...bank, balance: 5000 } as BankAccount],
+    bankTxns: [],
+    expenses: [],
+  });
+  assert(!clean.hasWork, "T13: a healthy book reports no work");
+
+  // Cash-mode bills must be ignored entirely by the planner.
+  const cashOnly = planBankRepair({
+    sales: [{ ...sale, paymentMode: "cash", bankId: undefined } as Invoice],
+    purchases: [],
+    payments: [pay],
+    banks: [{ ...bank, balance: 5000 } as BankAccount],
+    bankTxns: [],
+    expenses: [],
+  });
+  assert(cashOnly.bills.length === 0, "T13: non-bank bills are not touched");
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);

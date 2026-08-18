@@ -14,16 +14,19 @@ let originalTitle: string | undefined;
 export function printWithName(name: string) {
   if (originalTitle === undefined) originalTitle = document.title;
   document.title = name;
-  let timer: ReturnType<typeof setTimeout>;
+  // restore() has to be able to cancel the fallback timer, but the timer
+  // can't exist until restore() does — so the handle lives on a small box
+  // both can close over.
+  const fallback: { timer?: ReturnType<typeof setTimeout> } = {};
   const restore = () => {
     document.title = originalTitle!;
     window.removeEventListener("afterprint", restore);
-    clearTimeout(timer);
+    clearTimeout(fallback.timer);
   };
   window.addEventListener("afterprint", restore);
   window.print();
   // Fallback for browsers that don't fire afterprint reliably
-  timer = setTimeout(restore, 3000);
+  fallback.timer = setTimeout(restore, 3000);
 }
 
 /** True when running as an installed/home-screen app rather than a normal

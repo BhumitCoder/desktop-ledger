@@ -10,9 +10,7 @@ if (!js) {
   process.exit(1);
 }
 
-const cssTag = css
-  ? `\n    <link rel="stylesheet" href="/assets/${css}" />`
-  : "";
+const cssTag = css ? `\n    <link rel="stylesheet" href="/assets/${css}" />` : "";
 
 const html = `<!DOCTYPE html>
 <html lang="en">

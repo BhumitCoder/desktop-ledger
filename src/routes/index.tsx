@@ -13,8 +13,26 @@ import {
   CashAdjustmentRepo,
 } from "@/repositories";
 import { useRepoData } from "@/hooks/useRepoData";
+import type {
+  Invoice,
+  Return,
+  Party,
+  Item,
+  Expense,
+  BankAccount,
+  Payment,
+  CashAdjustment,
+} from "@/types";
 import { fmtMoney, ymd } from "@/lib/format";
-import { partyBalances, cashFlows, netFlow, computeCogs, bankFlows, type PartyBalance } from "@/lib/ledger";
+import {
+  partyBalances,
+  cashFlows,
+  netFlow,
+  computeCogs,
+  bankFlows,
+  valueExTax,
+  type PartyBalance,
+} from "@/lib/ledger";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   AreaChart,
@@ -72,7 +90,7 @@ function inRange(dateStr: string, start: string, end: string) {
   return dateStr >= start && dateStr <= end;
 }
 
-function buildChartData(sales: any[], start: string, end: string) {
+function buildChartData(sales: Invoice[], start: string, end: string) {
   const days: { date: string; amount: number }[] = [];
   const [y, m, d] = start.split("-").map(Number);
   const cur = new Date(y, m - 1, d);
@@ -95,17 +113,28 @@ function Dashboard() {
   const [period, setPeriod] = useState<Period>("this_month");
   const [showPeriodMenu, setShowPeriodMenu] = useState(false);
   const [partyListOpen, setPartyListOpen] = useState<"receivable" | "payable" | null>(null);
-  const [data, setData] = useState({
-    sales: [] as any[],
-    purchases: [] as any[],
-    parties: [] as any[],
-    items: [] as any[],
-    expenses: [] as any[],
-    banks: [] as any[],
-    payments: [] as any[],
-    saleReturns: [] as any[],
-    purchaseReturns: [] as any[],
-    cashAdjustments: [] as any[],
+  const [data, setData] = useState<{
+    sales: Invoice[];
+    purchases: Invoice[];
+    parties: Party[];
+    items: Item[];
+    expenses: Expense[];
+    banks: BankAccount[];
+    payments: Payment[];
+    saleReturns: Return[];
+    purchaseReturns: Return[];
+    cashAdjustments: CashAdjustment[];
+  }>({
+    sales: [],
+    purchases: [],
+    parties: [],
+    items: [],
+    expenses: [],
+    banks: [],
+    payments: [],
+    saleReturns: [],
+    purchaseReturns: [],
+    cashAdjustments: [],
   });
 
   useEffect(() => {
@@ -150,8 +179,8 @@ function Dashboard() {
       partyBalances(
         data.sales,
         data.saleReturns,
-        data.payments.filter((p: any) => p.type === "in"),
-        data.parties.filter((p: any) => p.type !== "supplier"),
+        data.payments.filter((p) => p.type === "in"),
+        data.parties.filter((p) => p.type !== "supplier"),
         "customer",
       ),
     [data],
@@ -161,8 +190,8 @@ function Dashboard() {
       partyBalances(
         data.purchases,
         data.purchaseReturns,
-        data.payments.filter((p: any) => p.type === "out"),
-        data.parties.filter((p: any) => p.type !== "customer"),
+        data.payments.filter((p) => p.type === "out"),
+        data.parties.filter((p) => p.type !== "customer"),
         "supplier",
       ),
     [data],
@@ -174,7 +203,10 @@ function Dashboard() {
 
   const stockValue = data.items.reduce((a, i) => a + (i.stock || 0) * (i.purchasePrice || 0), 0);
   const cashInHand = useMemo(
-    () => netFlow(cashFlows(data.sales, data.purchases, data.expenses, data.payments, data.cashAdjustments)),
+    () =>
+      netFlow(
+        cashFlows(data.sales, data.purchases, data.expenses, data.payments, data.cashAdjustments),
+      ),
     [data],
   );
   // Stored account balances + all bank/UPI/cheque activity (sales, purchases, expenses, payments)
@@ -185,7 +217,12 @@ function Dashboard() {
     [data],
   );
 
-  // Profit like the P&L report: net revenue − cost of goods sold − expenses
+  // Profit like the P&L report: net revenue − cost of goods sold − expenses.
+  // Deliberately NOT totalSale/totalSaleReturn: those are the headline
+  // invoice values (what the KPI cards show, GST included, which is what a
+  // shopkeeper means by "today's sales"), but GST collected is owed onward
+  // and is not earnings — and COGS is tax-exclusive. Mixing them overstated
+  // profit by exactly the period's output GST.
   const periodCogs = useMemo(
     () =>
       computeCogs(
@@ -195,7 +232,8 @@ function Dashboard() {
       ),
     [data, start, end],
   );
-  const netProfit = totalSale - totalSaleReturn - periodCogs - totalExpense;
+  const netProfit =
+    valueExTax(periodSales) - valueExTax(periodSaleReturns) - periodCogs - totalExpense;
 
   const lowStock = data.items.filter(
     (i) => (i.minStock != null && i.stock <= i.minStock) || i.stock < 0,
@@ -461,7 +499,7 @@ function Dashboard() {
                 </span>
               </div>
               <div className="space-y-1">
-                {lowStock.slice(0, 4).map((i: any) => (
+                {lowStock.slice(0, 4).map((i) => (
                   <div key={i.id} className="flex justify-between text-xs text-amber-700">
                     <span className="truncate flex-1">{i.name}</span>
                     <span className="font-semibold ml-2">

@@ -1,6 +1,6 @@
 import type { Invoice, Company } from "@/types";
 import { fmtMoney, fmtDate } from "@/lib/format";
-import { fmtMode } from "@/components/ModePills";
+import { fmtMode } from "@/lib/paymentMode";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -111,7 +111,9 @@ export function ThermalReceipt({
       )}
       {inv.discount > 0 && row("Discount", `-${fmtMoney(inv.discount)}`)}
       {gstOn && inv.taxAmount > 0 && row("GST", fmtMoney(inv.taxAmount))}
-      {!!inv.shippingCharge && inv.shippingCharge > 0 && row("Shipping", fmtMoney(inv.shippingCharge))}
+      {!!inv.shippingCharge &&
+        inv.shippingCharge > 0 &&
+        row("Shipping", fmtMoney(inv.shippingCharge))}
       {!!inv.roundOff &&
         Math.abs(inv.roundOff) > 0.001 &&
         row("Round Off", `${inv.roundOff > 0 ? "+" : "−"}${fmtMoney(Math.abs(inv.roundOff))}`)}

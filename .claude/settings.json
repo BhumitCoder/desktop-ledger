@@ -129,8 +129,6 @@
       "Bash(cd \"c:/Users/bhumi/Downloads/desktop-ledger\" && grep -c \"downloadElementAsPdf\\\\|shareElementAsPdf\" src/routes/purchase-return.\\\\$id.tsx src/routes/sale-return.\\\\$id.tsx src/routes/bank_.\\\\$id.tsx)",
       "Bash(grep -i 'purchase.$id\\\\|purchase\\\\.\\\\$id')"
     ],
-    "additionalDirectories": [
-      "c:\\Users\\bhumi\\Downloads\\desktop-ledger\\.vercel"
-    ]
+    "additionalDirectories": ["c:\\Users\\bhumi\\Downloads\\desktop-ledger\\.vercel"]
   }
 }

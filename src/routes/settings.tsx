@@ -1,13 +1,25 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PageHeader } from "@/components/PageHeader";
-import { CompanyRepo, REPO_BY_KEY } from "@/repositories";
+import {
+  CompanyRepo,
+  REPO_BY_KEY,
+  areReposHydrated,
+  SalesRepo,
+  PurchaseRepo,
+  PaymentRepo,
+  BankRepo,
+  BankTxnRepo,
+  ExpenseRepo,
+} from "@/repositories";
+import { newBatch, commitBatch } from "@/repositories/base";
+import { planBankRepair, type BankRepairPlan, type BankRepairData } from "@/lib/bankRepair";
 import { useRepoData } from "@/hooks/useRepoData";
 import { Field } from "@/components/Field";
 import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { today } from "@/lib/format";
-import { APP_VERSION } from "@/lib/version";
+import { today, fmtMoney } from "@/lib/format";
+import { APP_NAME, APP_VERSION } from "@/lib/version";
 import { auth, isBrowser } from "@/lib/firebase";
 import { usePermissions } from "@/hooks/usePermissions";
 import { TeamSection } from "@/components/TeamSection";
@@ -27,6 +39,7 @@ import {
   Plus,
   Users2,
   MessageCircle,
+  Landmark,
 } from "lucide-react";
 
 export const Route = createFileRoute("/settings")({ component: SettingsPage });
@@ -40,10 +53,90 @@ function SettingsPage() {
   const userEmail = isBrowser ? (auth.currentUser?.email ?? "") : "";
   const { isOwner } = usePermissions();
 
+  // Bank reconciliation (owner-only). A bug shipped for months stored the
+  // WHOLE of invoice.paid as a bill's bank snapshot, so re-saving a
+  // part-bank-paid bill after a Payment landed on it credited the account
+  // with that payment's money a second time. The save path is fixed, but
+  // balances already inflated in the live data stay inflated until they're
+  // re-derived from the documents — that's what this does.
+  const [bankPlan, setBankPlan] = useState<BankRepairPlan | null>(null);
+  const [checkingBank, setCheckingBank] = useState(false);
+
+  const bankRepairData = (): BankRepairData => ({
+    sales: SalesRepo.all(),
+    purchases: PurchaseRepo.all(),
+    payments: PaymentRepo.all(),
+    banks: BankRepo.all(),
+    bankTxns: BankTxnRepo.all(),
+    expenses: ExpenseRepo.all(),
+  });
+
+  const checkBanks = () => {
+    if (!areReposHydrated()) {
+      toast.error("Still loading your data from the cloud — wait a moment and try again");
+      return;
+    }
+    setCheckingBank(true);
+    try {
+      const plan = planBankRepair(bankRepairData());
+      setBankPlan(plan);
+      if (!plan.hasWork) toast.success("All bank balances match your transactions");
+    } finally {
+      setCheckingBank(false);
+    }
+  };
+
+  const applyBankRepair = async () => {
+    if (!areReposHydrated()) {
+      toast.error("Still loading your data from the cloud — wait a moment and try again");
+      return;
+    }
+    // Re-plan against the live cache rather than trusting the on-screen
+    // report, which may have been produced minutes ago on another device's
+    // data. This also makes the button safe to press twice.
+    const plan = planBankRepair(bankRepairData());
+    if (!plan.hasWork) {
+      setBankPlan(plan);
+      toast.success("Nothing to correct — balances already match");
+      return;
+    }
+    if (
+      !confirm(
+        `Correct ${plan.bills.length} bill record(s) and ${plan.accounts.length} account balance(s)?
+
+` +
+          "This only rewrites the bank figures so they match your actual bills, payments and " +
+          "deposits. No bill, payment or stock is added, changed or deleted.",
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      const batch = newBatch();
+      for (const b of plan.bills) {
+        const repo = b.kind === "sale" ? SalesRepo : PurchaseRepo;
+        repo.updateBatched(batch, b.id, { bankPaidAmount: b.correct });
+      }
+      for (const a of plan.accounts) {
+        // Atomic increment of the shortfall, matching every other
+        // bank-balance write in the app — never an absolute overwrite.
+        BankRepo.adjustFieldBatched(batch, a.id, "balance", a.delta);
+      }
+      await commitBatch(batch, "bank reconciliation");
+      setBankPlan(planBankRepair(bankRepairData()));
+      toast.success(
+        `Corrected ${plan.bills.length} bill record(s) and ${plan.accounts.length} account balance(s)`,
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const companyRef = useRef<HTMLFormElement>(null);
   const categoriesRef = useRef<HTMLDivElement>(null);
   const teamRef = useRef<HTMLDivElement>(null);
   const whatsappRef = useRef<HTMLDivElement>(null);
+  const bankRef = useRef<HTMLDivElement>(null);
   const dataRef = useRef<HTMLDivElement>(null);
   const shortcutsRef = useRef<HTMLDivElement>(null);
 
@@ -51,7 +144,12 @@ function SettingsPage() {
     { key: "company", label: "Company Details", icon: Building2, ref: companyRef },
     { key: "categories", label: "Expense Categories", icon: Receipt, ref: categoriesRef },
     ...(isOwner ? [{ key: "team", label: "Team", icon: Users2, ref: teamRef }] : []),
-    ...(isOwner ? [{ key: "whatsapp", label: "WhatsApp", icon: MessageCircle, ref: whatsappRef }] : []),
+    ...(isOwner
+      ? [{ key: "whatsapp", label: "WhatsApp", icon: MessageCircle, ref: whatsappRef }]
+      : []),
+    ...(isOwner
+      ? [{ key: "banks", label: "Bank Reconciliation", icon: Landmark, ref: bankRef }]
+      : []),
     { key: "data", label: "Account & Data", icon: Database, ref: dataRef },
     { key: "shortcuts", label: "Keyboard Shortcuts", icon: Keyboard, ref: shortcutsRef },
   ];
@@ -113,6 +211,13 @@ function SettingsPage() {
 
   // Same file format as the old localStorage backups, so old backup files still restore
   const exportData = () => {
+    // The app opens before the collections finish loading, so a backup taken
+    // in those first seconds would quietly be missing whole sections while
+    // still reporting success — the worst possible failure for a backup.
+    if (!areReposHydrated()) {
+      toast.error("Still loading your data from the cloud — wait a moment and try again");
+      return;
+    }
     const dump: Record<string, string> = {};
     for (const [key, repo] of Object.entries(REPO_BY_KEY)) {
       dump[key] = JSON.stringify(repo.all());
@@ -132,21 +237,22 @@ function SettingsPage() {
   // missing numeric fields (qty, price, discountPct, gstRate). Left as-is,
   // those turn every GST/report total that touches them into NaN. Coerce to
   // 0 at the import boundary so bad data can never enter the system.
-  const sanitizeRecords = (records: any[]): any[] =>
-    records.map((r) =>
-      Array.isArray(r?.lineItems)
-        ? {
-            ...r,
-            lineItems: r.lineItems.map((l: any) => ({
-              ...l,
-              qty: Number(l?.qty) || 0,
-              price: Number(l?.price) || 0,
-              discountPct: Number(l?.discountPct) || 0,
-              gstRate: Number(l?.gstRate) || 0,
-            })),
-          }
-        : r,
-    );
+  type LooseRecord = Record<string, unknown> & { id: string };
+  const sanitizeRecords = (records: LooseRecord[]): LooseRecord[] =>
+    records.map((r) => {
+      const lineItems = r?.lineItems;
+      if (!Array.isArray(lineItems)) return r;
+      return {
+        ...r,
+        lineItems: lineItems.map((l: LooseRecord) => ({
+          ...l,
+          qty: Number(l?.qty) || 0,
+          price: Number(l?.price) || 0,
+          discountPct: Number(l?.discountPct) || 0,
+          gstRate: Number(l?.gstRate) || 0,
+        })),
+      };
+    });
 
   const importData = async (file: File) => {
     try {
@@ -155,7 +261,7 @@ function SettingsPage() {
       const known = Object.keys(REPO_BY_KEY).filter((k) => dump[k] != null);
       const hasCompany = dump["bz.company"] != null;
       if (!known.length && !hasCompany) {
-        toast.error("No AIM data found in this file");
+        toast.error(`No ${APP_NAME} data found in this file`);
         return;
       }
       if (
@@ -180,11 +286,17 @@ function SettingsPage() {
       setTimeout(() => location.reload(), 800);
     } catch {
       setBusy(false);
-      toast.error("Could not read backup file — is it a valid AIM backup?");
+      toast.error(`Could not read backup file — is it a valid ${APP_NAME} backup?`);
     }
   };
 
   const clearAll = async () => {
+    // Same reason as exportData: on a partial cache this would delete only
+    // what happens to have loaded and report "All data cleared".
+    if (!areReposHydrated()) {
+      toast.error("Still loading your data from the cloud — wait a moment and try again");
+      return;
+    }
     if (!confirm("Delete ALL business data from the cloud? This cannot be undone.")) return;
     if (
       !confirm(
@@ -391,6 +503,128 @@ function SettingsPage() {
                 />
                 <div className="p-5">
                   <WhatsAppSection />
+                </div>
+              </div>
+            )}
+
+            {isOwner && (
+              <div
+                ref={bankRef}
+                className="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden scroll-mt-6"
+              >
+                <SectionHeader
+                  icon={<Landmark className="h-4 w-4" />}
+                  title="Bank Reconciliation"
+                  description="Check each account's balance against its actual transactions"
+                />
+                <div className="p-5">
+                  <p className="text-xs text-gray-500 mb-4">
+                    Recalculates every bank account from your bills, payments, expenses and deposits
+                    — the same figures the passbook page shows — and reports any account whose
+                    running balance has drifted. Safe to run any time: checking changes nothing, and
+                    the correction only ever rewrites bank figures, never a bill, payment or stock
+                    record.
+                  </p>
+                  <div className="flex flex-col sm:flex-row gap-2 sm:flex-wrap">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={busy || checkingBank}
+                      onClick={checkBanks}
+                      className="w-full sm:w-auto"
+                    >
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      {checkingBank ? "Checking…" : "Check Bank Balances"}
+                    </Button>
+                    {bankPlan?.hasWork && (
+                      <Button
+                        type="button"
+                        disabled={busy}
+                        onClick={applyBankRepair}
+                        className="w-full sm:w-auto"
+                      >
+                        {busy ? "Correcting…" : "Apply Corrections"}
+                      </Button>
+                    )}
+                  </div>
+
+                  {bankPlan && !bankPlan.hasWork && (
+                    <div className="mt-4 flex items-start gap-2 text-xs bg-emerald-50/60 border border-emerald-100 rounded-md px-3 py-2.5">
+                      <ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+                      <p className="text-gray-700">
+                        Every bank account matches its transactions exactly. Nothing to correct.
+                      </p>
+                    </div>
+                  )}
+
+                  {bankPlan?.hasWork && (
+                    <div className="mt-4 space-y-4">
+                      {bankPlan.accounts.length > 0 && (
+                        <div>
+                          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                            Account balances that don't match ({bankPlan.accounts.length})
+                          </p>
+                          <div className="border border-gray-100 rounded-md overflow-hidden">
+                            {bankPlan.accounts.map((a) => (
+                              <div
+                                key={a.id}
+                                className="flex items-center justify-between gap-3 px-3 py-2 text-xs border-b border-gray-100 last:border-b-0"
+                              >
+                                <span className="font-medium text-gray-800 truncate">{a.name}</span>
+                                <span className="tabular-nums shrink-0 text-gray-500">
+                                  shows {fmtMoney(a.stored)} → should be{" "}
+                                  <span
+                                    className={
+                                      a.delta < 0
+                                        ? "font-semibold text-rose-600"
+                                        : "font-semibold text-emerald-600"
+                                    }
+                                  >
+                                    {fmtMoney(a.correct)}
+                                  </span>
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {bankPlan.bills.length > 0 && (
+                        <div>
+                          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                            Bills whose recorded bank amount is wrong ({bankPlan.bills.length})
+                          </p>
+                          <div className="border border-gray-100 rounded-md overflow-hidden max-h-64 overflow-y-auto">
+                            {bankPlan.bills.map((b) => (
+                              <div
+                                key={b.id}
+                                className="flex items-center justify-between gap-3 px-3 py-2 text-xs border-b border-gray-100 last:border-b-0"
+                              >
+                                <span className="truncate">
+                                  <span className="font-mono font-semibold text-gray-800">
+                                    {b.number}
+                                  </span>{" "}
+                                  <span className="text-gray-500">{b.partyName}</span>
+                                </span>
+                                <span className="tabular-nums shrink-0 text-gray-500">
+                                  {fmtMoney(b.stored)} → {fmtMoney(b.correct)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="text-[11px] text-gray-400 mt-1.5">
+                            These bills were part-paid by bank and later settled through the
+                            Payments page. Only the amount that genuinely went through the bank
+                            counts against the account — the rest already moved under its own
+                            payment mode.
+                          </p>
+                        </div>
+                      )}
+                      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-3 py-2.5">
+                        Take a backup (Account &amp; Data below) before applying, so you always have
+                        a copy of the current figures.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

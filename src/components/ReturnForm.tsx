@@ -21,7 +21,7 @@ import { genId, newBatch, commitBatch } from "@/repositories/base";
 import { stockShortfalls } from "@/lib/stock";
 import { NumInput } from "@/components/NumInput";
 import { QuickAddPartyDialog, type QuickAddPartyDetails } from "@/components/QuickAddPartyDialog";
-import { useRepoData } from "@/hooks/useRepoData";
+import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 
 interface Props {
   mode: "sale-return" | "purchase-return";
@@ -30,7 +30,10 @@ interface Props {
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 export function ReturnForm({ mode }: Props) {
-  useRepoData();
+  // Key every repo read on this version — the app renders before the
+  // collections finish loading, so a mount-time snapshot is empty on a cold
+  // open. See the same note in InvoiceForm.
+  const _repoV = useRepoData();
   const navigate = useNavigate();
   const company = CompanyRepo.get();
   const isSaleReturn = mode === "sale-return";
@@ -59,8 +62,8 @@ export function ReturnForm({ mode }: Props) {
   }));
 
   const gstOn = ret.gstEnabled !== false;
-  const [allParties] = useState(() => PartyRepo.all());
-  const items = useMemo(() => ItemRepo.all(), []);
+  const allParties = useRepoMemo(() => PartyRepo.all());
+  const items = useRepoMemo(() => ItemRepo.all());
   // After an item is picked, focus goes to THAT line's Qty field (id
   // "qty-<lineId>") so the returned quantity can be typed immediately —
   // matching Sales' invoice form — not back into the search box.
@@ -73,6 +76,12 @@ export function ReturnForm({ mode }: Props) {
       focusQtyId.current = null;
     }
   }, [ret.lineItems]);
+  useEffect(() => {
+    const next = nextInvoiceNumber(prefix, repo.all());
+    setRet((cur) => (cur.number === next ? cur : { ...cur, number: next }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [_repoV]);
+
   const partyRef = useRef<HTMLInputElement>(null);
   const [partyQ, setPartyQ] = useState("");
   const [partyOpen, setPartyOpen] = useState(false);
@@ -90,7 +99,7 @@ export function ReturnForm({ mode }: Props) {
   const [invIdx, setInvIdx] = useState(0);
   const invoiceRepo = isSaleReturn ? SalesRepo : PurchaseRepo;
 
-  const invSuggests = useMemo(() => {
+  const invSuggests = useRepoMemo(() => {
     const q = invQ.trim().toLowerCase();
     // Once a customer/supplier is picked, a return can only ever be against
     // one of THEIR bills — scope the search to just their invoices instead
@@ -256,7 +265,13 @@ export function ReturnForm({ mode }: Props) {
       }
     }
 
-    const finalRet: Return = { ...ret, partyId, partyName, createdAt: new Date().toISOString() };
+    const finalRet: Return = {
+      ...ret,
+      number: (ret.number ?? "").trim(),
+      partyId,
+      partyName,
+      createdAt: new Date().toISOString(),
+    };
 
     // Sale Return → items come BACK to stock (+qty)
     // Purchase Return → items GO BACK to supplier (-qty)
@@ -266,7 +281,7 @@ export function ReturnForm({ mode }: Props) {
       if (it) ItemRepo.adjustFieldBatched(batch, it.id, "stock", stockDelta * l.qty);
     }
 
-    repo.addBatched(batch, finalRet as any);
+    repo.addBatched(batch, finalRet);
     commitBatch(batch, `save ${isSaleReturn ? "sale return" : "purchase return"}`);
     toast.success(`${isSaleReturn ? "Sale Return" : "Purchase Return"} saved`);
     navigate({ to: backPath });
@@ -274,6 +289,17 @@ export function ReturnForm({ mode }: Props) {
 
   const save = () => {
     if (savingRef.current) return; // double-click protection
+    const noteNo = (ret.number ?? "").trim();
+    if (!noteNo) {
+      toast.error(`${isSaleReturn ? "Credit" : "Debit"} note number is required`);
+      return;
+    }
+    if (repo.all().some((r) => (r.number ?? "").trim() === noteNo)) {
+      toast.error(
+        `${isSaleReturn ? "Credit" : "Debit"} note number ${noteNo} is already used — reload the page and try again`,
+      );
+      return;
+    }
     const partyId = ret.partyId;
     const partyName = ret.partyName || partyQ.trim();
     if (!partyId && !partyName) {

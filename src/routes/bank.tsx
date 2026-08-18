@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
-import { usePagination } from "@/components/Pagination";
+import { usePagination } from "@/hooks/usePagination";
 import {
   BankRepo,
   SalesRepo,
@@ -325,7 +325,7 @@ function BankTxnDialog({
       type,
       amount: n,
       notes: notes.trim() || undefined,
-    } as any);
+    });
     BankRepo.adjustFieldBatched(batch, bank.id, "balance", delta);
     if (linkCash) {
       // Deposit takes cash from the counter into the bank; withdrawal brings it back
@@ -334,7 +334,7 @@ function BankTxnDialog({
         type: type === "deposit" ? "reduce" : "add",
         amount: n,
         reason: `Bank ${type} — ${bank.name}`,
-      } as any);
+      });
     }
     commitBatch(batch, "bank txn");
     toast.success(
@@ -496,7 +496,7 @@ function BankDialog({
         name: f.name!,
         openingBalance: f.openingBalance ?? 0,
         balance: f.openingBalance ?? 0,
-      } as any);
+      });
     toast.success("Saved");
     onSaved();
     onOpenChange(false);

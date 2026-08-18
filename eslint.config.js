@@ -36,5 +36,16 @@ export default tseslint.config(
       "@typescript-eslint/no-unused-vars": "off",
     },
   },
+  {
+    // Vendored shadcn/ui primitives — generated, not hand-maintained here.
+    // They pair each component with its cva variants and context hooks by
+    // design, which trips the Fast Refresh rule. Upgrading a primitive means
+    // re-generating it, so warnings on these are noise that hides real ones
+    // in our own components.
+    files: ["src/components/ui/**/*.{ts,tsx}"],
+    rules: {
+      "react-refresh/only-export-components": "off",
+    },
+  },
   eslintPluginPrettier,
 );

@@ -20,6 +20,5 @@ export function useAutoPrintFromUrl(name: string | null | undefined, ready: bool
     if (params.get("print") !== "1") return;
     const t = setTimeout(() => printWithName(name), 500);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, name]);
 }

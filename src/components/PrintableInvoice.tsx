@@ -1,6 +1,6 @@
 import type { Invoice, Company } from "@/types";
 import { fmtMoney, fmtDate } from "@/lib/format";
-import { fmtMode } from "@/components/ModePills";
+import { fmtMode } from "@/lib/paymentMode";
 
 interface Props {
   inv: Invoice;
@@ -154,9 +154,7 @@ export function PrintableInvoice({
         <tbody>
           <tr>
             <td style={{ ...cellStyle, verticalAlign: "top" }}>
-              <div
-                style={{ fontSize: s(10), color: "#555", fontWeight: 600, marginBottom: s(3) }}
-              >
+              <div style={{ fontSize: s(10), color: "#555", fontWeight: 600, marginBottom: s(3) }}>
                 {isSale ? "BILL TO" : "SUPPLIER"}
               </div>
               <div style={{ fontSize: s(14), fontWeight: 700 }}>{inv.partyName || "—"}</div>
@@ -355,9 +353,7 @@ export function PrintableInvoice({
                   )}
                   <tr style={{ background: "#f0f0f0", fontWeight: 800, fontSize: s(14) }}>
                     <td style={{ padding: s(8), borderTop: "2px solid #000" }}>Grand Total</td>
-                    <td
-                      style={{ padding: s(8), textAlign: "right", borderTop: "2px solid #000" }}
-                    >
+                    <td style={{ padding: s(8), textAlign: "right", borderTop: "2px solid #000" }}>
                       {fmtMoney(inv.total)}
                     </td>
                   </tr>
@@ -431,7 +427,6 @@ export function PrintableInvoice({
           </tr>
         </tbody>
       </table>
-
     </div>
   );
 }

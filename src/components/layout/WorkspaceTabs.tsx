@@ -135,14 +135,20 @@ export function WorkspaceTabs() {
 // history) get their own tab too, titled with the actual record — not just
 // left to silently reuse whatever tab happened to be active.
 const DETAIL_ROUTES: { re: RegExp; title: (id: string) => string | null }[] = [
-  { re: /^\/sales\/edit\/([^/]+)$/, title: (id) => {
-    const inv = SalesRepo.get(id);
-    return inv ? `Edit ${inv.number}` : null;
-  } },
-  { re: /^\/purchase\/edit\/([^/]+)$/, title: (id) => {
-    const inv = PurchaseRepo.get(id);
-    return inv ? `Edit ${inv.number}` : null;
-  } },
+  {
+    re: /^\/sales\/edit\/([^/]+)$/,
+    title: (id) => {
+      const inv = SalesRepo.get(id);
+      return inv ? `Edit ${inv.number}` : null;
+    },
+  },
+  {
+    re: /^\/purchase\/edit\/([^/]+)$/,
+    title: (id) => {
+      const inv = PurchaseRepo.get(id);
+      return inv ? `Edit ${inv.number}` : null;
+    },
+  },
   { re: /^\/sales\/([^/]+)$/, title: (id) => SalesRepo.get(id)?.number ?? null },
   { re: /^\/purchase\/([^/]+)$/, title: (id) => PurchaseRepo.get(id)?.number ?? null },
   { re: /^\/sale-return\/([^/]+)$/, title: (id) => SaleReturnRepo.get(id)?.number ?? null },

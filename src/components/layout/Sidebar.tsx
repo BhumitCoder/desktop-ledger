@@ -1,4 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
+import { APP_NAME } from "@/lib/version";
 import {
   LayoutDashboard,
   Users,
@@ -32,9 +33,10 @@ import { auth } from "@/lib/firebase";
 import { stopRepos } from "@/repositories";
 import { usePermissions } from "@/hooks/usePermissions";
 import type { ModuleKey } from "@/types";
+import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 
-type NavItem = { path: string; label: string; icon: any; key?: string };
+type NavItem = { path: string; label: string; icon: LucideIcon; key?: string };
 type NavGroup = {
   title: string;
   items: NavItem[];
@@ -93,7 +95,7 @@ const groups: NavGroup[] = [
     items: [
       { path: "/bank", label: "Bank Accounts", icon: Landmark },
       { path: "/cash", label: "Cash on Hand", icon: Banknote },
-      { path: "/payments", label: "Payments", icon: Wallet }
+      { path: "/payments", label: "Payments", icon: Wallet },
     ],
   },
   {
@@ -179,7 +181,7 @@ export function Sidebar() {
             {!collapsed && (
               <div className="flex flex-col leading-tight overflow-hidden">
                 <span className="font-bold tracking-tight text-[15px] text-sidebar-foreground">
-                  OM IMPEX
+                  {APP_NAME}
                 </span>
                 <span className="text-[10px] uppercase tracking-widest text-sidebar-muted">
                   Billing · Inventory
@@ -202,7 +204,9 @@ export function Sidebar() {
                       onClick={() => toggleGroup(g.title)}
                       className={cn(
                         "w-full flex items-center justify-between px-4 pt-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-wider transition-colors",
-                        active ? "text-primary" : "text-sidebar-muted hover:text-sidebar-foreground",
+                        active
+                          ? "text-primary"
+                          : "text-sidebar-muted hover:text-sidebar-foreground",
                       )}
                     >
                       <span>{g.title}</span>
@@ -234,7 +238,7 @@ export function Sidebar() {
                           collapsed ? "px-3 justify-center" : "px-4",
                           "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                           itemActive &&
-                          "bg-sidebar-accent text-sidebar-accent-foreground border-primary font-semibold",
+                            "bg-sidebar-accent text-sidebar-accent-foreground border-primary font-semibold",
                         )}
                       >
                         <Icon
@@ -264,7 +268,7 @@ export function Sidebar() {
         >
           <button
             onClick={async () => {
-              if (!confirm("Logout from OM IMPEX?")) return;
+              if (!confirm(`Logout from ${APP_NAME}?`)) return;
               try {
                 stopRepos();
                 await signOut(auth);

@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
   SalesRepo,
@@ -17,12 +17,13 @@ import { buildBankLedger, paidViaPayments } from "@/lib/ledger";
 import { fmtMoney, fmtDate, today, ymd } from "@/lib/format";
 import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
-import { useRepoData } from "@/hooks/useRepoData";
+import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 import { downloadElementAsPdf } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
-import { usePagination, PaginationBar } from "@/components/Pagination";
+import { PaginationBar } from "@/components/Pagination";
+import { usePagination } from "@/hooks/usePagination";
 import { downloadCsv } from "@/lib/csv";
-import { fmtMode } from "@/components/ModePills";
+import { fmtMode } from "@/lib/paymentMode";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   BookOpen,
@@ -77,7 +78,7 @@ interface DayRow {
 }
 
 function DaybookPage() {
-  const _repoV = useRepoData();
+  useRepoData();
   const navigate = useNavigate();
   const { date: dateFromUrl } = Route.useSearch();
   const [date, setDate] = useState(() => dateFromUrl ?? dateCache ?? today());
@@ -95,7 +96,7 @@ function DaybookPage() {
   // repos, so this can fire as soon as the date search param above resolves.
   useAutoPrintFromUrl(`Daybook-${date}`, true);
 
-  const rows = useMemo<DayRow[]>(() => {
+  const rows = useRepoMemo<DayRow[]>(() => {
     const list: DayRow[] = [];
     // invoice.paid already folds in amounts later applied via Payment
     // records (see ledger.ts) — if we used it as-is here, a payment
@@ -196,22 +197,25 @@ function DaybookPage() {
       });
     list.sort((a, b) => (a.created ?? "").localeCompare(b.created ?? ""));
     return list;
-  }, [date, _repoV]);
+  }, [date]);
 
-  const bankNameById = useMemo(() => new Map(BankRepo.all().map((b) => [b.id, b.name])), [_repoV]);
+  const bankNameById = useRepoMemo(() => new Map(BankRepo.all().map((b) => [b.id, b.name])));
   // "Bank (unspecified)" — not "Bank" — for older records saved before bank
   // selection existed, so it reads as "this one's missing data" rather than
   // looking like the bank name feature silently isn't working.
-  const modeLabel = (r: DayRow) => {
-    if (r.mode !== "bank") return fmtMode(r.mode);
-    if (!r.bankId) return "Bank (unspecified)";
-    return `Bank — ${bankNameById.get(r.bankId) ?? "unspecified"}`;
-  };
+  const modeLabel = useCallback(
+    (r: DayRow) => {
+      if (r.mode !== "bank") return fmtMode(r.mode);
+      if (!r.bankId) return "Bank (unspecified)";
+      return `Bank — ${bankNameById.get(r.bankId) ?? "unspecified"}`;
+    },
+    [bankNameById],
+  );
 
   // Per-bank movement for the day, plus balance as of end of day — reuses
   // the same passbook engine as the Bank Accounts page so the two never
   // disagree on a bank's numbers.
-  const bankSummaries = useMemo(() => {
+  const bankSummaries = useRepoMemo(() => {
     const banks = BankRepo.all();
     if (!banks.length) return [];
     const data = {
@@ -229,7 +233,7 @@ function DaybookPage() {
         : b.openingBalance || 0;
       return { bank: b, in: dayOnly.totalCredit, out: dayOnly.totalDebit, closing };
     });
-  }, [date, _repoV]);
+  }, [date]);
 
   const sum = (type: string) =>
     rows.filter((r) => r.type === type).reduce((s, r) => s + Math.abs(r.amount), 0);
@@ -265,12 +269,10 @@ function DaybookPage() {
     return rows.filter((r) =>
       [r.type, r.ref, r.party, modeLabel(r)].some((v) => v.toLowerCase().includes(s)),
     );
-  }, [rows, q]);
+  }, [rows, q, modeLabel]);
 
   const totalMoneyIn = rows.filter((r) => r.cash > 0).reduce((s, r) => s + r.cash, 0);
-  const totalMoneyOut = Math.abs(
-    rows.filter((r) => r.cash < 0).reduce((s, r) => s + r.cash, 0),
-  );
+  const totalMoneyOut = Math.abs(rows.filter((r) => r.cash < 0).reduce((s, r) => s + r.cash, 0));
 
   // Table footers cover the same rows the table shows — the whole-day
   // figures above stay on the KPI cards / Excel export, but next to a
@@ -323,7 +325,16 @@ function DaybookPage() {
         : []),
       [],
     ];
-    const header = ["#", "Name", "Ref No", "Type", "Payment Type", "Total", "Money In", "Money Out"];
+    const header = [
+      "#",
+      "Name",
+      "Ref No",
+      "Type",
+      "Payment Type",
+      "Total",
+      "Money In",
+      "Money Out",
+    ];
     const body = rows.map((r, i) => [
       String(i + 1),
       r.party,
@@ -471,12 +482,22 @@ function DaybookPage() {
               <Share2 className="h-4 w-4" />
             </button>
             <button
-              onClick={() => printOrEscapeStandalone(`Daybook-${date}`, { date }, handleDownloadPdf)}
+              onClick={() =>
+                printOrEscapeStandalone(`Daybook-${date}`, { date }, handleDownloadPdf)
+              }
               disabled={!!pdfBusy}
               className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 h-8 px-3.5 bg-white border border-gray-200 rounded-md text-xs font-semibold text-gray-600 hover:bg-gray-50 transition disabled:opacity-60 disabled:cursor-not-allowed"
               title="Print"
             >
-              {pdfBusy ? (<><Loader2 className="h-4 w-4 animate-spin" /> Preparing…</>) : (<><Printer className="h-4 w-4" /> Print</>)}
+              {pdfBusy ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Preparing…
+                </>
+              ) : (
+                <>
+                  <Printer className="h-4 w-4" /> Print
+                </>
+              )}
             </button>
           </div>
           <div className="hidden sm:block relative w-full sm:w-44 lg:w-56">
@@ -562,18 +583,40 @@ function DaybookPage() {
           repeated numbers already visible per-account below. */}
       <div className="no-print bg-white border-b px-5 py-3 overflow-x-auto">
         <div className="flex items-stretch gap-3 min-w-max">
-          <KpiCard icon={<ShoppingCart className="h-4 w-4" />} label="Sales" value={totalSale} tone="emerald" />
-          <KpiCard icon={<Truck className="h-4 w-4" />} label="Purchase" value={totalPurchase} tone="rose" />
-          <KpiCard icon={<Receipt className="h-4 w-4" />} label="Expenses" value={expense} tone="rose" />
           <KpiCard
-            icon={net >= 0 ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+            icon={<ShoppingCart className="h-4 w-4" />}
+            label="Sales"
+            value={totalSale}
+            tone="emerald"
+          />
+          <KpiCard
+            icon={<Truck className="h-4 w-4" />}
+            label="Purchase"
+            value={totalPurchase}
+            tone="rose"
+          />
+          <KpiCard
+            icon={<Receipt className="h-4 w-4" />}
+            label="Expenses"
+            value={expense}
+            tone="rose"
+          />
+          <KpiCard
+            icon={
+              net >= 0 ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />
+            }
             label="Net"
             value={net}
             tone={net >= 0 ? "emerald" : "rose"}
             signed
           />
           <div className="w-px bg-gray-100 my-1.5" />
-          <AccountCard icon={<Wallet className="h-4 w-4" />} label="Cash" in={cashIn} out={cashOut} />
+          <AccountCard
+            icon={<Wallet className="h-4 w-4" />}
+            label="Cash"
+            in={cashIn}
+            out={cashOut}
+          />
           {bankSummaries.map(({ bank, in: bankIn, out: bankOut, closing }) => (
             <AccountCard
               key={bank.id}
@@ -658,9 +701,7 @@ function DaybookPage() {
                               <span
                                 className={`text-[11px] font-semibold shrink-0 ${isIn ? "text-emerald-600" : "text-rose-600"}`}
                               >
-                                {isIn
-                                  ? `+${fmtMoney(r.cash)}`
-                                  : `−${fmtMoney(Math.abs(r.cash))}`}
+                                {isIn ? `+${fmtMoney(r.cash)}` : `−${fmtMoney(Math.abs(r.cash))}`}
                               </span>
                             )}
                           </div>
@@ -681,20 +722,29 @@ function DaybookPage() {
             <table className="hidden md:table daybook-table w-full min-w-max text-[12.5px]">
               <thead>
                 <tr>
-                  {["#", "Name", "Ref No", "Type", "Payment Type", "Total", "Money In", "Money Out"].map(
-                    (h, i) => (
-                      <th key={h} style={{ textAlign: i >= 5 ? "right" : "left" }}>
-                        {h}
-                      </th>
-                    ),
-                  )}
+                  {[
+                    "#",
+                    "Name",
+                    "Ref No",
+                    "Type",
+                    "Payment Type",
+                    "Total",
+                    "Money In",
+                    "Money Out",
+                  ].map((h, i) => (
+                    <th key={h} style={{ textAlign: i >= 5 ? "right" : "left" }}>
+                      {h}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {pg.paged.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="text-center py-14 text-gray-400">
-                      {rows.length === 0 ? "No transactions on this day" : "No matches for your search"}
+                      {rows.length === 0
+                        ? "No transactions on this day"
+                        : "No matches for your search"}
                     </td>
                   </tr>
                 ) : (
@@ -747,7 +797,6 @@ function DaybookPage() {
           </div>
         </div>
       </div>
-
     </div>
   );
 }
@@ -773,7 +822,9 @@ function KpiCard({
   const t = TONES[tone];
   return (
     <div className="shrink-0 flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg border border-gray-100 bg-white">
-      <div className={`h-8 w-8 rounded-md flex items-center justify-center shrink-0 ${t.bg} ${t.text}`}>
+      <div
+        className={`h-8 w-8 rounded-md flex items-center justify-center shrink-0 ${t.bg} ${t.text}`}
+      >
         {icon}
       </div>
       <div className="min-w-0">
@@ -836,4 +887,3 @@ function AccountCard({
     </div>
   );
 }
-

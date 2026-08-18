@@ -13,18 +13,19 @@ import {
 import { PartyRepo, ItemRepo, SalesRepo, PurchaseRepo } from "@/repositories";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useRepoData } from "@/hooks/useRepoData";
+import type { Party, Item, Invoice } from "@/types";
 import { Users, Package, ShoppingCart, Truck } from "lucide-react";
 
 export function GlobalSearch() {
-  useRepoData();
+  const _repoV = useRepoData();
   const { globalSearchOpen, setGlobalSearch } = useWorkspace();
   const navigate = useNavigate();
   const { isOwner, canView } = usePermissions();
   const [data, setData] = useState<{
-    parties: any[];
-    items: any[];
-    sales: any[];
-    purchases: any[];
+    parties: Party[];
+    items: Item[];
+    sales: Invoice[];
+    purchases: Invoice[];
   }>({ parties: [], items: [], sales: [], purchases: [] });
 
   // Belt-and-suspenders on top of permission-aware hydration (a repo for a
@@ -40,7 +41,7 @@ export function GlobalSearch() {
         purchases: isOwner || canView("purchaseExpenses") ? PurchaseRepo.all() : [],
       });
     }
-  }, [globalSearchOpen, isOwner, canView]);
+  }, [globalSearchOpen, isOwner, canView, _repoV]);
 
   const goParty = (id: string) => {
     setGlobalSearch(false);

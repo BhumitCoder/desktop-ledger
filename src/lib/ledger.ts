@@ -584,9 +584,7 @@ export function buildPartyStatement(
     return e.type === "Payment Received" ? -e.total : e.total; // standalone advance
   };
 
-  const fullBalance = r2(
-    entries.reduce((s, e) => s + netOf(e), party.openingBalance || 0),
-  );
+  const fullBalance = r2(entries.reduce((s, e) => s + netOf(e), party.openingBalance || 0));
 
   let running = party.openingBalance || 0;
   const out: PartyStatementRow[] = [];
@@ -662,7 +660,9 @@ export function buildBankLedger(
       docKind: "sale",
     });
   }
-  for (const p of data.purchases.filter((x) => x.bankId === bank.id && (x.bankPaidAmount ?? 0) > 0)) {
+  for (const p of data.purchases.filter(
+    (x) => x.bankId === bank.id && (x.bankPaidAmount ?? 0) > 0,
+  )) {
     entries.push({
       date: p.date,
       created: p.createdAt,
@@ -773,6 +773,31 @@ export function buildBankLedger(
   const totalDebit = r2(out.reduce((s, e) => s + e.debit, 0));
   const totalCredit = r2(out.reduce((s, e) => s + e.credit, 0));
   return { rows: out, fullBalance, totalDebit, totalCredit };
+}
+
+/**
+ * Net-of-GST value of a set of bills or returns — `total` minus the output
+ * tax inside it.
+ *
+ * Profit must never be computed off `invoice.total`: that figure includes
+ * the GST collected from the customer, which is money held on behalf of the
+ * tax authority, not earnings. Cost of goods sold, by contrast, is a
+ * tax-exclusive line price (see computeCogs), so mixing the two overstated
+ * every profit figure in the app by exactly the output GST on the period's
+ * sales. Bill-level discount, shipping and round-off all stay in, since
+ * those really are part of what the shop earned.
+ */
+export function valueExTax(
+  docs: { total?: number; taxAmount?: number; gstEnabled?: boolean }[],
+): number {
+  return r2(
+    docs.reduce(
+      // A non-GST bill carries no tax to strip — guarded explicitly rather
+      // than trusting taxAmount to be 0 on legacy/imported documents.
+      (s, d) => s + (d.total || 0) - (d.gstEnabled === false ? 0 : d.taxAmount || 0),
+      0,
+    ),
+  );
 }
 
 /** Cost of goods sold from per-line cost snapshots, falling back to the

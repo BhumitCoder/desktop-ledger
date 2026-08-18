@@ -1,5 +1,5 @@
 import { collection, doc, onSnapshot, setDoc, updateDoc, writeBatch } from "firebase/firestore";
-import { Repository, handlePostHydrationError } from "./base";
+import { Repository, handlePostHydrationError, emitRepoChange } from "./base";
 export { subscribeRepos, repoStoreVersion } from "./base";
 import { db, isBrowser } from "@/lib/firebase";
 import { toast } from "sonner";
@@ -70,6 +70,12 @@ function hydrateCompany(): Promise<void> {
         companyCache = snap.exists()
           ? { ...defaultCompany, ...(snap.data() as Company) }
           : defaultCompany;
+        // Company settings are read in render all over the app (invoice
+        // prefix, round-off, print format, company name on every printout),
+        // so they belong in the same reactive store as the collections —
+        // otherwise a change only showed up after an unrelated re-render,
+        // which the Topbar used to paper over with a 2-second poll.
+        emitRepoChange();
         if (first) {
           first = false;
           resolve();
@@ -93,6 +99,7 @@ export const CompanyRepo = {
   save(c: Company) {
     companyCache = c;
     companyExists = true;
+    emitRepoChange();
     if (isBrowser) {
       setDoc(doc(db, "settings", "company"), c).catch((err) => {
         console.error("Failed to save company settings", err);
@@ -294,7 +301,9 @@ const MODULE_REPOS: Record<ModuleKey, Repository<{ id: string }>[]> = {
   purchaseExpenses: [PurchaseRepo, PurchaseReturnRepo, ExpenseRepo, PayeeRepo] as Repository<{
     id: string;
   }>[],
-  cashBank: [BankRepo, BankTxnRepo, PaymentRepo, CashAdjustmentRepo] as Repository<{ id: string }>[],
+  cashBank: [BankRepo, BankTxnRepo, PaymentRepo, CashAdjustmentRepo] as Repository<{
+    id: string;
+  }>[],
   reports: [],
 };
 
@@ -308,8 +317,12 @@ const MODULE_REPOS: Record<ModuleKey, Repository<{ id: string }>[]> = {
  * arrives, not that it arrives and is merely not displayed.
  */
 let backgroundHydration: Promise<void> | null = null;
+// Synchronous counterpart to whenReposHydrated() — for callers that must not
+// act on a half-loaded cache and can't await (see areReposHydrated).
+let hydrationComplete = false;
 
 export async function hydrateRepos(uid: string, email: string): Promise<void> {
+  hydrationComplete = false;
   // These two are small, awaited, and gate the whole app: permissions decide
   // what's even reachable, and company settings feed the shell (name, invoice
   // prefix). If EITHER fails (e.g. Firestore rules not deployed, or offline
@@ -335,7 +348,20 @@ export async function hydrateRepos(uid: string, email: string): Promise<void> {
         console.error("Background collection hydration failed", err);
       }),
     ),
-  ).then(() => {});
+  ).then(() => {
+    hydrationComplete = true;
+  });
+}
+
+/**
+ * True once every collection this user subscribes to has had its first
+ * snapshot. Since v48 the app renders BEFORE that happens, so anything that
+ * reads "all the data" in one go — taking a backup, wiping everything — has
+ * to check this first or it silently operates on a partial cache. Screens
+ * don't need it: they're reactive and fill in.
+ */
+export function areReposHydrated(): boolean {
+  return hydrationComplete;
 }
 
 /** Resolves once every collection started by the last hydrateRepos() has had
@@ -347,6 +373,8 @@ export function whenReposHydrated(): Promise<void> {
 
 /** Stop all listeners and clear caches (on logout). */
 export function stopRepos() {
+  hydrationComplete = false;
+  backgroundHydration = null;
   ALL_REPOS.forEach((r) => r.stop());
   companyUnsub?.();
   companyUnsub = undefined;

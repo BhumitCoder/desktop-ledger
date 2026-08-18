@@ -261,7 +261,9 @@ export function PrintableReturn({ ret, company, mode, className = "print-area" }
             <td style={{ width: "50%", fontSize: 10, verticalAlign: "bottom" }}>
               This is a computer-generated {isSaleReturn ? "credit" : "debit"} note.
             </td>
-            <td style={{ width: "50%", textAlign: "right", verticalAlign: "bottom", paddingTop: 40 }}>
+            <td
+              style={{ width: "50%", textAlign: "right", verticalAlign: "bottom", paddingTop: 40 }}
+            >
               <div
                 style={{
                   borderTop: "1px solid #000",

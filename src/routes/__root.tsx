@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { APP_NAME } from "@/lib/version";
 import {
   Outlet,
   createRootRouteWithContext,
@@ -159,12 +160,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         content:
           "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover",
       },
-      { title: "AIM — Billing & Inventory ERP" },
+      { title: `${APP_NAME} — Billing & Inventory ERP` },
       {
         name: "description",
         content: "Keyboard-first desktop billing, inventory, and accounting software.",
       },
-      { property: "og:title", content: "AIM — Billing & Inventory ERP" },
+      { property: "og:title", content: `${APP_NAME} — Billing & Inventory ERP` },
       {
         property: "og:description",
         content: "Keyboard-first desktop billing, inventory, and accounting software.",
@@ -178,7 +179,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       // explicit, declared behavior instead of a guess.
       { name: "apple-mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
-      { name: "apple-mobile-web-app-title", content: "AIM" },
+      { name: "apple-mobile-web-app-title", content: APP_NAME },
       { name: "mobile-web-app-capable", content: "yes" },
       { name: "theme-color", content: "#0f172a" },
     ],
@@ -298,7 +299,7 @@ function AuthGate() {
         if (!cancelled)
           setLoadError(
             "Could not load your data from the cloud. Check your internet connection " +
-            "and that Firestore security rules allow signed-in access, then reload.",
+              "and that Firestore security rules allow signed-in access, then reload.",
           );
       }
     })();
@@ -370,11 +371,7 @@ function AuthGate() {
       (module !== null && !canView(module)) ||
       (editModule !== null && !canEdit(editModule)));
 
-  return (
-    <AppShell>
-      {blocked ? <AccessRestricted /> : <Outlet />}
-    </AppShell>
-  );
+  return <AppShell>{blocked ? <AccessRestricted /> : <Outlet />}</AppShell>;
 }
 
 function AccessRestricted() {
@@ -397,7 +394,7 @@ function SplashScreen() {
         <Sparkles className="h-6 w-6" />
       </div>
       <div className="text-center">
-        <p className="font-bold tracking-tight text-[18px]">AIM</p>
+        <p className="font-bold tracking-tight text-[18px]">{APP_NAME}</p>
         <p className="text-[12px] text-muted-foreground flex items-center gap-1.5 justify-center mt-1">
           <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading your workspace…
         </p>

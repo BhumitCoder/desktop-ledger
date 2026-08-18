@@ -1,15 +1,5 @@
 import type { PaymentMode } from "@/types";
-
-export const MODE_LABELS: Record<PaymentMode, string> = {
-  cash: "Cash",
-  upi: "UPI",
-  bank: "Bank",
-  cheque: "Cheque",
-  credit: "Credit",
-};
-
-/** "upi" → "UPI", "cash" → "Cash" — for lists, documents, reports */
-export const fmtMode = (m: string) => MODE_LABELS[m as PaymentMode] ?? m;
+import { MODE_LABELS } from "@/lib/paymentMode";
 
 /**
  * Theme-styled payment mode selector — pill buttons instead of the native
@@ -31,7 +21,11 @@ export function ModePills({
   modes: PaymentMode[];
 }) {
   return (
-    <div role="radiogroup" aria-label="Payment mode" className="flex flex-wrap gap-1 justify-end rounded-lg p-0.5">
+    <div
+      role="radiogroup"
+      aria-label="Payment mode"
+      className="flex flex-wrap gap-1 justify-end rounded-lg p-0.5"
+    >
       {modes.map((m) => (
         <button
           key={m}

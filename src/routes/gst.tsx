@@ -54,6 +54,9 @@ function aggregate(docs: (Invoice | Return)[], sign: 1 | -1, map: Map<number, Bu
   }
 }
 
+const inPeriod = <T extends { date: string }>(docs: T[], start: string, end: string) =>
+  docs.filter((d) => d.date >= start && d.date <= end);
+
 function bucketsFor(invoices: Invoice[], returns: Return[]): Bucket[] {
   const map = new Map<number, Bucket>();
   aggregate(invoices, 1, map);
@@ -78,15 +81,13 @@ function GstPage() {
   }, [_repoV]);
 
   const { start, end } = periodRange(period);
-  const inPeriod = <T extends { date: string }>(docs: T[]) =>
-    docs.filter((d) => d.date >= start && d.date <= end);
 
   const gstr1 = useMemo(
-    () => bucketsFor(inPeriod(sales), inPeriod(saleReturns)),
+    () => bucketsFor(inPeriod(sales, start, end), inPeriod(saleReturns, start, end)),
     [sales, saleReturns, start, end],
   );
   const gstr2 = useMemo(
-    () => bucketsFor(inPeriod(purchases), inPeriod(purchaseReturns)),
+    () => bucketsFor(inPeriod(purchases, start, end), inPeriod(purchaseReturns, start, end)),
     [purchases, purchaseReturns, start, end],
   );
 
@@ -197,7 +198,9 @@ function Section({ title, rows }: { title: string; rows: Bucket[] }) {
                 <span className="font-medium">{r.rate}% GST</span>
                 <div className="text-right text-xs text-muted-foreground">
                   <p>Taxable {fmtMoney(r.taxable)}</p>
-                  <p>CGST {fmtMoney(r.tax / 2)} · SGST {fmtMoney(r.tax / 2)}</p>
+                  <p>
+                    CGST {fmtMoney(r.tax / 2)} · SGST {fmtMoney(r.tax / 2)}
+                  </p>
                   <p className="font-semibold text-foreground">Tax {fmtMoney(r.tax)}</p>
                 </div>
               </div>

@@ -34,9 +34,10 @@ import { genId } from "@/repositories/base";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { DataTable, type Column } from "@/components/DataTable";
-import { usePagination } from "@/components/Pagination";
+import { usePagination } from "@/hooks/usePagination";
 import { NumInput } from "@/components/NumInput";
-import { ModePills, fmtMode } from "@/components/ModePills";
+import { ModePills } from "@/components/ModePills";
+import { fmtMode } from "@/lib/paymentMode";
 import { PageHeader } from "@/components/PageHeader";
 
 export const Route = createFileRoute("/payments")({ component: PaymentsPage });
@@ -389,7 +390,9 @@ function PaymentsPage() {
           <div className="text-center py-16 text-gray-400">
             <Wallet className="h-10 w-10 mx-auto mb-3 text-gray-200" />
             <p className="font-medium">No payments found</p>
-            <p className="text-xs mt-1">Try adjusting filters or use the buttons above to record one</p>
+            <p className="text-xs mt-1">
+              Try adjusting filters or use the buttons above to record one
+            </p>
           </div>
         ) : (
           <div className="divide-y divide-gray-100">
@@ -512,7 +515,6 @@ function PaymentsPage() {
     </div>
   );
 }
-
 
 /* ─── Proper Payment Dialog ──────────────────────────────────────────── */
 
@@ -743,7 +745,12 @@ function ReceivePaymentDialog({
         const match = allParties.find((p) => p.name.toLowerCase() === partyName.toLowerCase());
         partyId = match?.id ?? genId();
         if (!match)
-          PartyRepo.addBatched(batch, { id: partyId, name: partyName, type: "both", openingBalance: 0 });
+          PartyRepo.addBatched(batch, {
+            id: partyId,
+            name: partyName,
+            type: "both",
+            openingBalance: 0,
+          });
       }
       // Recording a NEW payment against an archived party reactivates them —
       // restore in the same batch (matches the sale/purchase form). Only for a

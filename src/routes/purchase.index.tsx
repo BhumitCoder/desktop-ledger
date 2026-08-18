@@ -1,6 +1,13 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { PurchaseRepo, PartyRepo, ItemRepo, PaymentRepo, BankRepo, PurchaseReturnRepo } from "@/repositories";
+import {
+  PurchaseRepo,
+  PartyRepo,
+  ItemRepo,
+  PaymentRepo,
+  BankRepo,
+  PurchaseReturnRepo,
+} from "@/repositories";
 import { useRepoData } from "@/hooks/useRepoData";
 import { newBatch, commitBatch } from "@/repositories/base";
 import type { Invoice } from "@/types";
@@ -16,9 +23,10 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { toast } from "sonner";
-import { usePagination, PaginationBar } from "@/components/Pagination";
+import { PaginationBar } from "@/components/Pagination";
+import { usePagination } from "@/hooks/usePagination";
 import { DataTable } from "@/components/DataTable";
-import { fmtMode } from "@/components/ModePills";
+import { fmtMode } from "@/lib/paymentMode";
 import { PageHeader } from "@/components/PageHeader";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -493,7 +501,9 @@ function PurchasePage() {
                           Due {fmtMoney(balance)}
                         </span>
                       ) : (
-                        <span className="text-[11px] font-semibold text-emerald-600 shrink-0">Paid</span>
+                        <span className="text-[11px] font-semibold text-emerald-600 shrink-0">
+                          Paid
+                        </span>
                       )}
                     </div>
                   </div>
@@ -543,7 +553,12 @@ function PurchasePage() {
               render: (r) => <span className="font-mono">{r.number}</span>,
               sortValue: (r) => r.number,
             },
-            { key: "date", label: "Date", render: (r) => fmtDate(r.date), sortValue: (r) => r.date },
+            {
+              key: "date",
+              label: "Date",
+              render: (r) => fmtDate(r.date),
+              sortValue: (r) => r.date,
+            },
             {
               key: "supplier",
               label: "Supplier",
@@ -577,11 +592,7 @@ function PurchasePage() {
               align: "right",
               render: (r) => {
                 const balance = Math.round((r.total - r.paid) * 100) / 100;
-                return (
-                  <span className="tabular-nums">
-                    {fmtMoney(Math.max(0, balance))}
-                  </span>
-                );
+                return <span className="tabular-nums">{fmtMoney(Math.max(0, balance))}</span>;
               },
               sortValue: (r) => Math.max(0, Math.round((r.total - r.paid) * 100) / 100),
             },
@@ -681,4 +692,3 @@ function StatusBadge({
   if (unpaid) return "Unpaid";
   return null;
 }
-

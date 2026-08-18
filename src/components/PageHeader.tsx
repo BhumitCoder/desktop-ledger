@@ -30,7 +30,11 @@ export function PageHeader({
     <div className="no-print bg-white border-b px-3 py-2.5 sm:px-5 sm:py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
       <div className="flex items-center justify-between sm:justify-start gap-2 sm:gap-3 min-w-0">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          {icon && <div className={`shrink-0 flex items-center justify-center ${iconClassName}`}>{icon}</div>}
+          {icon && (
+            <div className={`shrink-0 flex items-center justify-center ${iconClassName}`}>
+              {icon}
+            </div>
+          )}
           <div className="min-w-0">
             <h1 className="text-[15px] sm:text-[17px] font-bold tracking-tight leading-tight text-gray-800 truncate">
               {title}
@@ -42,9 +46,7 @@ export function PageHeader({
         </div>
         {mobileAction && <div className="sm:hidden shrink-0">{mobileAction}</div>}
       </div>
-      {actions && (
-        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">{actions}</div>
-      )}
+      {actions && <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">{actions}</div>}
     </div>
   );
 }

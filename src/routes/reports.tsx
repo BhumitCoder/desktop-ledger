@@ -14,15 +14,16 @@ import {
 import { fmtMoney, fmtDate, today, ymd } from "@/lib/format";
 import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
-import { useRepoData } from "@/hooks/useRepoData";
-import { computeCogs, buildPartyStatement } from "@/lib/ledger";
+import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
+import type { Invoice } from "@/types";
+import { computeCogs, buildPartyStatement, valueExTax } from "@/lib/ledger";
 import { downloadCsv } from "@/lib/csv";
 import { downloadXlsx } from "@/lib/xlsx";
 import { downloadElementAsPdf } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { partyStatementSheet } from "@/lib/partySheet";
 import { PartyStatementRowBlock, PartyStatementCardBlock } from "./parties_.$id";
-import { fmtMode } from "@/components/ModePills";
+import { fmtMode } from "@/lib/paymentMode";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
@@ -52,6 +53,8 @@ export const Route = createFileRoute("/reports")({
 });
 
 const monthStart = () => ymd(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+
+const r2 = (n: number) => Math.round(n * 100) / 100;
 
 const REPORTS = [
   { key: "pl", label: "Profit & Loss", icon: BarChart3, desc: "Revenue, costs, net profit" },
@@ -202,12 +205,22 @@ function ReportsPage() {
             <Share2 className="h-4 w-4" />
           </button>
           <button
-            onClick={() => printOrEscapeStandalone(reportFilename(), { r: active }, handleDownloadPdf)}
+            onClick={() =>
+              printOrEscapeStandalone(reportFilename(), { r: active }, handleDownloadPdf)
+            }
             disabled={!!pdfBusy}
             className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 h-9 px-3.5 bg-white border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 hover:bg-gray-50 hover:shadow-sm transition disabled:opacity-60 disabled:cursor-not-allowed"
             title="Print"
           >
-            {pdfBusy ? (<><Loader2 className="h-3.5 w-3.5 animate-spin" /> Preparing…</>) : (<><Printer className="h-3.5 w-3.5" /> Print</>)}
+            {pdfBusy ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Preparing…
+              </>
+            ) : (
+              <>
+                <Printer className="h-3.5 w-3.5" /> Print
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -241,7 +254,7 @@ function ReportsPage() {
               </div>
             </div>
             <div className="flex items-center justify-between pt-1">
-              {(dateFrom !== monthStart() || dateTo !== today()) ? (
+              {dateFrom !== monthStart() || dateTo !== today() ? (
                 <button
                   onClick={() => {
                     setDateFrom(monthStart());
@@ -338,34 +351,34 @@ function ReportView({
 }) {
   const label = REPORTS.find((r) => r.key === which)?.label ?? which;
   const navigate = useNavigate();
-  const _repoV = useRepoData();
+  useRepoData();
 
-  const sales = useMemo(
+  const sales = useRepoMemo(
     () => SalesRepo.all().filter((s) => inRange(s.date, dateFrom, dateTo)),
-    [dateFrom, dateTo, _repoV],
+    [dateFrom, dateTo],
   );
-  const purchases = useMemo(
+  const purchases = useRepoMemo(
     () => PurchaseRepo.all().filter((s) => inRange(s.date, dateFrom, dateTo)),
-    [dateFrom, dateTo, _repoV],
+    [dateFrom, dateTo],
   );
-  const expenses = useMemo(
+  const expenses = useRepoMemo(
     () => ExpenseRepo.all().filter((s) => inRange(s.date, dateFrom, dateTo)),
-    [dateFrom, dateTo, _repoV],
+    [dateFrom, dateTo],
   );
-  const saleReturns = useMemo(
+  const saleReturns = useRepoMemo(
     () => SaleReturnRepo.all().filter((s) => inRange(s.date, dateFrom, dateTo)),
-    [dateFrom, dateTo, _repoV],
+    [dateFrom, dateTo],
   );
-  const purchaseReturns = useMemo(
+  const purchaseReturns = useRepoMemo(
     () => PurchaseReturnRepo.all().filter((s) => inRange(s.date, dateFrom, dateTo)),
-    [dateFrom, dateTo, _repoV],
+    [dateFrom, dateTo],
   );
-  const payments = useMemo(
+  const payments = useRepoMemo(
     () => PaymentRepo.all().filter((s) => inRange(s.date, dateFrom, dateTo)),
-    [dateFrom, dateTo, _repoV],
+    [dateFrom, dateTo],
   );
-  const parties = useMemo(() => PartyRepo.all(), [_repoV]);
-  const items = useMemo(() => ItemRepo.all(), [_repoV]);
+  const parties = useRepoMemo(() => PartyRepo.all());
+  const items = useRepoMemo(() => ItemRepo.all());
   const [partySearch, setPartySearch] = useState("");
 
   // Every party's full statement, built ONCE per (report, date-range) — not on
@@ -373,7 +386,7 @@ function ReportView({
   // documents), so rebuilding it per keystroke froze the search box at scale.
   // Only built when the Party Ledger report is actually open. `partySearch`
   // is deliberately NOT a dependency — it only filters the memoized result.
-  const partyLedgerAll = useMemo(() => {
+  const partyLedgerAll = useRepoMemo(() => {
     if (which !== "party-ledger") return [];
     const data = {
       sales: SalesRepo.all(),
@@ -386,21 +399,21 @@ function ReportView({
       .map((p) => ({ party: p, ledger: buildPartyStatement(p, data, dateFrom, dateTo) }))
       .filter(({ ledger }) => ledger.rows.length > 0)
       .sort((a, b) => a.party.name.localeCompare(b.party.name));
-  }, [which, dateFrom, dateTo, parties, _repoV]);
+  }, [which, dateFrom, dateTo, parties]);
 
   if (which === "pl") {
-    const revenue = sales.reduce((a, s) => a + s.total, 0);
-    const saleReturnTotal = saleReturns.reduce((a, r) => a + r.total, 0);
-    const netRevenue = revenue - saleReturnTotal;
+    // Excluding GST — the tax collected on a sale is a liability owed to the
+    // government, not revenue, and COGS below is already tax-exclusive.
+    const revenue = valueExTax(sales);
+    const saleReturnTotal = valueExTax(saleReturns);
+    const netRevenue = r2(revenue - saleReturnTotal);
     // Stock-based COGS: cost of items actually sold (net of returned goods),
     // not total purchases — unsold stock does not reduce profit.
     const cogs = computeCogs(sales, saleReturns, items);
-    const purchaseTotal = purchases.reduce((a, s) => a + s.total, 0);
-    const purchaseReturnTotal = purchaseReturns.reduce((a, r) => a + r.total, 0);
-    const netPurchases = purchaseTotal - purchaseReturnTotal;
-    const grossProfit = netRevenue - cogs;
+    const netPurchases = r2(valueExTax(purchases) - valueExTax(purchaseReturns));
+    const grossProfit = r2(netRevenue - cogs);
     const exp = expenses.reduce((a, s) => a + s.amount, 0);
-    const netProfit = grossProfit - exp;
+    const netProfit = r2(grossProfit - exp);
 
     return (
       <div className="max-w-2xl">
@@ -409,7 +422,7 @@ function ReportView({
           <div className="px-5 py-3 bg-gray-50 border-b">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Revenue</p>
           </div>
-          <PLRow label="Sales Revenue" value={revenue} />
+          <PLRow label="Sales Revenue (excl. GST)" value={revenue} />
           <PLRow label="Sale Returns (−)" value={-saleReturnTotal} indent />
           <PLRow label="Net Revenue" value={netRevenue} bold />
           <div className="px-5 py-3 bg-gray-50 border-b border-t">
@@ -420,7 +433,7 @@ function ReportView({
           <PLRow label="Cost of Goods Sold (item cost of sold qty)" value={-cogs} bold />
           <div className="px-5 py-2 flex justify-between items-center border-b border-gray-100 text-[11px] text-gray-400">
             <span className="pl-4">
-              Purchases during period (net of returns) — for reference, not in profit
+              Purchases during period, excl. GST (net of returns) — for reference, not in profit
             </span>
             <span className="tabular-nums">{fmtMoney(netPurchases)}</span>
           </div>
@@ -586,12 +599,12 @@ function ReportView({
   }
 
   if (which === "gst") {
-    const agg = (all: any[]) => {
+    const agg = (all: Invoice[]) => {
       // Only GST bills belong in GST returns
       const invoices = all.filter((inv) => inv.gstEnabled !== false);
       const map = new Map<number, { taxable: number; cgst: number; sgst: number }>();
       invoices.forEach((inv) =>
-        inv.lineItems.forEach((l: any) => {
+        inv.lineItems.forEach((l) => {
           // Guard against legacy/imported line items missing a numeric field —
           // one bad record must not turn the whole GST summary into NaN.
           const qty = l.qty ?? 0;
@@ -668,7 +681,8 @@ function ReportView({
       ? perPartyAll.filter(({ party: p }) => p.name.toLowerCase().includes(q))
       : perPartyAll;
 
-    const closingOf = (rows: { balance: number }[]) => (rows.length ? rows[rows.length - 1].balance : 0);
+    const closingOf = (rows: { balance: number }[]) =>
+      rows.length ? rows[rows.length - 1].balance : 0;
     const totalReceivable = perParty.reduce(
       (s, { ledger }) => s + Math.max(0, closingOf(ledger.rows)),
       0,
@@ -802,7 +816,13 @@ function ReportView({
                   <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50 border-t text-[10px] font-bold uppercase text-gray-500">
                     <span>Closing Balance</span>
                     <span
-                      className={closing > 0 ? "text-rose-600" : closing < 0 ? "text-amber-600" : "text-gray-500"}
+                      className={
+                        closing > 0
+                          ? "text-rose-600"
+                          : closing < 0
+                            ? "text-amber-600"
+                            : "text-gray-500"
+                      }
                     >
                       {closing > 0
                         ? `${fmtMoney(closing)} Dr`
@@ -1076,9 +1096,9 @@ function TableReport({
     sortCol == null
       ? rows
       : [...rows].sort((a, b) => {
-        const cmp = smartCompare(a[sortCol] ?? "", b[sortCol] ?? "");
-        return sortDir === "asc" ? cmp : -cmp;
-      });
+          const cmp = smartCompare(a[sortCol] ?? "", b[sortCol] ?? "");
+          return sortDir === "asc" ? cmp : -cmp;
+        });
 
   if (rows.length === 0) {
     return (
@@ -1176,9 +1196,7 @@ function TableReport({
                     className="cursor-pointer select-none"
                   >
                     {c}
-                    {sortCol === i && (
-                      <span className="ml-1">{sortDir === "asc" ? "↑" : "↓"}</span>
-                    )}
+                    {sortCol === i && <span className="ml-1">{sortDir === "asc" ? "↑" : "↓"}</span>}
                   </th>
                 ))}
               </tr>
@@ -1190,7 +1208,9 @@ function TableReport({
                     <td
                       key={ci}
                       style={{ textAlign: ci === 0 ? "left" : "right" }}
-                      className={ci === 0 ? "font-medium text-gray-800" : "text-gray-700 tabular-nums"}
+                      className={
+                        ci === 0 ? "font-medium text-gray-800" : "text-gray-700 tabular-nums"
+                      }
                     >
                       {cell}
                     </td>

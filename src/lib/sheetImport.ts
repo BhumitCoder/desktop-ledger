@@ -4,7 +4,9 @@ import { parseCsv } from "@/lib/csv";
  * that isn't a letter or digit (so "Opening Stock", "opening_stock" and
  * "OPENING STOCK" all collapse to "openingstock"). */
 export function normalizeHeader(h: string): string {
-  return String(h).toLowerCase().replace(/[^a-z0-9]/g, "");
+  return String(h)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
 }
 
 /** Read a parsed .xlsx workbook into a string table, defending against two
@@ -16,7 +18,10 @@ export function normalizeHeader(h: string): string {
  *  2) Data on a non-first sheet, or an empty sheet ordered first — we scan
  *     every sheet and keep the largest one that has a "Name" header
  *     (falling back to the largest overall). */
-function workbookToTable(XLSX: any, wb: any): string[][] {
+type XlsxModule = typeof import("xlsx");
+type Workbook = ReturnType<XlsxModule["read"]>;
+
+function workbookToTable(XLSX: XlsxModule, wb: Workbook): string[][] {
   let best: string[][] = [];
   let bestNamed: string[][] = [];
   for (const name of wb.SheetNames as string[]) {

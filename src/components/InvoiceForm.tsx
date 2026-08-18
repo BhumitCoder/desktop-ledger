@@ -17,6 +17,7 @@ import {
   BankRepo,
 } from "@/repositories";
 import { partyBalances } from "@/lib/ledger";
+import { correctBankPaidAmount } from "@/lib/bankRepair";
 import type { Invoice, LineItem, Party, Item, PaymentMode, BankAccount } from "@/types";
 import { fmtMoney, fmtDate, today } from "@/lib/format";
 import { toast } from "sonner";
@@ -39,7 +40,7 @@ import { ModePills } from "@/components/ModePills";
 import { QuickAddPartyDialog, type QuickAddPartyDetails } from "@/components/QuickAddPartyDialog";
 import { genId, newBatch, commitBatch } from "@/repositories/base";
 import { stockShortfalls } from "@/lib/stock";
-import { useRepoData } from "@/hooks/useRepoData";
+import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 
 interface Props {
   mode: "sale" | "purchase";
@@ -47,7 +48,14 @@ interface Props {
 }
 
 export function InvoiceForm({ mode, existing }: Props) {
-  useRepoData();
+  // The app now opens BEFORE the collections have loaded (see hydrateRepos),
+  // so every repo read in this form has to be keyed on this version or it
+  // freezes whatever was in the cache at mount — which on a cold open is
+  // nothing at all. Discarding it re-rendered the form without ever
+  // re-reading, which is worse than not subscribing: the pickers stayed
+  // empty and, far worse, save-time party dedup matched against an empty
+  // list and created a DUPLICATE party for an existing customer.
+  const _repoV = useRepoData();
   const navigate = useNavigate();
   const company = CompanyRepo.get();
   const isSale = mode === "sale";
@@ -88,10 +96,10 @@ export function InvoiceForm({ mode, existing }: Props) {
 
   const gstOn = inv.gstEnabled !== false;
 
-  const [allParties, setAllParties] = useState(() => PartyRepo.all());
+  const allParties = useRepoMemo(() => PartyRepo.all());
   const parties = useMemo(() => allParties.filter(partyFilter), [allParties]);
-  const [items, setItems] = useState(() => ItemRepo.all());
-  const [banks] = useState<BankAccount[]>(() => BankRepo.all());
+  const items = useRepoMemo(() => ItemRepo.all());
+  const banks = useRepoMemo<BankAccount[]>(() => BankRepo.all());
   // Vyapar-style entry: starts with 2 blank rows below the filled items,
   // each a self-contained search-and-add row. Row ids (not indexes) so the
   // untouched row keeps its own typed-but-not-submitted text when the other
@@ -146,6 +154,20 @@ export function InvoiceForm({ mode, existing }: Props) {
   const [partyIdx, setPartyIdx] = useState(0);
   const [numberEditing, setNumberEditing] = useState(false);
   const numberRef = useRef<HTMLInputElement>(null);
+  // The opening number was computed at mount from repo.all(), which on a cold
+  // open is still empty — that hands out INV-0001 again on a shop with
+  // thousands of bills. Recompute as the bills actually arrive, but never
+  // over a number the cashier typed themselves, and never on an edit.
+  const numberTouched = useRef(false);
+  useEffect(() => {
+    if (existing?.id || numberTouched.current) return;
+    const next = nextInvoiceNumber(
+      isSale ? company.invoicePrefix : company.purchasePrefix,
+      repo.all(),
+    );
+    setInv((cur) => (cur.number === next ? cur : { ...cur, number: next }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [_repoV]);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const bankSelectRef = useRef<HTMLInputElement>(null);
@@ -183,7 +205,7 @@ export function InvoiceForm({ mode, existing }: Props) {
   };
 
   // Live outstanding balance of the selected party (credit decision at the counter)
-  const partyBalance = useMemo(() => {
+  const partyBalance = useRepoMemo(() => {
     if (!inv.partyId) return null;
     const list = partyBalances(
       isSale ? SalesRepo.all() : PurchaseRepo.all(),
@@ -193,7 +215,7 @@ export function InvoiceForm({ mode, existing }: Props) {
       isSale ? "customer" : "supplier",
     );
     return list.find((b) => b.partyId === inv.partyId)?.balance ?? 0;
-  }, [inv.partyId, isSale]);
+  }, [inv.partyId, isSale, allParties]);
 
   const partySuggests = useMemo(() => {
     const q = partyQ.trim().toLowerCase();
@@ -263,7 +285,7 @@ export function InvoiceForm({ mode, existing }: Props) {
   // per selected party: the render path asks for this per line row on every
   // keystroke, and a fresh scan of every invoice each time made typing lag
   // once the shop had a few thousand bills.
-  const partyHistoryIndex = useMemo(() => {
+  const partyHistoryIndex = useRepoMemo(() => {
     const map = new Map<string, { date: string; created: string; qty: number; price: number }[]>();
     if (!inv.partyId) return map;
     for (const doc of repo.all()) {
@@ -277,7 +299,6 @@ export function InvoiceForm({ mode, existing }: Props) {
     for (const rows of map.values())
       rows.sort((a, b) => b.date.localeCompare(a.date) || b.created.localeCompare(a.created));
     return map;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inv.partyId, repo]);
 
   const partyItemHistory = (itemId: string): { date: string; qty: number; price: number }[] =>
@@ -348,7 +369,6 @@ export function InvoiceForm({ mode, existing }: Props) {
       stock: 0,
       openingStock: 0,
     }) as Item;
-    setItems(ItemRepo.all());
     focusQtyId.current = addLineItem(newItem);
     completePendingRow(rowId);
     toast.success(`New item added: ${newItem.name}`);
@@ -520,7 +540,6 @@ export function InvoiceForm({ mode, existing }: Props) {
     let partyName: string;
     if ("create" in party) {
       PartyRepo.addBatched(batch, party.create);
-      setAllParties(PartyRepo.all());
       partyId = party.create.id;
       partyName = party.create.name;
       toast.success(`New party added: ${partyName}`);
@@ -534,9 +553,16 @@ export function InvoiceForm({ mode, existing }: Props) {
       // silently un-archive it.
       if (!existing?.id && PartyRepo.get(partyId)?.archived) {
         PartyRepo.updateBatched(batch, partyId, { archived: false });
-        setAllParties(PartyRepo.all());
       }
     }
+
+    // How much of `paid` actually moves on a bank account AT BILLING — see
+    // correctBankPaidAmount for why this is NOT simply `paid`. Shared with
+    // the Settings → bank reconciliation repair so the two can never disagree.
+    const bankPaidNow = correctBankPaidAmount(
+      { ...inv, id: existing?.id ?? "", paid } as Invoice,
+      PaymentRepo.all(),
+    );
 
     const finalInv: Invoice = {
       ...inv,
@@ -546,7 +572,7 @@ export function InvoiceForm({ mode, existing }: Props) {
       partyName,
       partyPhone: phone,
       bankId: inv.paymentMode === "bank" ? inv.bankId : undefined,
-      bankPaidAmount: inv.paymentMode === "bank" ? paid : undefined,
+      bankPaidAmount: bankPaidNow,
     };
 
     // This invoice's own paid-at-billing amount can move money on a specific
@@ -702,7 +728,7 @@ export function InvoiceForm({ mode, existing }: Props) {
       savedId = existing.id;
       toast.success(`${isSale ? "Sale" : "Purchase"} ${finalInv.number} updated`);
     } else {
-      savedId = (repo.addBatched(batch, finalInv as any) as Invoice).id;
+      savedId = (repo.addBatched(batch, finalInv) as Invoice).id;
       toast.success(`${isSale ? "Sale" : "Purchase"} ${finalInv.number} saved`);
     }
     commitBatch(batch, `save ${isSale ? "sale" : "purchase"}`);
@@ -915,12 +941,19 @@ export function InvoiceForm({ mode, existing }: Props) {
                   onChange={(e) => updateInternational({ isInternational: e.target.checked })}
                   className="accent-primary"
                 />
-                <span className="text-[12px] font-semibold whitespace-nowrap">International Purchase</span>
+                <span className="text-[12px] font-semibold whitespace-nowrap">
+                  International Purchase
+                </span>
               </label>
             )}
             {!isSale && (
               <label className="sm:hidden shrink-0 flex items-center gap-2 h-9 px-3 rounded-md border bg-background cursor-pointer select-none">
-                <input type="checkbox" checked={gstOn} onChange={toggleGst} className="accent-primary" />
+                <input
+                  type="checkbox"
+                  checked={gstOn}
+                  onChange={toggleGst}
+                  className="accent-primary"
+                />
                 <span className="text-[12px] font-semibold">GST Bill</span>
               </label>
             )}
@@ -980,7 +1013,12 @@ export function InvoiceForm({ mode, existing }: Props) {
           )}
           {/* GST toggle — desktop position */}
           <label className="hidden sm:flex items-center gap-2 h-9 px-3 rounded-md border bg-background cursor-pointer select-none">
-            <input type="checkbox" checked={gstOn} onChange={toggleGst} className="accent-primary" />
+            <input
+              type="checkbox"
+              checked={gstOn}
+              onChange={toggleGst}
+              className="accent-primary"
+            />
             <span className="text-[12px] font-semibold">GST Bill</span>
           </label>
         </div>
@@ -1123,7 +1161,10 @@ export function InvoiceForm({ mode, existing }: Props) {
                     <input
                       ref={numberRef}
                       value={inv.number}
-                      onChange={(e) => setInv({ ...inv, number: e.target.value })}
+                      onChange={(e) => {
+                        numberTouched.current = true;
+                        setInv({ ...inv, number: e.target.value });
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === "Escape") setNumberEditing(false);
                       }}
@@ -1260,10 +1301,10 @@ export function InvoiceForm({ mode, existing }: Props) {
                     {gstOn && (
                       <td className="py-1.5 px-1">
                         <NumInput
-                        value={l.gstRate}
-                        onValue={(n) => updateLine(l.id, { gstRate: n })}
-                        className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
-                      />
+                          value={l.gstRate}
+                          onValue={(n) => updateLine(l.id, { gstRate: n })}
+                          className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
+                        />
                       </td>
                     )}
                     <td className="text-right px-3 py-1.5 font-semibold tabular-nums">
@@ -1465,7 +1506,10 @@ export function InvoiceForm({ mode, existing }: Props) {
             <label className="flex flex-col gap-1.5 text-[12px] h-full">
               <span className="text-muted-foreground font-medium uppercase text-[11px] tracking-wider">
                 Notes / Terms
-                <span className="normal-case font-normal text-muted-foreground/70"> (optional)</span>
+                <span className="normal-case font-normal text-muted-foreground/70">
+                  {" "}
+                  (optional)
+                </span>
               </span>
               <textarea
                 value={inv.notes ?? ""}
@@ -1494,7 +1538,13 @@ export function InvoiceForm({ mode, existing }: Props) {
         >
           <X className="h-3.5 w-3.5" /> Cancel
         </Button>
-        <Button variant="outline" size="sm" onClick={() => save(true)} disabled={saving} className="shrink-0">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => save(true)}
+          disabled={saving}
+          className="shrink-0"
+        >
           <Printer className="h-3.5 w-3.5" /> Save & Print
         </Button>
         <Button
@@ -1909,7 +1959,9 @@ function ItemNameCell({
                   <div className="font-semibold tabular-nums">
                     {fmtMoney(isSale ? it.salePrice || it.purchasePrice : it.purchasePrice)}
                   </div>
-                  {gstOn && <div className="text-[11px] text-muted-foreground">GST {it.gstRate}%</div>}
+                  {gstOn && (
+                    <div className="text-[11px] text-muted-foreground">GST {it.gstRate}%</div>
+                  )}
                 </div>
               </div>
             ))}
@@ -2001,7 +2053,9 @@ function PriceHistoryCell({
                   >
                     <span className="text-muted-foreground">{fmtDate(h.date)}</span>
                     <span className="text-right tabular-nums">{h.qty}</span>
-                    <span className="text-right tabular-nums font-semibold">{fmtMoney(h.price)}</span>
+                    <span className="text-right tabular-nums font-semibold">
+                      {fmtMoney(h.price)}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -2084,8 +2138,8 @@ function QuickAddItemDialog({
           </DialogTitle>
         </DialogHeader>
         <p className="text-[12px] text-muted-foreground -mt-2">
-          "{draft.name}" isn't in your items list yet — set its price & GST before adding it to
-          this {isSale ? "invoice" : "bill"}.
+          "{draft.name}" isn't in your items list yet — set its price & GST before adding it to this{" "}
+          {isSale ? "invoice" : "bill"}.
         </p>
         <form onSubmit={submit} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="sm:col-span-2 relative">

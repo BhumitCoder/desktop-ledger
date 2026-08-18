@@ -1,28 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 
 const PAGE_SIZES = [25, 50, 100];
-
-/** Client-side pagination over an already-filtered row array. */
-export function usePagination<T>(rows: T[], initialSize = 50) {
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(initialSize);
-  const total = rows.length;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const safePage = Math.min(page, totalPages);
-
-  // Back to page 1 whenever the underlying list changes size (filter/search/add/delete)
-  useEffect(() => {
-    setPage(1);
-  }, [total]);
-
-  const paged = useMemo(
-    () => rows.slice((safePage - 1) * pageSize, safePage * pageSize),
-    [rows, safePage, pageSize],
-  );
-
-  return { paged, page: safePage, setPage, pageSize, setPageSize, totalPages, total };
-}
 
 function pageList(page: number, totalPages: number): (number | "…")[] {
   if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);
@@ -70,11 +48,7 @@ export function PaginationBar({
       {/* Mobile: big, thumb-friendly Prev/Next — numbered pages and the
           per-page selector are a desktop-mouse pattern, not a phone one. */}
       <div className="flex md:hidden items-center justify-between px-3 py-2.5 gap-2">
-        <button
-          className={navBtn}
-          disabled={page <= 1}
-          onClick={() => onPage(page - 1)}
-        >
+        <button className={navBtn} disabled={page <= 1} onClick={() => onPage(page - 1)}>
           <ChevronLeft className="h-4 w-4" /> Prev
         </button>
         <span className="text-[12px] text-gray-500 tabular-nums">
@@ -84,11 +58,7 @@ export function PaginationBar({
             {fmt(from)}–{fmt(to)} of {fmt(total)}
           </span>
         </span>
-        <button
-          className={navBtn}
-          disabled={page >= totalPages}
-          onClick={() => onPage(page + 1)}
-        >
+        <button className={navBtn} disabled={page >= totalPages} onClick={() => onPage(page + 1)}>
           Next <ChevronRight className="h-4 w-4" />
         </button>
       </div>
@@ -120,12 +90,7 @@ export function PaginationBar({
         </div>
 
         <div className="flex items-center gap-1">
-          <button
-            className={btn}
-            disabled={page <= 1}
-            onClick={() => onPage(1)}
-            title="First page"
-          >
+          <button className={btn} disabled={page <= 1} onClick={() => onPage(1)} title="First page">
             <ChevronsLeft className="h-3.5 w-3.5" />
           </button>
           <button

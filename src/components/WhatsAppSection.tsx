@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { auth } from "@/lib/firebase";
-import { getWhatsAppStatusServerFn, disconnectWhatsAppServerFn, type WhatsAppStatus } from "@/lib/whatsappAdmin";
+import {
+  getWhatsAppStatusServerFn,
+  disconnectWhatsAppServerFn,
+  type WhatsAppStatus,
+} from "@/lib/whatsappAdmin";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { MessageCircle, CheckCircle2, Loader2 } from "lucide-react";
@@ -39,7 +43,6 @@ export function WhatsAppSection() {
       cancelled = true;
       clearTimeout(timerRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pollMs]);
 
   const disconnect = async () => {

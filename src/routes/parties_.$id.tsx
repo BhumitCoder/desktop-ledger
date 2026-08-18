@@ -13,7 +13,7 @@ import { buildPartyStatement, type PartyStatementRow } from "@/lib/ledger";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
-import { useRepoData } from "@/hooks/useRepoData";
+import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 import { downloadXlsx } from "@/lib/xlsx";
 import { downloadElementAsPdf } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
@@ -41,7 +41,13 @@ import {
   Loader2,
   type LucideIcon,
 } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 // Dr (receivable — they owe us) / Cr (payable — we owe them), so the
@@ -78,9 +84,9 @@ function PartyStatementPage() {
   // Doesn't affect normal on-screen viewing (the existing statement is
   // always visible on screen regardless — only the print-time class moves).
   const [ledgerFormat, setLedgerFormat] = useState<"full" | "simple">("full");
-  const [formatPrompt, setFormatPrompt] = useState<null | "print" | "download" | "share" | "whatsapp">(
-    null,
-  );
+  const [formatPrompt, setFormatPrompt] = useState<
+    null | "print" | "download" | "share" | "whatsapp"
+  >(null);
   const pendingActionRef = useRef<null | "print" | "download" | "share" | "whatsapp">(null);
   // Fires the pending action below — a separate counter, not `ledgerFormat`
   // itself, because if the user picks the format that's already active
@@ -97,7 +103,7 @@ function PartyStatementPage() {
     dateCache = { dateFrom, dateTo };
   }, [dateFrom, dateTo]);
 
-  const { rows } = useMemo(() => {
+  const { rows } = useRepoMemo(() => {
     if (!party) return { rows: [] as LedgerRow[], fullBalance: 0 };
     return buildPartyStatement(
       party,
@@ -111,7 +117,7 @@ function PartyStatementPage() {
       dateFrom,
       dateTo,
     );
-  }, [party, refreshKey, dateFrom, dateTo, _repoV]);
+  }, [party, refreshKey, dateFrom, dateTo]);
 
   // The plain Date/Particulars/Qty/Credit/Debit/Balance ledger the client
   // asked for, alongside the existing detailed statement — not replacing it.
@@ -172,7 +178,8 @@ function PartyStatementPage() {
   // whatever format the original tap chose isn't carried across tabs.
   useAutoPrintFromUrl(party ? pdfName() : null, !!party);
 
-  const activePrintEl = () => (ledgerFormat === "simple" ? simpleLedgerRef.current : printRef.current);
+  const activePrintEl = () =>
+    ledgerFormat === "simple" ? simpleLedgerRef.current : printRef.current;
 
   const { shareReady, share, resetShare } = useShareablePdf("Statement");
 
@@ -236,7 +243,8 @@ function PartyStatementPage() {
   // calls guarded against `party` being null) so this hook always runs in
   // the same position on every render — conditionally calling a hook after
   // an early return breaks the Rules of Hooks.
-  const promptFormat = (action: "print" | "download" | "share" | "whatsapp") => setFormatPrompt(action);
+  const promptFormat = (action: "print" | "download" | "share" | "whatsapp") =>
+    setFormatPrompt(action);
 
   const chooseFormat = (fmt: "full" | "simple") => {
     pendingActionRef.current = formatPrompt;
@@ -290,9 +298,13 @@ function PartyStatementPage() {
     ? simpleLedgerRows[simpleLedgerRows.length - 1].balance
     : openingBalance;
   const simpleDebitTotal =
-    (openingBalance > 0 ? openingBalance : 0) + txnDebitSum + (closingBalance < 0 ? -closingBalance : 0);
+    (openingBalance > 0 ? openingBalance : 0) +
+    txnDebitSum +
+    (closingBalance < 0 ? -closingBalance : 0);
   const simpleCreditTotal =
-    (openingBalance < 0 ? -openingBalance : 0) + txnCreditSum + (closingBalance > 0 ? closingBalance : 0);
+    (openingBalance < 0 ? -openingBalance : 0) +
+    txnCreditSum +
+    (closingBalance > 0 ? closingBalance : 0);
 
   // Vyapar-style ledger export — company/party header info, then one block
   // per transaction with its own item breakdown (matching what the client
@@ -391,7 +403,11 @@ function PartyStatementPage() {
               className="h-8 w-8 shrink-0 rounded-md bg-primary text-white flex items-center justify-center transition hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
               title="Print"
             >
-              {pdfBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+              {pdfBusy ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Printer className="h-4 w-4" />
+              )}
             </button>
           </div>
         </div>
@@ -399,7 +415,12 @@ function PartyStatementPage() {
         {/* Balance summary — its own row, evenly split. */}
         <div className="grid grid-cols-3 gap-2">
           <StatementCard icon={Receipt} label="Total Billed" value={totalBilled} tone="gray" />
-          <StatementCard icon={CheckCircle2} label="Received / Paid" value={totalReceived} tone="emerald" />
+          <StatementCard
+            icon={CheckCircle2}
+            label="Received / Paid"
+            value={totalReceived}
+            tone="emerald"
+          />
           <StatementCard
             icon={AlertCircle}
             label={balance > 0 ? "They Owe You" : balance < 0 ? "You Owe Them" : "Settled"}
@@ -516,7 +537,9 @@ function PartyStatementPage() {
               <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-t text-xs font-bold uppercase text-gray-500">
                 <span>Closing Balance</span>
                 <span
-                  className={balance > 0 ? "text-rose-600" : balance < 0 ? "text-amber-600" : "text-gray-500"}
+                  className={
+                    balance > 0 ? "text-rose-600" : balance < 0 ? "text-amber-600" : "text-gray-500"
+                  }
                 >
                   {balance > 0
                     ? `${fmtMoney(balance)} Dr`
@@ -684,8 +707,7 @@ function PartyStatementPage() {
               <div>
                 <p className="font-semibold text-sm">Full Detail Ledger</p>
                 <p className="text-xs text-muted-foreground">
-                  The current statement — every bill's item breakdown, payment status, and
-                  balances.
+                  The current statement — every bill's item breakdown, payment status, and balances.
                 </p>
               </div>
             </button>
@@ -736,7 +758,9 @@ function StatementCard({
   const t = STATEMENT_TONES[tone];
   return (
     <div className="flex items-center gap-1.5 sm:gap-2.5 px-2 sm:px-3.5 py-2 sm:py-2.5 rounded-lg border border-gray-100 bg-white min-w-0">
-      <div className={`hidden sm:flex h-8 w-8 rounded-md items-center justify-center shrink-0 ${t.bg} ${t.text}`}>
+      <div
+        className={`hidden sm:flex h-8 w-8 rounded-md items-center justify-center shrink-0 ${t.bg} ${t.text}`}
+      >
         <Icon className="h-4 w-4" />
       </div>
       <div className="min-w-0">
@@ -782,12 +806,13 @@ export function PartyStatementRowBlock({
         <td className="px-3 py-2.5 whitespace-nowrap">
           {e.status && (
             <span
-              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${e.status === "Paid"
-                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                : e.status === "Partial"
-                  ? "bg-amber-50 text-amber-700 border-amber-200"
-                  : "bg-rose-50 text-rose-700 border-rose-200"
-                }`}
+              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                e.status === "Paid"
+                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                  : e.status === "Partial"
+                    ? "bg-amber-50 text-amber-700 border-amber-200"
+                    : "bg-rose-50 text-rose-700 border-rose-200"
+              }`}
             >
               {e.status}
             </span>
@@ -810,7 +835,10 @@ export function PartyStatementRowBlock({
         </td>
       </tr>
       {!!e.items?.length && (
-        <tr className="border-b border-gray-100 bg-gray-50/30" style={{ breakInside: "avoid", breakBefore: "avoid" }}>
+        <tr
+          className="border-b border-gray-100 bg-gray-50/30"
+          style={{ breakInside: "avoid", breakBefore: "avoid" }}
+        >
           <td colSpan={9} className="px-3 pb-3 pt-1">
             <table className="w-full text-[11.5px] border-collapse bg-white border rounded-md overflow-hidden">
               <thead>
@@ -845,10 +873,15 @@ export function PartyStatementRowBlock({
               </tbody>
               <tfoot>
                 <tr className="border-t border-gray-200 font-semibold bg-gray-50">
-                  <td colSpan={4} className="px-2.5 py-1.5 text-right text-gray-500 uppercase text-[10px]">
+                  <td
+                    colSpan={4}
+                    className="px-2.5 py-1.5 text-right text-gray-500 uppercase text-[10px]"
+                  >
                     Sub Total
                   </td>
-                  <td className="px-2.5 py-1.5 text-right tabular-nums">{fmtMoney(itemSubtotal)}</td>
+                  <td className="px-2.5 py-1.5 text-right tabular-nums">
+                    {fmtMoney(itemSubtotal)}
+                  </td>
                 </tr>
                 {(e.charges ?? []).map((c, i) => (
                   <tr key={i} className="border-t border-gray-100 text-gray-500">
@@ -923,12 +956,13 @@ export function PartyStatementCardBlock({
         </div>
         {e.status && (
           <span
-            className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${e.status === "Paid"
-              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-              : e.status === "Partial"
-                ? "bg-amber-50 text-amber-700 border-amber-200"
-                : "bg-rose-50 text-rose-700 border-rose-200"
-              }`}
+            className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+              e.status === "Paid"
+                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                : e.status === "Partial"
+                  ? "bg-amber-50 text-amber-700 border-amber-200"
+                  : "bg-rose-50 text-rose-700 border-rose-200"
+            }`}
           >
             {e.status}
           </span>
