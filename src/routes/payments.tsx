@@ -272,7 +272,6 @@ function PaymentsPage() {
   return (
     <div className="flex flex-col h-full bg-[#f5f6fa]">
       <PageHeader
-        showBack
         title="Payments"
         subtitle={`${rows.length} records`}
         icon={<Wallet className="h-5 w-5" />}

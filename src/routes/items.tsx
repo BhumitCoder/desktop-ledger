@@ -207,7 +207,6 @@ function ItemsPage() {
   return (
     <div className="flex flex-col h-full">
       <PageHeader
-        showBack
         title="Items"
         subtitle={`${rows.length} items`}
         icon={<Package className="h-5 w-5" />}

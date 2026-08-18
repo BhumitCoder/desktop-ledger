@@ -320,7 +320,6 @@ function SettingsPage() {
   return (
     <div className="flex flex-col h-full bg-[#f5f6fa]">
       <PageHeader
-        showBack
         title="Settings"
         subtitle="Company & preferences"
         icon={<SettingsIcon className="h-5 w-5" />}

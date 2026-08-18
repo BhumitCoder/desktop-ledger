@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
@@ -80,7 +80,6 @@ interface DayRow {
 function DaybookPage() {
   useRepoData();
   const navigate = useNavigate();
-  const router = useRouter();
   const { date: dateFromUrl } = Route.useSearch();
   const [date, setDate] = useState(() => dateFromUrl ?? dateCache ?? today());
   const [q, setQ] = useState("");
@@ -403,14 +402,6 @@ function DaybookPage() {
       <div className="no-print bg-white border-b px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex items-center justify-between sm:justify-start gap-3">
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => router.history.back()}
-              aria-label="Go back"
-              className="shrink-0 h-8 w-8 -ml-1 rounded-md border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-100 active:bg-gray-100 transition"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
             <div className="h-9 w-9 rounded-md bg-primary-soft text-primary flex items-center justify-center">
               <BookOpen className="h-4 w-4" />
             </div>

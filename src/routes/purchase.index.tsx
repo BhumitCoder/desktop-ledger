@@ -206,7 +206,6 @@ function PurchasePage() {
   return (
     <div className="flex flex-col h-full bg-[#f5f6fa]">
       <PageHeader
-        showBack
         title="Purchase"
         subtitle={`${filtered.length} of ${rows.length} bills`}
         icon={<FileText className="h-5 w-5" />}

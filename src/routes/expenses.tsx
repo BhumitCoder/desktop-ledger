@@ -157,7 +157,6 @@ function ExpensesPage() {
   return (
     <div className="flex flex-col h-full">
       <PageHeader
-        showBack
         title="Expenses"
         subtitle={`${rows.length} entries · ${fmtMoney(total)} total`}
         icon={<Receipt className="h-5 w-5" />}

@@ -398,12 +398,18 @@ export async function run(): Promise<Results> {
   // 1000 − 100 − 540 COGS − 5000 expenses (GST-exclusive, so unchanged here)
   has(home, `₹ ${fmt(-4640)}`, "dashboard: Net Profit = −4640");
 
-  // A back control on every page that can be drilled into — the client
-  // reported the party statement specifically.
-  for (const url of ["/parties", "/items", "/expenses", "/reports", "/parties/P1"]) {
+  // Back belongs on DETAIL pages — the ones you drill into and have to get
+  // out of. Main pages are reached from the sidebar/tab bar, so there is
+  // nothing to go back to and a lone chevron beside the title just looks
+  // broken. Both halves are asserted so neither drifts.
+  const backCount = () => document.querySelectorAll('[aria-label="Go back"]').length;
+  for (const url of ["/parties/P1", "/items/I1", "/bank/B1", "/payees/PE1"]) {
     await renderRoute(url);
-    const backs = document.querySelectorAll('[aria-label="Go back"]').length;
-    assert(backs > 0, url + ": must offer a back control");
+    assert(backCount() > 0, url + ": detail page must offer a back control");
+  }
+  for (const url of ["/parties", "/items", "/expenses", "/reports", "/daybook", "/settings"]) {
+    await renderRoute(url);
+    assert(backCount() === 0, url + ": main page must NOT show a back arrow");
   }
 
   // Expenses: edit and delete must be visible controls, not just a row

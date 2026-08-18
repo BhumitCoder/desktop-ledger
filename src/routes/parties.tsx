@@ -532,7 +532,6 @@ function PartiesPage() {
   return (
     <div className="flex flex-col h-full">
       <PageHeader
-        showBack
         title="Parties"
         subtitle={`${rows.length} customers / suppliers`}
         icon={<Users className="h-5 w-5" />}

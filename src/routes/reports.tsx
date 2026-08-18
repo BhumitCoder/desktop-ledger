@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   SalesRepo,
@@ -92,7 +92,6 @@ let dateCache: { dateFrom: string; dateTo: string } | null = null;
 
 function ReportsPage() {
   useRepoData();
-  const router = useRouter();
   const { r } = Route.useSearch();
   const [active, setActive] = useState(() =>
     REPORTS.some((x) => x.key === r) ? (r as string) : (activeReportCache ?? "pl"),
@@ -158,14 +157,6 @@ function ReportsPage() {
       <div className="bg-white border-b px-5 py-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 no-print">
         <div className="flex items-center justify-between sm:justify-start gap-2.5">
           <div className="flex items-center gap-2.5">
-            <button
-              type="button"
-              onClick={() => router.history.back()}
-              aria-label="Go back"
-              className="shrink-0 h-8 w-8 -ml-1 rounded-md border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-100 active:bg-gray-100 transition"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
             <BarChart3 className="h-5 w-5 text-primary shrink-0" />
             <div>
               <h1 className="text-[17px] font-bold text-gray-800 leading-tight">Reports</h1>

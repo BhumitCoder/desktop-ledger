@@ -161,6 +161,7 @@ function ItemDetailPage() {
           <button
             onClick={() => navigate({ to: "/items" })}
             className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 flex items-center justify-center text-gray-600 transition shadow-sm"
+            aria-label="Go back"
             title="Back to Items"
           >
             <ArrowLeft className="h-4 w-4" />

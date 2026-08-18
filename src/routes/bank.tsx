@@ -120,7 +120,6 @@ function BankPage() {
   return (
     <div className="flex flex-col h-full">
       <PageHeader
-        showBack
         title="Bank Accounts"
         subtitle={`${rows.length} accounts · Opening: ${fmtMoney(openingTotal)} · Bank transactions: ${bankActivity >= 0 ? "+" : "−"}${fmtMoney(Math.abs(bankActivity))} · Total: ${fmtMoney(totalBalance)}`}
         icon={<Landmark className="h-5 w-5" />}
