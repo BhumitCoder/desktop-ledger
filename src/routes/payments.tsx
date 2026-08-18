@@ -145,7 +145,9 @@ function PaymentsPage() {
     const batch = newBatch();
     if (live.allocations?.length) {
       for (const a of live.allocations) {
-        if (repo.get(a.invoiceId)) repo.adjustFieldBatched(batch, a.invoiceId, "paid", -a.amount);
+        // Cash plus any write-off — the same total that was added to `paid`.
+        if (repo.get(a.invoiceId))
+          repo.adjustFieldBatched(batch, a.invoiceId, "paid", -(a.amount + (a.discount ?? 0)));
       }
     } else if (live.ref) {
       reverseLegacyRefApplication(batch, repo, live.ref, live.amount);
@@ -270,6 +272,7 @@ function PaymentsPage() {
   return (
     <div className="flex flex-col h-full bg-[#f5f6fa]">
       <PageHeader
+        showBack
         title="Payments"
         subtitle={`${rows.length} records`}
         icon={<Wallet className="h-5 w-5" />}
@@ -522,6 +525,9 @@ interface ApplyRow {
   invoice: Invoice;
   due: number;
   apply: number;
+  /** Written off on this bill so it can be closed without the last few
+   * rupees ever arriving — see PaymentAllocation.discount. */
+  discount: number;
   checked: boolean;
 }
 
@@ -621,6 +627,7 @@ function ReceivePaymentDialog({
     }
     const repo = isIn ? SalesRepo : PurchaseRepo;
     const allocOf = new Map((editing?.allocations ?? []).map((a) => [a.invoiceId, a.amount]));
+    const discOf = new Map((editing?.allocations ?? []).map((a) => [a.invoiceId, a.discount ?? 0]));
     const invoices = repo
       .all()
       .filter(
@@ -632,11 +639,16 @@ function ReceivePaymentDialog({
     setApplyRows(
       invoices.map((inv) => {
         const back = allocOf.get(inv.id) ?? 0;
+        const backDisc = discOf.get(inv.id) ?? 0;
         return {
           invoice: inv,
-          due: r2(inv.total - inv.paid + back),
+          // Both the cash AND the discount this payment previously settled
+          // have to come back onto the due, or reopening the dialog would
+          // show the bill as already closed and silently drop the write-off.
+          due: r2(inv.total - inv.paid + back + backDisc),
           apply: back,
-          checked: back > 0,
+          discount: backDisc,
+          checked: back > 0 || backDisc > 0,
         };
       }),
     );
@@ -671,6 +683,7 @@ function ReceivePaymentDialog({
   // row above (e.g. opening balance, or a manual ledger correction).
   const unlinkedBalance = Math.max(0, r2(partyTrueBalance - totalOutstanding));
   const totalApplied = r2(applyRows.reduce((s, r) => s + r.apply, 0));
+  const totalDiscount = r2(applyRows.reduce((s, r) => s + r.discount, 0));
   // Advance / general payment whenever nothing is actually applied to an
   // invoice — not just when there are no open invoices at all. Without this,
   // editing an old advance payment for a party that has since accrued open
@@ -684,7 +697,7 @@ function ReceivePaymentDialog({
       rows.map((r, i) => {
         if (i !== idx) return r;
         const checked = !r.checked;
-        return { ...r, checked, apply: checked ? r.due : 0 };
+        return { ...r, checked, apply: checked ? r2(r.due - r.discount) : 0 };
       }),
     );
   };
@@ -692,17 +705,42 @@ function ReceivePaymentDialog({
   const setApply = (idx: number, num: number) => {
     setApplyRows((rows) =>
       rows.map((r, i) =>
-        i === idx ? { ...r, apply: Math.min(r.due, Math.max(0, num)), checked: num > 0 } : r,
+        i === idx
+          ? {
+              ...r,
+              // Cash + discount can never settle more than the bill owes.
+              apply: Math.min(r2(r.due - r.discount), Math.max(0, num)),
+              checked: num > 0 || r.discount > 0,
+            }
+          : r,
+      ),
+    );
+  };
+
+  /** Write-off on one bill. Capped at what's left after the cash applied, so
+   * a bill can be closed exactly — never over-settled into a phantom credit. */
+  const setRowDiscount = (idx: number, num: number) => {
+    setApplyRows((rows) =>
+      rows.map((r, i) =>
+        i === idx
+          ? {
+              ...r,
+              discount: Math.min(r2(r.due - r.apply), Math.max(0, num)),
+              checked: r.apply > 0 || num > 0,
+            }
+          : r,
       ),
     );
   };
 
   const applyAll = () => {
-    setApplyRows((rows) => rows.map((r) => ({ ...r, checked: true, apply: r.due })));
+    setApplyRows((rows) =>
+      rows.map((r) => ({ ...r, checked: true, apply: r2(r.due - r.discount) })),
+    );
   };
 
   const clearAll = () => {
-    setApplyRows((rows) => rows.map((r) => ({ ...r, checked: false, apply: 0 })));
+    setApplyRows((rows) => rows.map((r) => ({ ...r, checked: false, apply: 0, discount: 0 })));
   };
 
   const save = () => {
@@ -716,7 +754,7 @@ function ReceivePaymentDialog({
       return;
     }
     const amount = effectiveAmount;
-    if (!amount || amount <= 0) {
+    if ((!amount || amount <= 0) && totalDiscount <= 0) {
       toast.error("Enter or select an amount to pay");
       return;
     }
@@ -770,7 +808,10 @@ function ReceivePaymentDialog({
       // in the update patch then migrates the record cleanly to allocations.
       if (editing?.allocations?.length) {
         for (const a of editing.allocations) {
-          if (repo.get(a.invoiceId)) repo.adjustFieldBatched(batch, a.invoiceId, "paid", -a.amount);
+          // Reverse the full settlement — cash plus any amount written off —
+          // because that is what was added to `paid` when it was saved.
+          if (repo.get(a.invoiceId))
+            repo.adjustFieldBatched(batch, a.invoiceId, "paid", -(a.amount + (a.discount ?? 0)));
         }
       } else if (editing?.ref) {
         reverseLegacyRefApplication(batch, repo, editing.ref, editing.amount);
@@ -797,15 +838,25 @@ function ReceivePaymentDialog({
       const allocations: PaymentAllocation[] = [];
       let clamped = false;
       for (const row of applyRows) {
-        if (row.apply > 0) {
+        if (row.apply > 0 || row.discount > 0) {
           const cur = repo.get(row.invoice.id);
           if (!cur) continue;
           const liveDue = Math.max(0, r2(cur.total - cur.paid));
+          // Cash first, then the write-off fills whatever is left of the due.
           const amt = Math.min(r2(row.apply), liveDue);
-          if (amt <= 0) continue;
-          if (amt < r2(row.apply)) clamped = true;
-          repo.adjustFieldBatched(batch, cur.id, "paid", amt);
-          allocations.push({ invoiceId: cur.id, number: cur.number, amount: amt });
+          const disc = Math.min(r2(row.discount), Math.max(0, r2(liveDue - amt)));
+          const settled = r2(amt + disc);
+          if (settled <= 0) continue;
+          if (amt < r2(row.apply) || disc < r2(row.discount)) clamped = true;
+          // `paid` moves by the whole settlement so the bill closes, while the
+          // Payment's own `amount` (cash) is what reaches cash/bank.
+          repo.adjustFieldBatched(batch, cur.id, "paid", settled);
+          allocations.push({
+            invoiceId: cur.id,
+            number: cur.number,
+            amount: amt,
+            discount: disc > 0 ? disc : undefined,
+          });
         }
       }
       if (clamped) {
@@ -1051,6 +1102,29 @@ function ReceivePaymentDialog({
                               placeholder="0.00"
                               className={`w-full h-7 px-2 text-right text-xs border rounded outline-none focus:ring-1 ${row.checked ? (isIn ? "border-emerald-400 focus:ring-emerald-300 bg-white" : "border-rose-400 focus:ring-rose-300 bg-white") : "border-gray-200 bg-gray-50"} tabular-nums`}
                             />
+                          </div>
+                          {/* Settle the last few rupees without pretending they
+                              were collected: 20,000 against a 20,500 bill plus
+                              500 here closes it exactly. */}
+                          <div className="shrink-0 w-24">
+                            <p className="text-[10px] text-gray-400 mb-1 text-right">
+                              Discount (₹)
+                            </p>
+                            <NumInput
+                              value={row.discount}
+                              onValue={(n) => setRowDiscount(idx, n)}
+                              placeholder="0.00"
+                              className={`w-full h-7 px-2 text-right text-xs border rounded outline-none focus:ring-1 tabular-nums ${row.discount > 0 ? "border-amber-400 focus:ring-amber-300 bg-white" : "border-gray-200 bg-gray-50"}`}
+                            />
+                            {r2(row.due - row.apply - row.discount) > 0.01 && row.checked && (
+                              <button
+                                type="button"
+                                onClick={() => setRowDiscount(idx, r2(row.due - row.apply))}
+                                className="mt-1 w-full text-[10px] text-amber-700 hover:underline text-right"
+                              >
+                                Write off {fmtMoney(r2(row.due - row.apply))}
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>

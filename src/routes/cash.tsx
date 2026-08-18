@@ -73,6 +73,7 @@ function CashPage() {
   return (
     <div className="flex flex-col h-full bg-[#f5f6fa]">
       <PageHeader
+        showBack
         title="Cash"
         subtitle={`${filtered.length} of ${entries.length} transactions`}
         icon={<Banknote className="h-5 w-5" />}

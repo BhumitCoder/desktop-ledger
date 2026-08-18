@@ -21,7 +21,7 @@ import {
 import { ModePills } from "@/components/ModePills";
 import { fmtMode } from "@/lib/paymentMode";
 import { fmtMoney, fmtDate, today } from "@/lib/format";
-import { Plus, Receipt, Trash2 } from "lucide-react";
+import { Plus, Receipt, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { usePermissions } from "@/hooks/usePermissions";
 
@@ -47,7 +47,18 @@ function ExpensesPage() {
       toast.error("You don't have permission to delete expenses");
       return;
     }
-    if (confirm("Delete expense?")) {
+    const bankName =
+      r.paymentMode === "bank" && r.bankId ? (BankRepo.get(r.bankId)?.name ?? null) : null;
+    const msg = [
+      `Delete this expense?`,
+      "",
+      `${r.category} · ${fmtMoney(r.amount)} · ${fmtDate(r.date)}`,
+      r.payeeName ? `Paid to ${r.payeeName}` : null,
+      bankName ? `${fmtMoney(r.amount)} will be added back to ${bankName}.` : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    if (confirm(msg)) {
       // Bail if another device already deleted it — the bank reversal below is
       // a blind atomic increment, so running it twice would add the money back
       // to the account twice.
@@ -102,11 +113,51 @@ function ExpensesPage() {
       render: (r) => fmtMoney(r.amount),
       sortValue: (r) => r.amount,
     },
+    {
+      // Every other list (Items, Parties, Payees, Payments, Bank) shows its
+      // row actions as buttons; expenses was the one that didn't, leaving
+      // edit as "click the row somewhere" and delete as Ctrl+Delete — both
+      // effectively invisible, which is why they read as missing entirely.
+      key: "actions",
+      label: "Action",
+      width: "90px",
+      align: "center",
+      render: (r) => (
+        <span className="inline-flex gap-1">
+          {editAllowed && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setEdit(r);
+                setOpen(true);
+              }}
+              className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+              title="Edit expense"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {deleteAllowed && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDelete(r);
+              }}
+              className="p-1 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-600 transition"
+              title="Delete expense"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </span>
+      ),
+    },
   ];
 
   return (
     <div className="flex flex-col h-full">
       <PageHeader
+        showBack
         title="Expenses"
         subtitle={`${rows.length} entries · ${fmtMoney(total)} total`}
         icon={<Receipt className="h-5 w-5" />}
@@ -163,6 +214,21 @@ function ExpensesPage() {
                     {r.notes ? ` · ${r.notes}` : ""}
                   </p>
                 </div>
+                {/* Tapping the card also edits, but an explicit pencil makes
+                    it discoverable — the client reported edit as missing. */}
+                {editAllowed && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEdit(r);
+                      setOpen(true);
+                    }}
+                    className="p-1.5 rounded hover:bg-blue-50 text-gray-300 hover:text-blue-600 transition shrink-0"
+                    title="Edit expense"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                )}
                 {deleteAllowed && (
                   <button
                     onClick={(e) => {

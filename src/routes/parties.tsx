@@ -23,6 +23,7 @@ import { Field } from "@/components/Field";
 import { NumField } from "@/components/NumInput";
 import { fmtMoney } from "@/lib/format";
 import { partyBalances } from "@/lib/ledger";
+import { PartyLedgerExportDialog } from "@/components/PartyLedgerExportDialog";
 import {
   Plus,
   Search,
@@ -35,6 +36,7 @@ import {
   Trash2,
   Upload,
   Download,
+  FileDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -210,6 +212,31 @@ function PartiesPage() {
 
   const pg = usePagination(filtered);
 
+  // Multi-select for bulk ledger download — same interaction as the Items
+  // page, so the two lists behave identically.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [ledgerFor, setLedgerFor] = useState<Party[] | null>(null);
+  const allFilteredSelected = filtered.length > 0 && filtered.every((r) => selectedIds.has(r.id));
+  const toggleAllFiltered = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allFilteredSelected) filtered.forEach((r) => next.delete(r.id));
+      else filtered.forEach((r) => next.add(r.id));
+      return next;
+    });
+  };
+  const toggleOne = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  // Resolve from the live list, not the click-time snapshot, and keep the
+  // on-screen order so the downloads arrive in a predictable sequence.
+  const selectedParties = () => filtered.filter((r) => selectedIds.has(r.id));
+
   // Same per-party balance rules as the Dashboard/Customer-Supplier Ledger,
   // so this total always agrees with those pages.
   const customerBalances = partyBalances(
@@ -235,10 +262,43 @@ function PartiesPage() {
   const receivable = filtered.reduce((a, p) => a + (receivableByParty.get(p.id) ?? 0), 0);
   const payable = filtered.reduce((a, p) => a + (payableByParty.get(p.id) ?? 0), 0);
 
+  // Money still sitting against ARCHIVED parties. The home page counts it
+  // (rightly — archiving hides a party, it doesn't cancel a debt) but the
+  // Active list can't show it, which is precisely why the two screens looked
+  // like they disagreed. Surface it here instead of leaving it invisible.
+  const archivedReceivable = rows
+    .filter((r) => r.archived)
+    .reduce((a, p) => a + (receivableByParty.get(p.id) ?? 0), 0);
+  const archivedPayable = rows
+    .filter((r) => r.archived)
+    .reduce((a, p) => a + (payableByParty.get(p.id) ?? 0), 0);
+  const archivedHoldsMoney = archivedReceivable > 0.01 || archivedPayable > 0.01;
+
   // Archive = soft-delete (the recommended action). Just a flag update, so it
   // commits offline and orphans nothing — every document referencing this
   // party keeps working.
   const archiveParty = (r: Party) => {
+    // Archiving does NOT forgive a debt. The dashboard keeps counting what an
+    // archived party owes (correctly — the money is still due), but the
+    // Active list stops showing them, so the two screens quietly stop
+    // agreeing and the home page looks wrong. Confirm before creating that
+    // situation, and say the amount out loud.
+    const owed = receivableByParty.get(r.id) ?? 0;
+    const owing = payableByParty.get(r.id) ?? 0;
+    const outstanding = owed || owing;
+    if (outstanding > 0.01) {
+      const side = owed > 0.01 ? "still owes you" : "is still owed";
+      const msg = [
+        `${r.name} ${side} ${fmtMoney(outstanding)}.`,
+        "",
+        "Archiving only hides them from new bills — the amount stays in your " +
+          "Receivable/Payable totals on the home page, but you won't see it in the " +
+          "Active list any more.",
+        "",
+        "Archive anyway?",
+      ].join("\n");
+      if (!confirm(msg)) return;
+    }
     PartyRepo.update(r.id, { archived: true });
     refresh();
     toast.success(`${r.name} archived — hidden from new transactions, history kept`);
@@ -262,12 +322,30 @@ function PartiesPage() {
     toast.success(`${r.name} restored`);
   };
 
-  const partyHasHistory = (r: Party) =>
-    SalesRepo.all().some((i) => i.partyId === r.id) ||
-    PurchaseRepo.all().some((i) => i.partyId === r.id) ||
-    SaleReturnRepo.all().some((i) => i.partyId === r.id) ||
-    PurchaseReturnRepo.all().some((i) => i.partyId === r.id) ||
-    PaymentRepo.all().some((i) => i.partyId === r.id);
+  /** Exactly what is keeping this party from being deleted, in plain words.
+   *
+   * This used to be a single boolean behind one generic message ("contains
+   * accounting history"), which reads as "delete is broken" to anyone who has
+   * just cleared what they thought was everything — most often an opening
+   * balance they forgot about, or a payment that stayed behind after the
+   * bills were removed. Naming the exact records, with counts, turns a dead
+   * end into an instruction. */
+  const deleteBlockers = (r: Party): string[] => {
+    const counts: [string, number][] = [
+      ["sale", SalesRepo.all().filter((i) => i.partyId === r.id).length],
+      ["purchase", PurchaseRepo.all().filter((i) => i.partyId === r.id).length],
+      ["sale return", SaleReturnRepo.all().filter((i) => i.partyId === r.id).length],
+      ["purchase return", PurchaseReturnRepo.all().filter((i) => i.partyId === r.id).length],
+      ["payment", PaymentRepo.all().filter((i) => i.partyId === r.id).length],
+    ];
+    const blockers = counts
+      .filter(([, n]) => n > 0)
+      .map(([label, n]) => `${n} ${label}${n > 1 ? "s" : ""}`);
+    if ((r.openingBalance ?? 0) !== 0) {
+      blockers.push(`an opening balance of ${fmtMoney(r.openingBalance ?? 0)}`);
+    }
+    return blockers;
+  };
 
   // Permanent delete is the rare exception, not the norm. Owner-only: only the
   // owner hydrates every collection, so the history check is reliable — a
@@ -279,9 +357,12 @@ function PartiesPage() {
       toast.error("Only the owner can permanently delete a party. Use Archive instead.");
       return;
     }
-    if (partyHasHistory(r) || (r.openingBalance ?? 0) !== 0) {
+    const blockers = deleteBlockers(r);
+    if (blockers.length) {
       toast.error(
-        "This party contains accounting history and cannot be permanently deleted. Archive it instead.",
+        `Can't delete ${r.name} — still linked to ${blockers.join(", ")}. ` +
+          "Delete those first, or Archive the party to hide it while keeping its history.",
+        { duration: 8000 },
       );
       return;
     }
@@ -293,6 +374,21 @@ function PartiesPage() {
   };
 
   const columns: Column<Party>[] = [
+    {
+      key: "sel",
+      label: "",
+      width: "32px",
+      render: (r) => (
+        <input
+          type="checkbox"
+          checked={selectedIds.has(r.id)}
+          onChange={() => toggleOne(r.id)}
+          onClick={(e) => e.stopPropagation()}
+          className="accent-primary"
+          aria-label={`Select ${r.name}`}
+        />
+      ),
+    },
     {
       key: "name",
       label: "Name",
@@ -386,6 +482,16 @@ function PartiesPage() {
           {/* Permanent delete: owner-only, and only meaningful for a party
               with no accounting history — permanentlyDelete enforces both and
               explains via toast when it's blocked. */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setLedgerFor([r]);
+            }}
+            className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+            title="Download ledger (choose a date range)"
+          >
+            <FileDown className="h-3.5 w-3.5" />
+          </button>
           {isOwner && (
             <button
               onClick={(e) => {
@@ -474,6 +580,45 @@ function PartiesPage() {
           </>
         }
       />
+      {selectedIds.size > 0 && (
+        <div className="px-3 sm:px-5 py-2 border-b bg-primary-soft flex items-center gap-3 flex-wrap no-print">
+          <label className="flex items-center gap-1.5 text-xs font-medium text-primary cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={allFilteredSelected}
+              onChange={toggleAllFiltered}
+              className="accent-primary"
+            />
+            Select all {filtered.length}
+          </label>
+          <span className="text-xs font-semibold text-foreground">{selectedIds.size} selected</span>
+          <div className="flex items-center gap-2 ml-auto">
+            <Button size="sm" variant="outline" onClick={() => setLedgerFor(selectedParties())}>
+              <FileDown className="h-3.5 w-3.5" /> Download Ledgers
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
+              Clear
+            </Button>
+          </div>
+        </div>
+      )}
+      {view === "active" && archivedHoldsMoney && (
+        <button
+          type="button"
+          onClick={() => setView("archived")}
+          className="no-print w-full text-left px-3 sm:px-5 py-2 bg-amber-50 border-b border-amber-200 text-[12px] text-amber-800 flex flex-wrap items-center gap-x-2 gap-y-1 hover:bg-amber-100 transition"
+        >
+          <span className="font-semibold">Archived parties still hold money:</span>
+          {archivedReceivable > 0.01 && <span>{fmtMoney(archivedReceivable)} receivable</span>}
+          {archivedReceivable > 0.01 && archivedPayable > 0.01 && <span>·</span>}
+          {archivedPayable > 0.01 && <span>{fmtMoney(archivedPayable)} payable</span>}
+          <span className="underline">View archived</span>
+          <span className="w-full text-[11px] text-amber-700/80">
+            This is included in the home page totals, which is why they can look higher than the
+            list below.
+          </span>
+        </button>
+      )}
       {/* Mobile card list — a table of 6 columns doesn't fit a phone; this
           is the same data as one tappable card per party instead. */}
       <div className="md:hidden flex-1 overflow-auto">
@@ -492,11 +637,39 @@ function PartiesPage() {
                 className="bg-white p-4 active:bg-gray-50"
               >
                 <div className="flex items-start justify-between gap-3 mb-1.5">
-                  <div className="min-w-0">
-                    <p className="font-semibold text-gray-800 truncate">{r.name}</p>
-                    <p className="text-xs text-gray-400 mt-0.5 truncate">{r.phone || "No phone"}</p>
+                  <div className="flex items-start gap-3 min-w-0">
+                    {/* Generous tap target — a bare 16px checkbox is a
+                        mis-tap magnet next to a card that navigates. */}
+                    <label
+                      onClick={(e) => e.stopPropagation()}
+                      className="shrink-0 -m-1 p-1 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(r.id)}
+                        onChange={() => toggleOne(r.id)}
+                        className="accent-primary h-4 w-4 align-middle"
+                        aria-label={`Select ${r.name}`}
+                      />
+                    </label>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-gray-800 truncate">{r.name}</p>
+                      <p className="text-xs text-gray-400 mt-0.5 truncate">
+                        {r.phone || "No phone"}
+                      </p>
+                    </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setLedgerFor([r]);
+                      }}
+                      className="p-1.5 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+                      title="Download ledger"
+                    >
+                      <FileDown className="h-4 w-4" />
+                    </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -620,6 +793,11 @@ function PartiesPage() {
         }}
       />
       <BulkPartyImportDialog open={bulkOpen} onOpenChange={setBulkOpen} onSaved={refresh} />
+      <PartyLedgerExportDialog
+        open={!!ledgerFor}
+        onOpenChange={(v) => !v && setLedgerFor(null)}
+        parties={ledgerFor ?? []}
+      />
     </div>
   );
 }

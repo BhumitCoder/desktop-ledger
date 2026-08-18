@@ -119,6 +119,7 @@ function GstPage() {
   return (
     <div className="flex flex-col h-full">
       <PageHeader
+        showBack
         title="GST"
         subtitle={`Output: ${fmtMoney(outTotal)} · Input: ${fmtMoney(inTotal)} · Payable: ${fmtMoney(outTotal - inTotal)}`}
         icon={<FileText className="h-5 w-5" />}

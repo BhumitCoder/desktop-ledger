@@ -22,6 +22,11 @@ import { stockShortfalls } from "@/lib/stock";
 import { NumInput } from "@/components/NumInput";
 import { QuickAddPartyDialog, type QuickAddPartyDetails } from "@/components/QuickAddPartyDialog";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
+import { matchesQuery, byRelevance } from "@/lib/search";
+
+/** See the note on the same constant in InvoiceForm — a rendering guard, not
+ * a search limit. */
+const MAX_SUGGESTIONS = 200;
 
 interface Props {
   mode: "sale-return" | "purchase-return";
@@ -110,10 +115,11 @@ export function ReturnForm({ mode }: Props) {
       : invoiceRepo.all();
     // Empty query — browse the most recent bills (already newest-first),
     // like every other search-as-you-type field in this app.
-    if (!q) return pool.slice(0, 8);
+    if (!q) return pool.slice(0, MAX_SUGGESTIONS);
     return pool
-      .filter((i) => i.number.toLowerCase().includes(q) || i.partyName.toLowerCase().includes(q))
-      .slice(0, 8);
+      .filter((i) => matchesQuery(q, i.number, i.partyName))
+      .sort(byRelevance(q, (i) => i.number))
+      .slice(0, MAX_SUGGESTIONS);
   }, [invQ, invoiceRepo, ret.partyId]);
 
   const loadFromInvoice = (inv: Invoice) => {
@@ -145,8 +151,11 @@ export function ReturnForm({ mode }: Props) {
     const q = partyQ.trim().toLowerCase();
     // Empty query — browse the full party list (like a combobox), instead
     // of showing nothing until the user starts typing.
-    if (!q) return active.slice(0, 8);
-    return active.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 8);
+    if (!q) return active.slice(0, MAX_SUGGESTIONS);
+    return active
+      .filter((p) => matchesQuery(q, p.name, p.phone))
+      .sort(byRelevance(q, (p) => p.name))
+      .slice(0, MAX_SUGGESTIONS);
   }, [partyQ, allParties]);
 
   useEffect(() => {
@@ -801,14 +810,10 @@ function ReturnItemSearchRow({
   // visually shown as selected.
   const suggests = q.trim()
     ? items
-        .filter(
-          (i) =>
-            i.name.toLowerCase().includes(q.toLowerCase()) ||
-            i.sku?.toLowerCase().includes(q.toLowerCase()) ||
-            i.barcode?.includes(q),
-        )
-        .slice(0, 8)
-    : items.slice(0, 8);
+        .filter((i) => matchesQuery(q, i.name, i.sku, i.barcode))
+        .sort(byRelevance(q, (i) => i.name))
+        .slice(0, MAX_SUGGESTIONS)
+    : items.slice(0, MAX_SUGGESTIONS);
 
   // No self-refocus here — the parent moves focus to the newly added line's
   // Qty field instead (see focusQtyId in ReturnForm), matching Sales' flow:

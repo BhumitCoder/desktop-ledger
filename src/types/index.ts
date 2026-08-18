@@ -183,7 +183,17 @@ export interface BankTxn {
 export interface PaymentAllocation {
   invoiceId: ID;
   number: string;
+  /** Cash/bank actually applied to this invoice. */
   amount: number;
+  /**
+   * Amount written off on this invoice at the moment of settlement — a
+   * "settlement discount". Collecting 20,000 against a 20,500 bill and
+   * waiving the last 500 closes the bill without inventing 500 of cash:
+   * the invoice's `paid` moves by amount + discount, while only `amount`
+   * ever reaches the cash or bank position. The waived part is real cost to
+   * the business, so the P&L subtracts it (see valueExTax/discountAllowed).
+   */
+  discount?: number;
 }
 
 export interface Payment {

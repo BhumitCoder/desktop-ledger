@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   SalesRepo,
@@ -16,7 +16,12 @@ import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 import type { Invoice } from "@/types";
-import { computeCogs, buildPartyStatement, valueExTax } from "@/lib/ledger";
+import {
+  computeCogs,
+  buildPartyStatement,
+  valueExTax,
+  totalSettlementDiscount,
+} from "@/lib/ledger";
 import { downloadCsv } from "@/lib/csv";
 import { downloadXlsx } from "@/lib/xlsx";
 import { downloadElementAsPdf } from "@/lib/pdf";
@@ -87,6 +92,7 @@ let dateCache: { dateFrom: string; dateTo: string } | null = null;
 
 function ReportsPage() {
   useRepoData();
+  const router = useRouter();
   const { r } = Route.useSearch();
   const [active, setActive] = useState(() =>
     REPORTS.some((x) => x.key === r) ? (r as string) : (activeReportCache ?? "pl"),
@@ -152,6 +158,14 @@ function ReportsPage() {
       <div className="bg-white border-b px-5 py-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 no-print">
         <div className="flex items-center justify-between sm:justify-start gap-2.5">
           <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => router.history.back()}
+              aria-label="Go back"
+              className="md:hidden shrink-0 h-8 w-8 -ml-1 rounded-md border border-gray-200 flex items-center justify-center text-gray-500 active:bg-gray-100 transition"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
             <BarChart3 className="h-5 w-5 text-primary shrink-0" />
             <div>
               <h1 className="text-[17px] font-bold text-gray-800 leading-tight">Reports</h1>
@@ -413,7 +427,12 @@ function ReportView({
     const netPurchases = r2(valueExTax(purchases) - valueExTax(purchaseReturns));
     const grossProfit = r2(netRevenue - cogs);
     const exp = expenses.reduce((a, s) => a + s.amount, 0);
-    const netProfit = r2(grossProfit - exp);
+    // Amounts waived when settling a bill are a real cost — the sale was
+    // booked at full value, so without this the waived part would quietly
+    // inflate profit. A discount a SUPPLIER gave us works the other way.
+    const discountAllowed = totalSettlementDiscount(payments.filter((p) => p.type === "in"));
+    const discountReceived = totalSettlementDiscount(payments.filter((p) => p.type === "out"));
+    const netProfit = r2(grossProfit - exp - discountAllowed + discountReceived);
 
     return (
       <div className="max-w-2xl">
@@ -453,6 +472,12 @@ function ReportView({
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Expenses</p>
           </div>
           <PLRow label="Operating Expenses" value={-exp} />
+          {discountAllowed > 0 && (
+            <PLRow label="Discount Allowed (settlements)" value={-discountAllowed} />
+          )}
+          {discountReceived > 0 && (
+            <PLRow label="Discount Received (settlements)" value={discountReceived} />
+          )}
           <div className="px-5 py-4 bg-primary/5 border-t-2 border-primary flex justify-between items-center">
             <span className="text-base font-bold text-gray-800">Net Profit</span>
             <span

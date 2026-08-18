@@ -31,6 +31,7 @@ import {
   computeCogs,
   bankFlows,
   valueExTax,
+  totalSettlementDiscount,
   type PartyBalance,
 } from "@/lib/ledger";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -85,6 +86,8 @@ function getPeriodRange(period: Period): { start: string; end: string; label: st
     label: "This Year",
   };
 }
+
+const r2 = (n: number) => Math.round(n * 100) / 100;
 
 function inRange(dateStr: string, start: string, end: string) {
   return dateStr >= start && dateStr <= end;
@@ -232,8 +235,18 @@ function Dashboard() {
       ),
     [data, start, end],
   );
-  const netProfit =
-    valueExTax(periodSales) - valueExTax(periodSaleReturns) - periodCogs - totalExpense;
+  // Matches the P&L report exactly, including amounts waived at settlement
+  // (see totalSettlementDiscount) — those reduce profit even though no cash
+  // ever moved for them.
+  const periodPayments = data.payments.filter((p) => inRange(p.date, start, end));
+  const netProfit = r2(
+    valueExTax(periodSales) -
+      valueExTax(periodSaleReturns) -
+      periodCogs -
+      totalExpense -
+      totalSettlementDiscount(periodPayments.filter((p) => p.type === "in")) +
+      totalSettlementDiscount(periodPayments.filter((p) => p.type === "out")),
+  );
 
   const lowStock = data.items.filter(
     (i) => (i.minStock != null && i.stock <= i.minStock) || i.stock < 0,

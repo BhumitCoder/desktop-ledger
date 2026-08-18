@@ -17,6 +17,8 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
  * was applied to invoices. */
 export function allocatedAmount(p: Payment, invoiceNumbers?: Set<string>): number {
   if (p.allocations && p.allocations.length) {
+    // Cash only — a settlement discount is not part of the money received,
+    // so it must not reduce the advance calculation below.
     return r2(p.allocations.reduce((s, a) => s + a.amount, 0));
   }
   if (p.ref && invoiceNumbers) {
@@ -34,15 +36,36 @@ export function advanceAmount(p: Payment, invoiceNumbers?: Set<string>): number 
   return Math.max(0, r2(p.amount - allocatedAmount(p, invoiceNumbers)));
 }
 
-/** invoiceId → total amount settled through Payment records. */
+/**
+ * invoiceId → how much of that invoice was SETTLED through Payment records.
+ *
+ * Settled, not received: a settlement discount closes the remaining balance
+ * without cash changing hands, so it counts here (the invoice really is
+ * paid off) even though it never reaches a cash or bank position. Keeping
+ * the two ideas in step is what stops `modeFlows`' direct-portion formula
+ * (paid − applied) from inventing phantom cash on a discounted bill.
+ */
 export function paidViaPayments(payments: Payment[]): Map<string, number> {
   const map = new Map<string, number>();
   for (const p of payments) {
     for (const a of p.allocations ?? []) {
-      map.set(a.invoiceId, r2((map.get(a.invoiceId) ?? 0) + a.amount));
+      map.set(a.invoiceId, r2((map.get(a.invoiceId) ?? 0) + a.amount + (a.discount ?? 0)));
     }
   }
   return map;
+}
+
+/** Total written off across a set of payments — "Discount Allowed" on money
+ * coming in, "Discount Received" on money going out. Real profit impact:
+ * the sale was booked at full value, so the waived part has to come back off
+ * the bottom line. */
+export function totalSettlementDiscount(payments: Payment[]): number {
+  return r2(
+    payments.reduce(
+      (s, p) => s + (p.allocations ?? []).reduce((x, a) => x + (a.discount ?? 0), 0),
+      0,
+    ),
+  );
 }
 
 export interface PartyBalance {

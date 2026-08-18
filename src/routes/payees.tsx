@@ -125,6 +125,7 @@ function PayeesPage() {
   return (
     <div className="flex flex-col h-full">
       <PageHeader
+        showBack
         title="Expense Payees"
         subtitle={`${rows.length} payees · ${fmtMoney(grandTotal)} paid all-time`}
         icon={<Wallet2 className="h-5 w-5" />}

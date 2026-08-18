@@ -60,6 +60,7 @@ function PurchaseReturnPage() {
   return (
     <div className="flex flex-col h-full bg-[#f5f6fa]">
       <PageHeader
+        showBack
         title="Purchase Returns"
         subtitle={`${rows.length} debit notes · Total: ${fmtMoney(totalDebit)}`}
         icon={<CornerUpLeft className="h-5 w-5" />}

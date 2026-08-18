@@ -81,6 +81,7 @@ export function PrintableInvoice({
   scale = 1,
 }: Props) {
   const gstOn = inv.gstEnabled !== false;
+  const showDisc = inv.lineItems.some((l) => (l.discountPct ?? 0) > 0);
   const isSale = mode === "sale";
   const title = gstOn ? "TAX INVOICE" : isSale ? "INVOICE / BILL OF SUPPLY" : "PURCHASE BILL";
 
@@ -183,6 +184,11 @@ export function PrintableInvoice({
       </table>
 
       {/* Line items */}
+      {/* Sale bills no longer collect a per-line discount (the whole-bill
+          Extra Discount covers it), so printing a column of "0%" is just
+          noise. Shown only when a line actually carries one — which keeps
+          every older bill that DID use line discounts printing exactly as
+          it always has. */}
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr>
@@ -191,7 +197,7 @@ export function PrintableInvoice({
             <th style={{ ...th, textAlign: "right", width: s(55) }}>Qty</th>
             <th style={{ ...th, width: s(45) }}>Unit</th>
             <th style={{ ...th, textAlign: "right", width: s(75) }}>Price</th>
-            <th style={{ ...th, textAlign: "right", width: s(55) }}>Disc%</th>
+            {showDisc && <th style={{ ...th, textAlign: "right", width: s(55) }}>Disc%</th>}
             {gstOn && <th style={{ ...th, textAlign: "right", width: s(55) }}>GST%</th>}
             {gstOn && <th style={{ ...th, textAlign: "right", width: s(75) }}>GST Amt</th>}
             <th style={{ ...th, textAlign: "right", width: s(90) }}>Amount</th>
@@ -208,7 +214,7 @@ export function PrintableInvoice({
                 <td style={{ ...cellStyle, textAlign: "right" }}>{l.qty}</td>
                 <td style={cellStyle}>{l.unit}</td>
                 <td style={{ ...cellStyle, textAlign: "right" }}>{fmtMoney(l.price)}</td>
-                <td style={{ ...cellStyle, textAlign: "right" }}>{l.discountPct}%</td>
+                {showDisc && <td style={{ ...cellStyle, textAlign: "right" }}>{l.discountPct}%</td>}
                 {gstOn && <td style={{ ...cellStyle, textAlign: "right" }}>{l.gstRate}%</td>}
                 {gstOn && <td style={{ ...cellStyle, textAlign: "right" }}>{fmtMoney(gstAmt)}</td>}
                 <td style={{ ...cellStyle, textAlign: "right", fontWeight: 600 }}>

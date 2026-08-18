@@ -13,6 +13,7 @@ import {
   PurchaseReturnRepo,
 } from "@/repositories";
 import { useRepoData } from "@/hooks/useRepoData";
+import { BulkUpdateItemsDialog } from "@/components/BulkUpdateItemsDialog";
 import { newBatch, commitBatch } from "@/repositories/base";
 import type { Item } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -276,6 +277,19 @@ function ItemsPage() {
             >
               <Upload className="h-3.5 w-3.5" /> Bulk Import
             </Button>
+            {/* Reachable without ticking anything first — with no selection
+                it opens on the whole catalogue, which is the usual way in. */}
+            {editAllowed && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setBulkEditOpen(true)}
+                title="Bulk Update Items"
+                className="hidden sm:inline-flex"
+              >
+                <Pencil className="h-3.5 w-3.5" /> Bulk Update
+              </Button>
+            )}
             {editAllowed && (
               <Button
                 size="sm"
@@ -309,7 +323,7 @@ function ItemsPage() {
           <span className="text-xs font-semibold text-foreground">{selectedIds.size} selected</span>
           <div className="flex items-center gap-2 ml-auto">
             <Button size="sm" variant="outline" onClick={() => setBulkEditOpen(true)}>
-              <Pencil className="h-3.5 w-3.5" /> Bulk Edit
+              <Pencil className="h-3.5 w-3.5" /> Bulk Update ({selectedIds.size})
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
               Clear
@@ -439,7 +453,7 @@ function ItemsPage() {
       </div>
       <ItemDialog open={open} onOpenChange={setOpen} item={edit} onSaved={refresh} />
       <BulkImportDialog open={bulkOpen} onOpenChange={setBulkOpen} onSaved={refresh} />
-      <BulkEditDialog
+      <BulkUpdateItemsDialog
         open={bulkEditOpen}
         itemIds={Array.from(selectedIds)}
         onOpenChange={setBulkEditOpen}
@@ -588,178 +602,6 @@ export function StockAdjustDialog({
             </Button>
           </div>
         </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-type BulkField = "category" | "salePrice" | "purchasePrice" | "wholesalePrice" | "minStock";
-type BulkAction = "set" | "increasePct" | "decreasePct" | "increaseAmt" | "decreaseAmt";
-
-const BULK_FIELDS: { key: BulkField; label: string; numeric: boolean }[] = [
-  { key: "category", label: "Category", numeric: false },
-  { key: "salePrice", label: "Sale Price", numeric: true },
-  { key: "purchasePrice", label: "Purchase Price", numeric: true },
-  { key: "wholesalePrice", label: "Wholesale Price", numeric: true },
-  { key: "minStock", label: "Min Stock", numeric: true },
-];
-
-/** In-app multi-select bulk edit — separate from Bulk Import/CSV. Lets the
- * shop pick items on the list (checkboxes) and change one field across all
- * of them at once (set a value, or bump prices by % / amount) without
- * leaving the app. Never touches stock — same rule as Bulk Import. */
-function BulkEditDialog({
-  open,
-  itemIds,
-  onOpenChange,
-  onSaved,
-}: {
-  open: boolean;
-  itemIds: string[];
-  onOpenChange: (v: boolean) => void;
-  onSaved: () => void;
-}) {
-  const [field, setField] = useState<BulkField>("category");
-  const [action, setAction] = useState<BulkAction>("set");
-  const [value, setValue] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (open) {
-      setField("category");
-      setAction("set");
-      setValue("");
-      setSaving(false);
-    }
-  }, [open]);
-
-  const fieldDef = BULK_FIELDS.find((f) => f.key === field)!;
-
-  const apply = async () => {
-    if (saving) return;
-    const items = itemIds.map((id) => ItemRepo.get(id)).filter((x): x is Item => !!x);
-    if (!items.length) {
-      toast.error("Selected items no longer exist");
-      onOpenChange(false);
-      return;
-    }
-    const n = parseFloat(value);
-    if (fieldDef.numeric) {
-      if (isNaN(n) || n < 0) {
-        toast.error("Enter a valid, non-negative number");
-        return;
-      }
-    } else if (!value.trim()) {
-      toast.error("Enter a value");
-      return;
-    }
-
-    setSaving(true);
-    const batch = newBatch();
-    for (const it of items) {
-      if (field === "category") {
-        ItemRepo.updateBatched(batch, it.id, { category: value.trim() });
-        continue;
-      }
-      const current = it[field] ?? 0;
-      let next = current;
-      if (action === "set") next = n;
-      else if (action === "increasePct") next = current * (1 + n / 100);
-      else if (action === "decreasePct") next = current * (1 - n / 100);
-      else if (action === "increaseAmt") next = current + n;
-      else if (action === "decreaseAmt") next = current - n;
-      next = Math.max(0, Math.round(next * 100) / 100);
-
-      const patch: Partial<Item> = {};
-      if (field === "salePrice") patch.salePrice = next;
-      else if (field === "purchasePrice") patch.purchasePrice = next;
-      else if (field === "wholesalePrice") patch.wholesalePrice = next;
-      else if (field === "minStock") patch.minStock = next;
-      ItemRepo.updateBatched(batch, it.id, patch);
-    }
-    await commitBatch(batch, "bulk edit items");
-    toast.success(`Updated ${items.length} item${items.length > 1 ? "s" : ""}`);
-    setSaving(false);
-    onSaved();
-    onOpenChange(false);
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>
-            Bulk Edit — {itemIds.length} item{itemIds.length > 1 ? "s" : ""}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div>
-            <label className="text-xs font-medium text-muted-foreground">Field</label>
-            <select
-              value={field}
-              onChange={(e) => {
-                const f = e.target.value as BulkField;
-                setField(f);
-                if (!BULK_FIELDS.find((x) => x.key === f)?.numeric) setAction("set");
-              }}
-              className="mt-1 h-9 w-full border rounded-md px-2 text-sm bg-background"
-            >
-              {BULK_FIELDS.map((f) => (
-                <option key={f.key} value={f.key}>
-                  {f.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          {fieldDef.numeric && (
-            <div>
-              <label className="text-xs font-medium text-muted-foreground">Action</label>
-              <select
-                value={action}
-                onChange={(e) => setAction(e.target.value as BulkAction)}
-                className="mt-1 h-9 w-full border rounded-md px-2 text-sm bg-background"
-              >
-                <option value="set">Set to</option>
-                <option value="increasePct">Increase by %</option>
-                <option value="decreasePct">Decrease by %</option>
-                <option value="increaseAmt">Increase by amount</option>
-                <option value="decreaseAmt">Decrease by amount</option>
-              </select>
-            </div>
-          )}
-          <Field
-            label={
-              !fieldDef.numeric
-                ? "New category"
-                : action === "set"
-                  ? "New value"
-                  : action.includes("Pct")
-                    ? "Percent (%)"
-                    : "Amount"
-            }
-            type={fieldDef.numeric ? "number" : "text"}
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-          />
-          <p className="text-xs text-muted-foreground">
-            This will update {fieldDef.label.toLowerCase()} on all {itemIds.length} selected item
-            {itemIds.length > 1 ? "s" : ""}.{" "}
-            {fieldDef.numeric && "Stock is never changed by bulk edit."}
-          </p>
-          <div className="flex justify-end gap-2 pt-1">
-            <Button
-              type="button"
-              variant="outline"
-              disabled={saving}
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </Button>
-            <Button type="button" disabled={saving} onClick={apply}>
-              {saving ? "Applying…" : "Apply"}
-            </Button>
-          </div>
-        </div>
       </DialogContent>
     </Dialog>
   );

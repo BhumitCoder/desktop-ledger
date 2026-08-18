@@ -375,6 +375,39 @@ export async function run(): Promise<Results> {
   has(payee, "Landlord", "payee page: name");
   has(payee, fmtMoney(5000), "payee page: the rent expense");
 
+  /* ── Dashboard: every figure on the home page, derived by hand ───────
+     The client reports the home page totals as wrong, so each card is
+     pinned to an independently-computed value rather than to whatever the
+     code happens to produce. `fmt` mirrors the dashboard's own formatter
+     (en-IN, no decimals). */
+  const fmt = (n: number) => new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(n);
+  const home = await renderRoute("/");
+  // P1: 1000 invoiced − 100 returned − 400 settled − 300 advance = 200
+  has(home, `₹ ${fmt(200)}`, "dashboard: Total Receivable = 200");
+  // P2: 450 purchased, nothing paid = 450
+  has(home, `₹ ${fmt(450)}`, "dashboard: Total Payable = 450");
+  // cash-mode only: +300 payment in, −5000 expense (the sale settled by bank)
+  has(home, `₹ ${fmt(-4700)}`, "dashboard: Cash On Hand = −4700");
+  // stored 11400; the sale is tied to account B1 so it is NOT added again
+  has(home, `₹ ${fmt(11400)}`, "dashboard: Total Bank Balance = 11400");
+  // 40×60 + 2×90
+  has(home, `₹ ${fmt(2580)}`, "dashboard: Stock Value = 2580");
+  has(home, `₹ ${fmt(450)}`, "dashboard: Purchases this period = 450");
+  has(home, `₹ ${fmt(5000)}`, "dashboard: Expenses this period = 5000");
+  // 1000 − 100 − 540 COGS − 5000 expenses (GST-exclusive, so unchanged here)
+  has(home, `₹ ${fmt(-4640)}`, "dashboard: Net Profit = −4640");
+
+  // Expenses: edit and delete must be visible controls, not just a row
+  // click and a Ctrl+Delete nobody can discover.
+  const expensesPage = await renderRoute("/expenses");
+  has(expensesPage, "Action", "expenses: row actions column is present");
+
+  // Items page: the old "apply one operation to everything" bulk edit was
+  // replaced by the Bulk Update Items screen, reachable without selecting.
+  const itemsPage = await renderRoute("/items");
+  has(itemsPage, "Bulk Update", "items: the new bulk update entry point");
+  assert(!itemsPage.includes("Bulk Edit"), "items: the replaced Bulk Edit button must be gone");
+
   const daybook = await renderRoute(`/daybook?date=${D3}`);
   has(daybook, "PUR-0001", "daybook: the purchase");
   has(daybook, fmtMoney(5000), "daybook: the expense");
@@ -432,6 +465,26 @@ export async function run(): Promise<Results> {
     assert(!/NaN/.test(text), `${url} rendered NaN`);
     has(text, needle, `${url} content`);
   }
+
+  /* ── Archived party holding money: do the two screens agree? ─────────
+     Run LAST, because it mutates the seeded book. Archiving only hides a
+     party from pickers — it does not forgive what they owe — so the money
+     must not silently disappear from one screen while showing on another. */
+  PartyRepo.update("P1", { archived: true });
+
+  const homeAfterArchive = await renderRoute("/");
+  has(
+    homeAfterArchive,
+    `₹ ${fmt(200)}`,
+    "archived party: dashboard still counts money they owe (archiving is not forgiveness)",
+  );
+
+  const partiesAfterArchive = await renderRoute("/parties");
+  assert(
+    partiesAfterArchive.includes(fmtMoney(200)),
+    "archived party: the Parties page hides ₹200 of receivable that the dashboard counts — " +
+      "the two screens disagree",
+  );
 
   if (root) root.unmount();
   if (host) host.remove();

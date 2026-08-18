@@ -139,6 +139,7 @@ function InventoryPage() {
   return (
     <div className="flex flex-col h-full">
       <PageHeader
+        showBack
         title="Inventory"
         subtitle={`${rows.length} items`}
         icon={<Boxes className="h-5 w-5" />}

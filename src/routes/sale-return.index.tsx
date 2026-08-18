@@ -61,6 +61,7 @@ function SaleReturnPage() {
   return (
     <div className="flex flex-col h-full bg-[#f5f6fa]">
       <PageHeader
+        showBack
         title="Sale Returns"
         subtitle={`${rows.length} credit notes · Total: ${fmtMoney(totalCredit)}`}
         icon={<CornerDownLeft className="h-5 w-5" />}

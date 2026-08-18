@@ -8,4 +8,4 @@ export const APP_NAME = "OM IMPEX";
 
 /** Bump on every deploy — shown on the login page and Settings so we can
  * always tell which version a user is actually running. */
-export const APP_VERSION = "18 Aug 2026 · v50";
+export const APP_VERSION = "18 Aug 2026 · v51";

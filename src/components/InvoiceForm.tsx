@@ -18,6 +18,13 @@ import {
 } from "@/repositories";
 import { partyBalances } from "@/lib/ledger";
 import { correctBankPaidAmount } from "@/lib/bankRepair";
+import { matchesQuery, byRelevance } from "@/lib/search";
+
+/** Rendering guard for the search dropdowns, NOT a search limit: every match
+ * is found and ranked, this only bounds how many rows go into the DOM at once
+ * so a large catalogue can't make the list janky. Anything beyond it is
+ * reported by a "+N more" footer. */
+const MAX_SUGGESTIONS = 200;
 import type { Invoice, LineItem, Party, Item, PaymentMode, BankAccount } from "@/types";
 import { fmtMoney, fmtDate, today } from "@/lib/format";
 import { toast } from "sonner";
@@ -95,6 +102,24 @@ export function InvoiceForm({ mode, existing }: Props) {
   );
 
   const gstOn = inv.gstEnabled !== false;
+
+  // Per-line Unit and Disc% are off on SALE bills: the counter gives one
+  // whole-bill "Extra Discount" in the totals card instead, and Unit belongs
+  // to the item rather than being re-typed per bill. Two fewer columns also
+  // makes the grid fit a phone without sideways scrolling.
+  //
+  // The DATA is untouched — `discountPct` still exists, is still 0 on new
+  // lines, and every existing bill keeps calculating exactly as before, so
+  // no historical total or GST figure moves. Purchase bills keep both
+  // columns (the client only asked about sales).
+  //
+  // The one exception: if a bill being edited already carries a line
+  // discount, the column stays visible. Hiding a live, non-zero discount
+  // would leave an amount affecting the total that nobody could see or
+  // correct.
+  const hasLineDiscount = inv.lineItems.some((l) => (l.discountPct ?? 0) > 0);
+  const showUnitCol = !isSale;
+  const showDiscCol = !isSale || hasLineDiscount;
 
   const allParties = useRepoMemo(() => PartyRepo.all());
   const parties = useMemo(() => allParties.filter(partyFilter), [allParties]);
@@ -218,16 +243,16 @@ export function InvoiceForm({ mode, existing }: Props) {
   }, [inv.partyId, isSale, allParties]);
 
   const partySuggests = useMemo(() => {
-    const q = partyQ.trim().toLowerCase();
+    const q = partyQ.trim();
     const pq = phoneQ.trim();
     // Empty query — browse the full party list (like a combobox), instead
-    // of showing nothing until the user starts typing.
-    if (!q && !pq) return parties.slice(0, 8);
+    // of showing nothing until the user starts typing. Was capped at 8, so a
+    // shop with more customers than that could never scroll to the rest.
+    if (!q && !pq) return parties.slice(0, MAX_SUGGESTIONS);
     return parties
-      .filter(
-        (p) => (q && p.name.toLowerCase().includes(q)) || (pq && (p.phone ?? "").includes(pq)),
-      )
-      .slice(0, 8);
+      .filter((p) => (q ? matchesQuery(q, p.name) : (p.phone ?? "").includes(pq)))
+      .sort(byRelevance(q, (p) => p.name))
+      .slice(0, MAX_SUGGESTIONS);
   }, [partyQ, phoneQ, parties]);
 
   useEffect(() => {
@@ -1220,12 +1245,12 @@ export function InvoiceForm({ mode, existing }: Props) {
                   <th className="text-left px-3 py-2 w-8">#</th>
                   <th className="text-left px-3 py-2">Item</th>
                   <th className="text-right w-20 py-2 px-2">Qty</th>
-                  <th className="text-left w-20 py-2 px-2">Unit</th>
+                  {showUnitCol && <th className="text-left w-20 py-2 px-2">Unit</th>}
                   {inv.isInternational && (
                     <th className="text-right w-28 py-2 px-2 whitespace-nowrap">Foreign Price</th>
                   )}
                   <th className="text-right w-24 py-2 px-2">Price</th>
-                  <th className="text-right w-20 py-2 px-2">Disc%</th>
+                  {showDiscCol && <th className="text-right w-20 py-2 px-2">Disc%</th>}
                   {gstOn && <th className="text-right w-20 py-2 px-2">GST%</th>}
                   <th className="text-right w-28 py-2 pr-3">Amount</th>
                   <th className="w-8"></th>
@@ -1258,13 +1283,15 @@ export function InvoiceForm({ mode, existing }: Props) {
                         className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
                       />
                     </td>
-                    <td className="py-1.5 px-1">
-                      <input
-                        value={l.unit}
-                        onChange={(e) => updateLine(l.id, { unit: e.target.value })}
-                        className="w-full h-7 px-1.5 border rounded bg-background focus:border-primary outline-none"
-                      />
-                    </td>
+                    {showUnitCol && (
+                      <td className="py-1.5 px-1">
+                        <input
+                          value={l.unit}
+                          onChange={(e) => updateLine(l.id, { unit: e.target.value })}
+                          className="w-full h-7 px-1.5 border rounded bg-background focus:border-primary outline-none"
+                        />
+                      </td>
+                    )}
                     {inv.isInternational && (
                       <td className="py-1.5 px-1">
                         <NumInput
@@ -1291,13 +1318,15 @@ export function InvoiceForm({ mode, existing }: Props) {
                         />
                       )}
                     </td>
-                    <td className="py-1.5 px-1">
-                      <NumInput
-                        value={l.discountPct}
-                        onValue={(n) => updateLine(l.id, { discountPct: n })}
-                        className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
-                      />
-                    </td>
+                    {showDiscCol && (
+                      <td className="py-1.5 px-1">
+                        <NumInput
+                          value={l.discountPct}
+                          onValue={(n) => updateLine(l.id, { discountPct: n })}
+                          className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
+                        />
+                      </td>
+                    )}
                     {gstOn && (
                       <td className="py-1.5 px-1">
                         <NumInput
@@ -1653,16 +1682,21 @@ function ItemEntryRow({
   // of showing nothing until the user starts typing. Enter always commits
   // whichever row is highlighted (index 0 by default), matching what's
   // visually shown as selected.
-  const suggests = q.trim()
+  //
+  // This used to be capped at 8 rows, which is why the catalogue looked
+  // truncated: a shop with hundreds of items could only ever see the first
+  // eight of them, matched on one contiguous substring. Now every typed word
+  // is matched independently against name/SKU/barcode (so "guard fan" finds
+  // "V-GUARD GLADO 1200MM FAN"), best matches sort first, and the list
+  // scrolls. The remaining cap is a rendering guard, not a search limit —
+  // see the "+N more" footer.
+  const allMatches = q.trim()
     ? items
-        .filter(
-          (i) =>
-            i.name.toLowerCase().includes(q.toLowerCase()) ||
-            i.sku?.toLowerCase().includes(q.toLowerCase()) ||
-            i.barcode?.includes(q),
-        )
-        .slice(0, 8)
-    : items.slice(0, 8);
+        .filter((i) => matchesQuery(q, i.name, i.sku, i.barcode))
+        .sort(byRelevance(q, (i) => i.name))
+    : items;
+  const suggests = allMatches.slice(0, MAX_SUGGESTIONS);
+  const hiddenCount = allMatches.length - suggests.length;
 
   // Offer "add as new item" whenever the typed name doesn't exactly match an existing one
   const trimmed = q.trim();
@@ -1732,6 +1766,9 @@ function ItemEntryRow({
                     e.preventDefault();
                     pick(it);
                   }}
+                  ref={(el) => {
+                    if (i === idx && el) el.scrollIntoView({ block: "nearest" });
+                  }}
                   className={`px-3 py-2 text-sm cursor-pointer flex justify-between ${i === idx ? "bg-accent" : "hover:bg-accent"}`}
                 >
                   <div>
@@ -1764,6 +1801,11 @@ function ItemEntryRow({
                   <span>
                     Add "<span className="font-semibold">{trimmed}</span>" as new item
                   </span>
+                </div>
+              )}
+              {hiddenCount > 0 && (
+                <div className="px-3 py-2 text-[11px] text-muted-foreground border-t bg-muted/40 sticky bottom-0">
+                  +{hiddenCount} more — keep typing to narrow it down
                 </div>
               )}
             </div>,
@@ -1863,16 +1905,16 @@ function ItemNameCell({
     setEditing(true);
   };
 
-  const suggests = q.trim()
+  // Same all-words matching and rendering cap as the main item search bar —
+  // this picker was capped at 8 too, so swapping a line's item could only
+  // ever reach the first eight of the catalogue.
+  const allMatches = q.trim()
     ? items
-        .filter(
-          (i) =>
-            i.name.toLowerCase().includes(q.toLowerCase()) ||
-            i.sku?.toLowerCase().includes(q.toLowerCase()) ||
-            i.barcode?.includes(q),
-        )
-        .slice(0, 8)
-    : items.slice(0, 8);
+        .filter((i) => matchesQuery(q, i.name, i.sku, i.barcode))
+        .sort(byRelevance(q, (i) => i.name))
+    : items;
+  const suggests = allMatches.slice(0, MAX_SUGGESTIONS);
+  const hiddenCount = allMatches.length - suggests.length;
 
   const pick = (it: Item) => {
     setEditing(false);
@@ -1947,6 +1989,9 @@ function ItemNameCell({
                   e.preventDefault();
                   pick(it);
                 }}
+                ref={(el) => {
+                  if (i === idx && el) el.scrollIntoView({ block: "nearest" });
+                }}
                 className={`px-3 py-2 text-sm cursor-pointer flex justify-between ${i === idx ? "bg-accent" : "hover:bg-accent"}`}
               >
                 <div>
@@ -1965,6 +2010,11 @@ function ItemNameCell({
                 </div>
               </div>
             ))}
+            {hiddenCount > 0 && (
+              <div className="px-3 py-2 text-[11px] text-muted-foreground border-t bg-muted/40 sticky bottom-0">
+                +{hiddenCount} more — keep typing to narrow it down
+              </div>
+            )}
           </div>,
           document.body,
         )}

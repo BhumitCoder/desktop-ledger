@@ -16,6 +16,7 @@ import {
   paidViaPayments,
   valueExTax,
   buildBankLedger,
+  totalSettlementDiscount,
 } from "@/lib/ledger";
 import type {
   Invoice,
@@ -796,6 +797,70 @@ console.log(`\n═════════════════════�
     expenses: [],
   });
   assert(cashOnly.bills.length === 0, "T13: non-bank bills are not touched");
+}
+
+/* ═══ TEST 14: settlement discount ═══
+   The client's case: a 20,500 bill, 20,000 collected, the last 500 waived so
+   the bill can be closed. The bill must read as fully settled and the party
+   must owe nothing, while ONLY the 20,000 may ever appear as cash — the
+   waived 500 is a cost, not money that arrived. */
+{
+  const inv = {
+    id: "D1",
+    number: "INV-5001",
+    date: "2026-06-01",
+    partyId: "PD",
+    partyName: "Discount Co",
+    gstEnabled: false,
+    lineItems: [],
+    subtotal: 20500,
+    discount: 0,
+    taxAmount: 0,
+    total: 20500,
+    paid: 20500, // 20000 cash + 500 written off
+    paymentMode: "credit",
+    createdAt: "2026-06-01T09:00:00Z",
+  } as unknown as Invoice;
+
+  const pay = {
+    id: "DP1",
+    type: "in",
+    date: "2026-06-10",
+    partyId: "PD",
+    partyName: "Discount Co",
+    amount: 20000, // cash only — the discount is NOT part of this
+    mode: "cash",
+    allocations: [{ invoiceId: "D1", number: "INV-5001", amount: 20000, discount: 500 }],
+    createdAt: "2026-06-10T09:00:00Z",
+  } as unknown as Payment;
+
+  // The bill is settled in full: cash + write-off.
+  assert(paidViaPayments([pay]).get("D1") === 20500, "T14: bill counted as fully settled");
+
+  // The party owes nothing afterwards.
+  const bal = partyBalances([inv], [], [pay], [{ id: "PD", name: "Discount Co" }], "customer");
+  assert(bal[0].balance === 0, "T14: party balance clears to zero");
+
+  // Only real cash reaches the cash position — never the written-off 500.
+  const cash = netFlow(cashFlows([inv], [], [], [pay], []));
+  assert(cash === 20000, `T14: cash must be 20000, got ${cash}`);
+
+  // And the direct-portion formula must not invent a phantom receipt: the
+  // invoice is "credit" mode, so nothing of it belongs in any mode's flows.
+  const bankish = netFlow(bankFlows([inv], [], [], [pay]));
+  assert(bankish === 0, "T14: no phantom bank movement");
+
+  assert(totalSettlementDiscount([pay]) === 500, "T14: the write-off is reported for the P&L");
+  assert(totalSettlementDiscount([]) === 0, "T14: no payments, no discount");
+
+  // An advance must still be computed off CASH only, not cash + write-off.
+  assert(advanceAmount(pay) === 0, "T14: fully applied, so no advance");
+  const partial = {
+    ...pay,
+    amount: 20300,
+    allocations: [{ invoiceId: "D1", number: "INV-5001", amount: 20000, discount: 500 }],
+  } as unknown as Payment;
+  assert(advanceAmount(partial) === 300, "T14: surplus cash is an advance; the write-off is not");
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
