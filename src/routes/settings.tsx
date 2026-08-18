@@ -13,6 +13,7 @@ import {
 } from "@/repositories";
 import { newBatch, commitBatch } from "@/repositories/base";
 import { planBankRepair, type BankRepairPlan, type BankRepairData } from "@/lib/bankRepair";
+import { OpeningBalanceReview } from "@/components/OpeningBalanceReview";
 import { useRepoData } from "@/hooks/useRepoData";
 import { Field } from "@/components/Field";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ import {
   Users2,
   MessageCircle,
   Landmark,
+  AlertTriangle,
 } from "lucide-react";
 
 export const Route = createFileRoute("/settings")({ component: SettingsPage });
@@ -137,6 +139,7 @@ function SettingsPage() {
   const teamRef = useRef<HTMLDivElement>(null);
   const whatsappRef = useRef<HTMLDivElement>(null);
   const bankRef = useRef<HTMLDivElement>(null);
+  const openingRef = useRef<HTMLDivElement>(null);
   const dataRef = useRef<HTMLDivElement>(null);
   const shortcutsRef = useRef<HTMLDivElement>(null);
 
@@ -146,6 +149,9 @@ function SettingsPage() {
     ...(isOwner ? [{ key: "team", label: "Team", icon: Users2, ref: teamRef }] : []),
     ...(isOwner
       ? [{ key: "whatsapp", label: "WhatsApp", icon: MessageCircle, ref: whatsappRef }]
+      : []),
+    ...(isOwner && !c.openingReviewDone
+      ? [{ key: "opening", label: "Opening Balances", icon: AlertTriangle, ref: openingRef }]
       : []),
     ...(isOwner
       ? [{ key: "banks", label: "Bank Reconciliation", icon: Landmark, ref: bankRef }]
@@ -504,6 +510,20 @@ function SettingsPage() {
                 <div className="p-5">
                   <WhatsAppSection />
                 </div>
+              </div>
+            )}
+
+            {isOwner && !c.openingReviewDone && (
+              <div
+                ref={openingRef}
+                className="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden scroll-mt-6"
+              >
+                <SectionHeader
+                  icon={<AlertTriangle className="h-4 w-4" />}
+                  title="Opening Balance Review"
+                  description="Check each party's opening balance sits on the right side"
+                />
+                <OpeningBalanceReview onHidden={() => setC({ ...c, openingReviewDone: true })} />
               </div>
             )}
 

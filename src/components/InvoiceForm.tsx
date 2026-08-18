@@ -334,6 +334,26 @@ export function InvoiceForm({ mode, existing }: Props) {
   const lastPartyPrice = (itemId: string): number | undefined =>
     partyHistoryIndex.get(itemId)?.[0]?.price;
 
+  /** What this item last went out at to ANYONE, newest first.
+   *
+   * A brand-new customer has no history of their own, and the catalogue
+   * price can be months stale — so without this the counter is quoted a
+   * price nobody has charged in a long time. Party-specific history still
+   * wins when it exists; this only fills the gap behind it. */
+  const lastAnyPrice = (itemId: string): number | undefined => {
+    let best: { date: string; created: string; price: number } | undefined;
+    for (const doc of repo.all()) {
+      for (const l of doc.lineItems) {
+        if (l.itemId !== itemId || !(l.price > 0)) continue;
+        const created = doc.createdAt || "";
+        if (!best || doc.date > best.date || (doc.date === best.date && created > best.created)) {
+          best = { date: doc.date, created, price: l.price };
+        }
+      }
+    }
+    return best?.price;
+  };
+
   // Returns the id of the line that was added/updated, so the caller can move
   // focus straight to that row's Qty field for fast entry.
   const addLineItem = (it: Item): string => {
@@ -344,7 +364,9 @@ export function InvoiceForm({ mode, existing }: Props) {
       toast.info(`${it.name} — quantity increased to ${existingLine.qty + 1}`);
       return existingLine.id;
     }
-    const historicalPrice = lastPartyPrice(it.id);
+    // This party's own last price wins; otherwise what the item last
+    // actually went out at; only then the catalogue figure.
+    const historicalPrice = lastPartyPrice(it.id) ?? lastAnyPrice(it.id);
     const line: LineItem = {
       id: genId(),
       itemId: it.id,
@@ -479,7 +501,9 @@ export function InvoiceForm({ mode, existing }: Props) {
       toast.info(`${it.name} — merged into existing line, quantity increased to ${mergedQty}`);
       return dup.id;
     }
-    const historicalPrice = lastPartyPrice(it.id);
+    // This party's own last price wins; otherwise what the item last
+    // actually went out at; only then the catalogue figure.
+    const historicalPrice = lastPartyPrice(it.id) ?? lastAnyPrice(it.id);
     updateLine(lineId, {
       itemId: it.id,
       name: it.name,
@@ -675,9 +699,12 @@ export function InvoiceForm({ mode, existing }: Props) {
       if (!it) continue;
       const extra: Partial<Item> = {};
       if (l.price > 0) {
-        // Sale price: only fill in when empty (bills often have per-customer discounts)
-        if (isSale && !it.salePrice) extra.salePrice = l.price;
-        // Purchase price: always track the LATEST cost so profit stays accurate
+        // Track the LAST price this item actually moved at, on both sides.
+        // Sale price used to be written only when the item had none, so
+        // after the very first bill it never changed again and "last sale
+        // price" was really "the price someone typed once, long ago".
+        if (isSale && it.salePrice !== l.price) extra.salePrice = l.price;
+        // Purchase price: always the LATEST cost, so profit stays accurate.
         if (!isSale && it.purchasePrice !== l.price) extra.purchasePrice = l.price;
       }
       ItemRepo.adjustFieldBatched(batch, it.id, "stock", stockDelta * l.qty, extra);

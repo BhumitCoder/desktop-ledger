@@ -443,6 +443,7 @@ export async function run(): Promise<Results> {
   globalThis.__TEST_IS_OWNER__ = true;
   const ownerSettings = await renderRoute("/settings");
   has(ownerSettings, "Bank Reconciliation", "settings (owner): reconciliation section");
+  has(ownerSettings, "Opening Balance Review", "settings (owner): opening balance repair tool");
   has(ownerSettings, "Check Bank Balances", "settings (owner): the reconciliation action");
   has(ownerSettings, "Team", "settings (owner): team section");
 
@@ -481,6 +482,39 @@ export async function run(): Promise<Results> {
     assert(text.length > 100, `${url} rendered a suspiciously short page`);
     assert(!/NaN/.test(text), `${url} rendered NaN`);
     has(text, needle, `${url} content`);
+  }
+
+  /* ── Changing a party's OPENING BALANCE must reach every screen ───────
+     Reported: "they change client opening — receivable, payable, ledger,
+     statement, nothing updates". Opening balance is a stored field that
+     every derived view folds in, so a change has to surface everywhere. */
+  {
+    // P2 is the supplier side of the seed and starts at 0.
+    PartyRepo.update("P2", { openingBalance: 7000 });
+
+    // Sign convention (as labelled in the party form): POSITIVE means they
+    // owe you, so +7000 belongs in RECEIVABLE — alongside P1's 200 = 7200.
+    // The 450 purchase bill stays in payable.
+    const home = await renderRoute("/");
+    has(home, "₹ 7,200", "opening balance: dashboard receivable picks it up (7000 + P1's 200)");
+    has(home, "₹ 450", "opening balance: payable still just the purchase bill");
+
+    const list = await renderRoute("/parties");
+    has(list, fmtMoney(7000), "opening balance: Parties list row updates");
+
+    const stmt = await renderRoute("/parties/P2");
+    has(stmt, fmtMoney(7000), "opening balance: statement shows the opening row");
+
+    // A NEGATIVE opening is the "we owe them" side — it must land in payable.
+    PartyRepo.update("P2", { openingBalance: -1000 });
+    const home2 = await renderRoute("/");
+    has(home2, "₹ 1,450", "opening balance: negative opening moves to payable (1000 + 450)");
+    assert(
+      !home2.includes("₹ 7,200"),
+      "opening balance: the old value must be gone after editing it",
+    );
+
+    PartyRepo.update("P2", { openingBalance: 0 }); // restore for later assertions
   }
 
   /* ── Archived party holding money: do the two screens agree? ─────────

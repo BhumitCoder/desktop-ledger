@@ -20,7 +20,7 @@ import { parseImportFile, normalizeHeader } from "@/lib/sheetImport";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/Field";
-import { NumField } from "@/components/NumInput";
+import { NumField, NumInput } from "@/components/NumInput";
 import { fmtMoney } from "@/lib/format";
 import { partyBalances } from "@/lib/ledger";
 import { PartyLedgerExportDialog } from "@/components/PartyLedgerExportDialog";
@@ -1142,12 +1142,72 @@ export function PartyDialog({
             value={form.phone ?? ""}
             onChange={(e) => setForm({ ...form, phone: e.target.value })}
           />
-          <NumField
-            label="Opening Balance (+ they owe you, − you owe them)"
-            value={form.openingBalance ?? 0}
-            onValue={(n) => setForm({ ...form, openingBalance: n })}
-            allowNegative
-          />
+          {/* Direction is a CHOICE, not a minus sign.
+              This used to be one signed number labelled "+ they owe you,
+              − you owe them". A supplier's opening typed as a positive
+              number therefore landed in Receivable, and the client read
+              that as "payable didn't update" — the amount was right, it was
+              just on the wrong side, with nothing on screen to say so. */}
+          <div className="sm:col-span-2">
+            <label className="block text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1.5">
+              Opening Balance
+            </label>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <div className="inline-flex rounded-md border border-gray-200 overflow-hidden shrink-0">
+                {(
+                  [
+                    ["receive", "They owe me"],
+                    ["pay", "I owe them"],
+                  ] as const
+                ).map(([dir, text]) => {
+                  const active = (form.openingBalance ?? 0) < 0 ? "pay" : "receive";
+                  return (
+                    <button
+                      key={dir}
+                      type="button"
+                      onClick={() =>
+                        setForm({
+                          ...form,
+                          openingBalance:
+                            dir === "pay"
+                              ? -Math.abs(form.openingBalance ?? 0)
+                              : Math.abs(form.openingBalance ?? 0),
+                        })
+                      }
+                      className={`h-9 px-3 text-xs font-semibold transition whitespace-nowrap ${
+                        active === dir
+                          ? dir === "pay"
+                            ? "bg-rose-600 text-white"
+                            : "bg-emerald-600 text-white"
+                          : "bg-white text-gray-500 hover:bg-gray-50"
+                      }`}
+                    >
+                      {text}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex-1">
+                <NumInput
+                  value={Math.abs(form.openingBalance ?? 0)}
+                  onValue={(n) =>
+                    setForm({
+                      ...form,
+                      openingBalance: (form.openingBalance ?? 0) < 0 ? -Math.abs(n) : Math.abs(n),
+                    })
+                  }
+                  className="w-full h-9 px-3 border border-gray-200 rounded-md text-base md:text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 text-right tabular-nums"
+                />
+              </div>
+            </div>
+            <p className="text-[11px] text-gray-400 mt-1">
+              {(form.openingBalance ?? 0) === 0
+                ? "No opening balance."
+                : (form.openingBalance ?? 0) < 0
+                  ? `Shows as Payable ${fmtMoney(Math.abs(form.openingBalance ?? 0))} — money you owe them.`
+                  : `Shows as Receivable ${fmtMoney(Math.abs(form.openingBalance ?? 0))} — money they owe you.`}
+            </p>
+          </div>
           <NumField
             label="Credit Limit"
             value={form.creditLimit ?? 0}

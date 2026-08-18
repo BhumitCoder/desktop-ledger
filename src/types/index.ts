@@ -249,6 +249,10 @@ export interface Company {
   allowNegativeStock?: boolean;
   /** Preferred print format, remembered from the invoice page */
   printFormat?: PrintFormat;
+  /** Set once the owner has finished checking existing opening balances
+   * (Settings -> Opening Balance Review) and hidden that tool. Purely a UI
+   * flag — it changes no number anywhere. */
+  openingReviewDone?: boolean;
   /** The expense Category list — admin-managed from Settings, like a real
    * Chart of Accounts, rather than free text every user can invent on the
    * fly. Kept on Company (not its own repository) since it's a short,
