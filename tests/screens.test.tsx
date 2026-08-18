@@ -503,6 +503,107 @@ export async function run(): Promise<Results> {
       "the two screens disagree",
   );
 
+  /* ── The item dropdown must actually SCROLL ──────────────────────────
+     It caps at MAX_SUGGESTIONS rows and is height-limited, so the list has
+     to be scrollable — otherwise only the first handful are reachable and
+     the rest may as well not exist, which is exactly what the shop saw. */
+  {
+    // Enough items to overflow the dropdown. Zero stock and zero price so
+    // no money assertion above is disturbed.
+    for (let i = 0; i < 40; i++) {
+      ItemRepo.add({
+        id: `DD${i}`,
+        createdAt: "2026-01-01T00:00:00Z",
+        name: `Dropdown Probe Item ${i}`,
+        unit: "pcs",
+        gstRate: 0,
+        purchasePrice: 0,
+        salePrice: 0,
+        stock: 0,
+        openingStock: 0,
+      } as never);
+    }
+
+    await renderRoute("/sales/new");
+    const input = Array.from(document.querySelectorAll("input")).find((el) =>
+      (el.getAttribute("placeholder") ?? "").startsWith("Type item name"),
+    );
+    assert(!!input, "item dropdown: found the item search input");
+    if (input) {
+      await act(async () => {
+        input.focus();
+        input.dispatchEvent(new FocusEvent("focus", { bubbles: true }));
+      });
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 80));
+      });
+
+      // The popup is portalled to <body>; find the scrolling list inside it.
+      const rows = Array.from(document.querySelectorAll("div")).filter((d) =>
+        (d.textContent ?? "").startsWith("Dropdown Probe Item 0"),
+      );
+      assert(rows.length > 0, "item dropdown: opened and rendered options");
+
+      const scroller = rows[0]?.closest("div.overflow-auto") as HTMLElement | null;
+      assert(!!scroller, "item dropdown: options sit inside a scrollable container");
+      const popup = scroller?.parentElement as HTMLElement | null;
+
+      // Real layout, measured against the compiled stylesheet.
+      if (scroller && popup) {
+        assert(
+          popup.getBoundingClientRect().height <= 320,
+          `item dropdown: popup must stay height-capped — measured ${Math.round(popup.getBoundingClientRect().height)}px`,
+        );
+        assert(
+          scroller.scrollHeight > scroller.clientHeight + 4,
+          `item dropdown: list must be scrollable — content ${scroller.scrollHeight}px in ${scroller.clientHeight}px`,
+        );
+
+        // Scrolling has to WORK, not merely be possible.
+        scroller.scrollTop = 400;
+        const immediate = scroller.scrollTop; // before React sees anything
+        await act(async () => {
+          scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+        });
+        const afterScrollEvent = scroller.scrollTop;
+        assert(
+          immediate > 0,
+          `item dropdown: setting scrollTop should stick immediately — got ${immediate}`,
+        );
+        assert(
+          afterScrollEvent > 0,
+          `item dropdown: a scroll event must not reset the list — was ${immediate}, became ${afterScrollEvent}`,
+        );
+        // Let every pending effect and timer settle: the position must
+        // SURVIVE them. A re-render used to snap the list back to the top.
+        await act(async () => {
+          await new Promise((r) => setTimeout(r, 120));
+        });
+        assert(
+          scroller.scrollTop > 0,
+          `item dropdown: the scrolled position must survive re-renders — scrollTop fell to ${scroller.scrollTop}`,
+        );
+
+        // THE REPORTED BUG: reaching for the scrollbar blurs the input, and
+        // the blur handler closes the popup 150ms later — so a long list is
+        // unreachable by the one gesture people use to browse it. A mousedown
+        // anywhere in the popup (its padding, its scrollbar gutter) must not
+        // dismiss it.
+        await act(async () => {
+          popup.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+          input.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
+        });
+        await act(async () => {
+          await new Promise((r) => setTimeout(r, 300));
+        });
+        assert(
+          document.body.contains(scroller),
+          "item dropdown: must stay open when the scrollbar/popup is pressed",
+        );
+      }
+    }
+  }
+
   /* ── Printed documents: every row must match the header ──────────────
      The line table has optional columns (Disc%, GST%, GST Amt). When the
      filler rows or the Item Total row hard-code their cell counts, the

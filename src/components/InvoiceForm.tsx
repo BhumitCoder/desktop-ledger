@@ -1667,7 +1667,19 @@ function ItemEntryRow({
       const el = inputElRef.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
-      setDropdownRect({ top: r.bottom + 4, left: r.left, width: r.width });
+      const next = { top: r.bottom + 4, left: r.left, width: r.width };
+      // Bail out when nothing actually moved. This listener is registered
+      // with capture:true, so it also fires for scrolls that happen INSIDE
+      // the dropdown — and writing a fresh object there re-rendered the list
+      // on every scroll frame, which threw the list back to the top. The
+      // input hasn't moved when you scroll the options, so returning the
+      // previous state makes React skip the render entirely (it also stops
+      // a 200-row list re-rendering on every frame of an outer scroll).
+      setDropdownRect((prev) =>
+        prev && prev.top === next.top && prev.left === next.left && prev.width === next.width
+          ? prev
+          : next,
+      );
     };
     updateRect();
     window.addEventListener("scroll", updateRect, true);
@@ -1697,6 +1709,20 @@ function ItemEntryRow({
     : items;
   const suggests = allMatches.slice(0, MAX_SUGGESTIONS);
   const hiddenCount = allMatches.length - suggests.length;
+
+  // Keep the keyboard-highlighted option visible — but ONLY when the
+  // highlight actually moves. This used to be a ref callback that ran on
+  // every render, so any unrelated re-render (the dropdown's own scroll
+  // listener, a repo update) called scrollIntoView on the highlighted row
+  // and snapped a scrolled list straight back to the top. That is what made
+  // the item list feel impossible to scroll.
+  const optionsRef = useRef<HTMLDivElement>(null);
+  const prevIdx = useRef(idx);
+  useEffect(() => {
+    if (prevIdx.current === idx) return;
+    prevIdx.current = idx;
+    optionsRef.current?.querySelector(`[data-opt="${idx}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [idx]);
 
   // Offer "add as new item" whenever the typed name doesn't exactly match an existing one
   const trimmed = q.trim();
@@ -1762,7 +1788,7 @@ function ItemEntryRow({
               {/* The list scrolls; the "+N more" note below does NOT live
                   inside it. As a sticky child of the scroller it sat on top
                   of the last row and hid it. */}
-              <div className="overflow-auto flex-1">
+              <div ref={optionsRef} className="overflow-auto flex-1 min-h-0">
                 {suggests.map((it, i) => (
                   <div
                     key={it.id}
@@ -1770,9 +1796,7 @@ function ItemEntryRow({
                       e.preventDefault();
                       pick(it);
                     }}
-                    ref={(el) => {
-                      if (i === idx && el) el.scrollIntoView({ block: "nearest" });
-                    }}
+                    data-opt={i}
                     className={`px-3 py-2 text-sm cursor-pointer flex justify-between ${i === idx ? "bg-accent" : "hover:bg-accent"}`}
                   >
                     <div>
@@ -1921,6 +1945,20 @@ function ItemNameCell({
   const suggests = allMatches.slice(0, MAX_SUGGESTIONS);
   const hiddenCount = allMatches.length - suggests.length;
 
+  // Keep the keyboard-highlighted option visible — but ONLY when the
+  // highlight actually moves. This used to be a ref callback that ran on
+  // every render, so any unrelated re-render (the dropdown's own scroll
+  // listener, a repo update) called scrollIntoView on the highlighted row
+  // and snapped a scrolled list straight back to the top. That is what made
+  // the item list feel impossible to scroll.
+  const optionsRef = useRef<HTMLDivElement>(null);
+  const prevIdx = useRef(idx);
+  useEffect(() => {
+    if (prevIdx.current === idx) return;
+    prevIdx.current = idx;
+    optionsRef.current?.querySelector(`[data-opt="${idx}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [idx]);
+
   const pick = (it: Item) => {
     setEditing(false);
     const focusId = onChange(it);
@@ -1982,7 +2020,7 @@ function ItemNameCell({
             style={{ position: "fixed", top: rect.top, left: rect.left, width: rect.width }}
             className="z-50 border rounded-md bg-popover shadow-elevated max-h-72 flex flex-col"
           >
-            <div className="overflow-auto flex-1">
+            <div ref={optionsRef} className="overflow-auto flex-1 min-h-0">
               {suggests.length === 0 && (
                 <div className="px-3 py-3 text-[12px] text-muted-foreground text-center">
                   No items found
@@ -1995,9 +2033,7 @@ function ItemNameCell({
                     e.preventDefault();
                     pick(it);
                   }}
-                  ref={(el) => {
-                    if (i === idx && el) el.scrollIntoView({ block: "nearest" });
-                  }}
+                  data-opt={i}
                   className={`px-3 py-2 text-sm cursor-pointer flex justify-between ${i === idx ? "bg-accent" : "hover:bg-accent"}`}
                 >
                   <div>

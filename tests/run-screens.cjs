@@ -9,6 +9,7 @@ const esbuild = require("esbuild");
 const puppeteer = require("puppeteer-core");
 const path = require("path");
 const fs = require("fs");
+const { pathToFileURL } = require("url");
 
 const OUT_DIR = path.resolve(__dirname, "../node_modules/.cache/screens");
 const CHROME_CANDIDATES = [
@@ -97,9 +98,26 @@ run().then((r) => { (window as any).__RESULT__ = r; })
     logLevel: "error",
   });
 
+  // Load the REAL compiled stylesheet when one is available, so layout
+  // assertions (heights, scrolling, whether a popup stays capped) measure
+  // what the shop actually sees. Without it every element renders unstyled
+  // and any visual assertion is meaningless — which silently made an earlier
+  // dropdown-scroll check report nonsense. Falls back to unstyled if the app
+  // hasn't been built; only the visual checks depend on it.
+  const builtCss = (() => {
+    const dir = path.resolve(__dirname, "../.vercel/output/static/assets");
+    if (!fs.existsSync(dir)) return null;
+    const name = fs.readdirSync(dir).find((n) => /^styles-.*\.css$/.test(n));
+    return name ? path.join(dir, name) : null;
+  })();
+  if (!builtCss) {
+    console.warn("! No compiled CSS found (build first) — visual checks are skipped.");
+  }
   fs.writeFileSync(
     path.join(OUT_DIR, "index.html"),
-    `<!doctype html><meta charset="utf-8"><title>screen tests</title><body><script src="./bundle.js"></script></body>`,
+    `<!doctype html><meta charset="utf-8"><title>screen tests</title>` +
+      (builtCss ? `<link rel="stylesheet" href="${pathToFileURL(builtCss).href}">` : "") +
+      `<body><script src="./bundle.js"></script></body>`,
     "utf8",
   );
 
