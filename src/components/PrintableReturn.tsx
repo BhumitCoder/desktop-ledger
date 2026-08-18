@@ -164,7 +164,10 @@ export function PrintableReturn({ ret, company, mode, className = "print-area" }
               Item Total
             </td>
             <td style={{ ...cellStyle, textAlign: "right", fontWeight: 700 }}>{totalQty}</td>
-            <td style={cellStyle} colSpan={gstOn ? 4 : 2}></td>
+            {/* Spans Unit + Price + Disc% (+ GST% when shown). The old
+                fixed "2" left Disc% uncovered on a non-GST note, so the
+                total row came up one cell short of the header. */}
+            <td style={cellStyle} colSpan={gstOn ? 4 : 3}></td>
             {gstOn && (
               <td style={{ ...cellStyle, textAlign: "right", fontWeight: 700 }}>
                 {fmtMoney(Object.values(gstBuckets).reduce((s, b) => s + b.tax, 0))}

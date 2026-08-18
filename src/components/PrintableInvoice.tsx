@@ -82,6 +82,16 @@ export function PrintableInvoice({
 }: Props) {
   const gstOn = inv.gstEnabled !== false;
   const showDisc = inv.lineItems.some((l) => (l.discountPct ?? 0) > 0);
+
+  // The line table has optional columns (Disc%, and GST%/GST Amt), so the
+  // blank filler rows and the Item Total row MUST derive their cell counts
+  // from the same flags as the header. Hard-coded counts are how the table
+  // ended up with a phantom empty column hanging off the right edge.
+  //   # · Item · Qty · Unit · Price · [Disc%] · [GST%] · [GST Amt] · Amount
+  const colCount = 6 + (showDisc ? 1 : 0) + (gstOn ? 2 : 0);
+  // Item Total: "Item Total" spans # + Item, then Qty is shown, then this
+  // spacer covers everything up to (but not including) GST Amt / Amount.
+  const totalSpacerSpan = 2 + (showDisc ? 1 : 0) + (gstOn ? 1 : 0);
   const isSale = mode === "sale";
   const title = gstOn ? "TAX INVOICE" : isSale ? "INVOICE / BILL OF SUPPLY" : "PURCHASE BILL";
 
@@ -227,15 +237,11 @@ export function PrintableInvoice({
           {inv.lineItems.length < 6 &&
             Array.from({ length: 6 - inv.lineItems.length }).map((_, i) => (
               <tr key={"e" + i}>
-                <td style={{ ...cellStyle, height: s(20) }}>&nbsp;</td>
-                <td style={cellStyle}></td>
-                <td style={cellStyle}></td>
-                <td style={cellStyle}></td>
-                <td style={cellStyle}></td>
-                <td style={cellStyle}></td>
-                {gstOn && <td style={cellStyle}></td>}
-                {gstOn && <td style={cellStyle}></td>}
-                <td style={cellStyle}></td>
+                {Array.from({ length: colCount }).map((__, c) => (
+                  <td key={c} style={c === 0 ? { ...cellStyle, height: s(20) } : cellStyle}>
+                    {c === 0 ? " " : ""}
+                  </td>
+                ))}
               </tr>
             ))}
           <tr>
@@ -243,7 +249,7 @@ export function PrintableInvoice({
               Item Total
             </td>
             <td style={{ ...cellStyle, textAlign: "right", fontWeight: 700 }}>{totalQty}</td>
-            <td style={cellStyle} colSpan={gstOn ? 4 : 2}></td>
+            <td style={cellStyle} colSpan={totalSpacerSpan}></td>
             {gstOn && (
               <td style={{ ...cellStyle, textAlign: "right", fontWeight: 700 }}>
                 {fmtMoney(Object.values(gstBuckets).reduce((s, b) => s + b.tax, 0))}

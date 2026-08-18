@@ -24,6 +24,8 @@ import { createRouter, createMemoryHistory, RouterProvider, Outlet } from "@tans
 import { QueryClient } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
 import { BulkUpdateItemsDialog } from "@/components/BulkUpdateItemsDialog";
+import { PrintableInvoice } from "@/components/PrintableInvoice";
+import { PrintableReturn } from "@/components/PrintableReturn";
 import { fmtMoney, ymd } from "@/lib/format";
 import {
   PartyRepo,
@@ -500,6 +502,123 @@ export async function run(): Promise<Results> {
     "archived party: the Parties page hides ₹200 of receivable that the dashboard counts — " +
       "the two screens disagree",
   );
+
+  /* ── Printed documents: every row must match the header ──────────────
+     The line table has optional columns (Disc%, GST%, GST Amt). When the
+     filler rows or the Item Total row hard-code their cell counts, the
+     table grows a phantom empty column hanging off the right edge — which
+     is exactly what a real bill looked like. Checked across all four
+     combinations so no single flag can break the grid again. */
+  {
+    const line = (over: Record<string, unknown> = {}) => ({
+      id: "PL1",
+      itemId: "I1",
+      name: "CARRING",
+      unit: "pcs",
+      qty: 1,
+      price: 55000,
+      discountPct: 0,
+      gstRate: 0,
+      amount: 55000,
+      ...over,
+    });
+    const baseInv = (over: Record<string, unknown> = {}) =>
+      ({
+        id: "PI1",
+        number: "0009",
+        date: D2,
+        partyId: "P1",
+        partyName: "LOTUS",
+        gstEnabled: false,
+        lineItems: [line()],
+        subtotal: 55000,
+        discount: 0,
+        taxAmount: 0,
+        total: 55000,
+        paid: 0,
+        paymentMode: "credit",
+        createdAt: `${D2}T09:00:00Z`,
+        ...over,
+      }) as never;
+
+    const gridHost = document.createElement("div");
+    document.body.appendChild(gridHost);
+    const gridRoot = createRoot(gridHost);
+
+    /** Widest row wins as the expected width; every row must equal it. */
+    const checkGrid = (label: string) => {
+      // These documents contain several tables (the Invoice #/Date block is
+      // one). Pick the LINE table — the one whose header row has "Qty".
+      const table = Array.from(gridHost.querySelectorAll("table")).find((t) =>
+        (t.rows[0]?.textContent ?? "").includes("Qty"),
+      );
+      assert(!!table, `${label}: found the printed line table`);
+      if (!table) return;
+      const widthOf = (tr: HTMLTableRowElement) =>
+        Array.from(tr.cells).reduce((n, c) => n + (c.colSpan || 1), 0);
+      const widths = Array.from(table.rows).map(widthOf);
+      const expected = Math.max(...widths);
+      const bad = widths.filter((w) => w !== expected).length;
+      assert(
+        bad === 0,
+        `${label}: ${bad} row(s) don't span ${expected} columns — got ${widths.join(",")}`,
+      );
+    };
+
+    const cases: [string, Record<string, unknown>][] = [
+      ["invoice no-GST no-discount", {}],
+      ["invoice no-GST with line discount", { lineItems: [line({ discountPct: 10 })] }],
+      [
+        "invoice with GST",
+        { gstEnabled: true, taxAmount: 9900, lineItems: [line({ gstRate: 18 })] },
+      ],
+      [
+        "invoice GST + discount",
+        { gstEnabled: true, taxAmount: 9900, lineItems: [line({ gstRate: 18, discountPct: 5 })] },
+      ],
+    ];
+    for (const [label, over] of cases) {
+      await act(async () => {
+        gridRoot.render(
+          <PrintableInvoice inv={baseInv(over)} company={CompanyRepo.get()} mode="sale" />,
+        );
+      });
+      checkGrid(label);
+    }
+
+    // Return notes share the same layout and had the same fault.
+    const baseRet = (over: Record<string, unknown> = {}) =>
+      ({
+        id: "PR1",
+        number: "CR-0009",
+        date: D4,
+        partyId: "P1",
+        partyName: "LOTUS",
+        gstEnabled: false,
+        lineItems: [line()],
+        subtotal: 55000,
+        taxAmount: 0,
+        total: 55000,
+        createdAt: `${D4}T09:00:00Z`,
+        ...over,
+      }) as never;
+    for (const [label, over] of [
+      ["return no-GST", {}],
+      [
+        "return with GST",
+        { gstEnabled: true, taxAmount: 9900, lineItems: [line({ gstRate: 18 })] },
+      ],
+    ] as [string, Record<string, unknown>][]) {
+      await act(async () => {
+        gridRoot.render(
+          <PrintableReturn ret={baseRet(over)} company={CompanyRepo.get()} mode="sale-return" />,
+        );
+      });
+      checkGrid(label);
+    }
+    gridRoot.unmount();
+    gridHost.remove();
+  }
 
   /* ── Bulk Update with a real-sized catalogue ──────────────────────────
      The client's shop has ~1,400 items and the screen froze on open,

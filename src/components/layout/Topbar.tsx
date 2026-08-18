@@ -1,4 +1,4 @@
-import { Search, Plus, Building2, ChevronDown, Menu, LogOut } from "lucide-react";
+import { Search, Plus, Menu, LogOut } from "lucide-react";
 import { APP_NAME } from "@/lib/version";
 import { useWorkspace } from "@/store/workspace";
 import { useNavigate } from "@tanstack/react-router";
@@ -96,27 +96,10 @@ export function Topbar() {
           {today}
         </span>
 
-        {/* Company + Logout — desktop only. Logout lives in the sidebar
-          drawer on mobile instead. */}
-        <button
-          onClick={() => navigate({ to: "/settings" })}
-          className="hidden md:flex items-center gap-2 pl-2 pr-2 h-8 rounded-md bg-muted hover:bg-accent ring-1 ring-border transition"
-          title="Company settings"
-        >
-          <div className="h-6 w-6 rounded bg-primary-soft text-primary flex items-center justify-center">
-            <Building2 className="h-3.5 w-3.5" />
-          </div>
-          <div className="flex flex-col items-start leading-tight">
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Company
-            </span>
-            <span className="text-[12px] font-semibold text-foreground truncate max-w-[140px]">
-              {company.name}
-            </span>
-          </div>
-          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-        </button>
-
+        {/* Logout — desktop only. On mobile it lives in the sidebar drawer.
+          The company pill that used to sit here is gone: it spent header
+          width restating something that doesn't change, and Settings is
+          already one click away in the sidebar. */}
         <button
           onClick={async () => {
             if (!confirm(`Logout from ${APP_NAME}?`)) return;
