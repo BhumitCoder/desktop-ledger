@@ -1757,54 +1757,59 @@ function ItemEntryRow({
                 left: dropdownRect.left,
                 width: dropdownRect.width,
               }}
-              className="z-50 border rounded-md bg-popover shadow-elevated max-h-72 overflow-auto"
+              className="z-50 border rounded-md bg-popover shadow-elevated max-h-72 flex flex-col"
             >
-              {suggests.map((it, i) => (
-                <div
-                  key={it.id}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    pick(it);
-                  }}
-                  ref={(el) => {
-                    if (i === idx && el) el.scrollIntoView({ block: "nearest" });
-                  }}
-                  className={`px-3 py-2 text-sm cursor-pointer flex justify-between ${i === idx ? "bg-accent" : "hover:bg-accent"}`}
-                >
-                  <div>
-                    <div className="font-semibold">{it.name}</div>
-                    <div className="text-[11px] text-muted-foreground">
-                      Stock: {it.stock} {it.unit}
+              {/* The list scrolls; the "+N more" note below does NOT live
+                  inside it. As a sticky child of the scroller it sat on top
+                  of the last row and hid it. */}
+              <div className="overflow-auto flex-1">
+                {suggests.map((it, i) => (
+                  <div
+                    key={it.id}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      pick(it);
+                    }}
+                    ref={(el) => {
+                      if (i === idx && el) el.scrollIntoView({ block: "nearest" });
+                    }}
+                    className={`px-3 py-2 text-sm cursor-pointer flex justify-between ${i === idx ? "bg-accent" : "hover:bg-accent"}`}
+                  >
+                    <div>
+                      <div className="font-semibold">{it.name}</div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Stock: {it.stock} {it.unit}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-semibold tabular-nums">
+                        {fmtMoney(isSale ? it.salePrice || it.purchasePrice : it.purchasePrice)}
+                      </div>
+                      {gstOn && (
+                        <div className="text-[11px] text-muted-foreground">GST {it.gstRate}%</div>
+                      )}
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="font-semibold tabular-nums">
-                      {fmtMoney(isSale ? it.salePrice || it.purchasePrice : it.purchasePrice)}
-                    </div>
-                    {gstOn && (
-                      <div className="text-[11px] text-muted-foreground">GST {it.gstRate}%</div>
-                    )}
+                ))}
+                {showAddNew && (
+                  <div
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      pickNew();
+                    }}
+                    className={`px-3 py-2 text-sm cursor-pointer flex items-center gap-2 border-t ${idx === suggests.length ? "bg-accent" : "hover:bg-accent"}`}
+                  >
+                    <span className="h-5 w-5 rounded bg-primary-soft text-primary flex items-center justify-center text-xs font-bold">
+                      +
+                    </span>
+                    <span>
+                      Add "<span className="font-semibold">{trimmed}</span>" as new item
+                    </span>
                   </div>
-                </div>
-              ))}
-              {showAddNew && (
-                <div
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    pickNew();
-                  }}
-                  className={`px-3 py-2 text-sm cursor-pointer flex items-center gap-2 border-t ${idx === suggests.length ? "bg-accent" : "hover:bg-accent"}`}
-                >
-                  <span className="h-5 w-5 rounded bg-primary-soft text-primary flex items-center justify-center text-xs font-bold">
-                    +
-                  </span>
-                  <span>
-                    Add "<span className="font-semibold">{trimmed}</span>" as new item
-                  </span>
-                </div>
-              )}
+                )}
+              </div>
               {hiddenCount > 0 && (
-                <div className="px-3 py-2 text-[11px] text-muted-foreground border-t bg-muted/40 sticky bottom-0">
+                <div className="shrink-0 px-3 py-2 text-[11px] text-muted-foreground border-t bg-muted/40">
                   +{hiddenCount} more — keep typing to narrow it down
                 </div>
               )}
@@ -1975,43 +1980,45 @@ function ItemNameCell({
         createPortal(
           <div
             style={{ position: "fixed", top: rect.top, left: rect.left, width: rect.width }}
-            className="z-50 border rounded-md bg-popover shadow-elevated max-h-72 overflow-auto"
+            className="z-50 border rounded-md bg-popover shadow-elevated max-h-72 flex flex-col"
           >
-            {suggests.length === 0 && (
-              <div className="px-3 py-3 text-[12px] text-muted-foreground text-center">
-                No items found
-              </div>
-            )}
-            {suggests.map((it, i) => (
-              <div
-                key={it.id}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  pick(it);
-                }}
-                ref={(el) => {
-                  if (i === idx && el) el.scrollIntoView({ block: "nearest" });
-                }}
-                className={`px-3 py-2 text-sm cursor-pointer flex justify-between ${i === idx ? "bg-accent" : "hover:bg-accent"}`}
-              >
-                <div>
-                  <div className="font-semibold">{it.name}</div>
-                  <div className="text-[11px] text-muted-foreground">
-                    Stock: {it.stock} {it.unit}
+            <div className="overflow-auto flex-1">
+              {suggests.length === 0 && (
+                <div className="px-3 py-3 text-[12px] text-muted-foreground text-center">
+                  No items found
+                </div>
+              )}
+              {suggests.map((it, i) => (
+                <div
+                  key={it.id}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    pick(it);
+                  }}
+                  ref={(el) => {
+                    if (i === idx && el) el.scrollIntoView({ block: "nearest" });
+                  }}
+                  className={`px-3 py-2 text-sm cursor-pointer flex justify-between ${i === idx ? "bg-accent" : "hover:bg-accent"}`}
+                >
+                  <div>
+                    <div className="font-semibold">{it.name}</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      Stock: {it.stock} {it.unit}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-semibold tabular-nums">
+                      {fmtMoney(isSale ? it.salePrice || it.purchasePrice : it.purchasePrice)}
+                    </div>
+                    {gstOn && (
+                      <div className="text-[11px] text-muted-foreground">GST {it.gstRate}%</div>
+                    )}
                   </div>
                 </div>
-                <div className="text-right">
-                  <div className="font-semibold tabular-nums">
-                    {fmtMoney(isSale ? it.salePrice || it.purchasePrice : it.purchasePrice)}
-                  </div>
-                  {gstOn && (
-                    <div className="text-[11px] text-muted-foreground">GST {it.gstRate}%</div>
-                  )}
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
             {hiddenCount > 0 && (
-              <div className="px-3 py-2 text-[11px] text-muted-foreground border-t bg-muted/40 sticky bottom-0">
+              <div className="shrink-0 px-3 py-2 text-[11px] text-muted-foreground border-t bg-muted/40">
                 +{hiddenCount} more — keep typing to narrow it down
               </div>
             )}

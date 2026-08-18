@@ -1,5 +1,16 @@
-import { renderPdfServerFn, renderPdfBase64ServerFn } from "@/lib/pdfServer";
+import {
+  renderPdfServerFn,
+  renderPdfBase64ServerFn,
+  renderPdfBatchServerFn,
+} from "@/lib/pdfServer";
 import { auth } from "@/lib/firebase";
+
+export interface PdfOptions {
+  /** The element styles itself entirely inline and needs none of the app's
+   * stylesheet — skips uploading ~108 KB of CSS per render. Only safe for
+   * markup with no `className` at all (see PrintablePartyStatement). */
+  selfContained?: boolean;
+}
 
 /** The render server fns are auth-gated (they'd otherwise be an open
  * headless-Chromium endpoint) — every call must carry the caller's token. */
@@ -30,12 +41,20 @@ function collectAppStylesheets(): string {
 /** The exported markup carries no `<script>` tags, only the printable
  * subtree's HTML plus the app's own compiled CSS, so the server just prints
  * a static page — it never boots the SPA or touches Firestore. */
-function buildPrintableHtml(el: HTMLElement): string {
-  const css = collectAppStylesheets();
+function buildPrintableHtml(el: HTMLElement, includeAppCss = true): string {
+  // The app's compiled stylesheet is ~108 KB and gets uploaded with EVERY
+  // render request. Markup that styles itself entirely inline (the party
+  // statement built for the bulk ledger export) needs none of it, so
+  // shipping it there is 108 KB of upload and 108 KB of CSS for Chromium to
+  // parse, per party, for nothing. Screens that print a Tailwind-classed
+  // DOM subtree — the statement page, reports, daybook — genuinely do need
+  // it, so this stays opt-out rather than off by default.
+  const css = includeAppCss ? collectAppStylesheets() : "";
   return (
     '<!DOCTYPE html><html><head><meta charset="utf-8">' +
     `<base href="${window.location.origin}/">` +
-    `<style>${css}</style></head><body>${el.outerHTML}</body></html>`
+    (css ? `<style>${css}</style>` : "") +
+    `</head><body>${el.outerHTML}</body></html>`
   );
 }
 
@@ -51,11 +70,12 @@ async function elementToPdfBlob(
   el: HTMLElement,
   orientation: "portrait" | "landscape" = "landscape",
   pageWidthMm?: number,
+  opts?: PdfOptions,
 ): Promise<Blob> {
   const res = await renderPdfServerFn({
     data: {
       callerIdToken: await requireIdToken(),
-      html: buildPrintableHtml(el),
+      html: buildPrintableHtml(el, !opts?.selfContained),
       landscape: orientation === "landscape",
       pageWidthMm,
     },
@@ -103,8 +123,9 @@ export async function downloadElementAsPdf(
   filename: string,
   orientation?: "portrait" | "landscape",
   pageWidthMm?: number,
+  opts?: PdfOptions,
 ) {
-  const blob = await elementToPdfBlob(el, orientation, pageWidthMm);
+  const blob = await elementToPdfBlob(el, orientation, pageWidthMm, opts);
   triggerDownload(blob, pdfFilename(filename));
 }
 
@@ -152,6 +173,46 @@ export async function shareFileNow(file: File): Promise<"shared" | "cancelled" |
     if ((err as DOMException)?.name === "AbortError") return "cancelled";
     return "failed";
   }
+}
+
+/** Documents per request — must not exceed the server's own MAX_BATCH. */
+const PDF_BATCH_SIZE = 10;
+
+/**
+ * Render many elements to PDFs in as few browser launches as possible.
+ *
+ * Rendering N documents one request at a time starts N copies of headless
+ * Chromium, and that launch is the slow part — it is what made a multi-party
+ * ledger download feel frozen. Batching keeps it to roughly one launch per
+ * ten documents.
+ *
+ * onProgress fires as each batch lands, so the caller can show real movement
+ * instead of a spinner that sits still for a minute.
+ */
+export async function elementsToPdfBlobs(
+  docs: { el: HTMLElement; orientation?: "portrait" | "landscape"; opts?: PdfOptions }[],
+  onProgress?: (done: number, total: number) => void,
+): Promise<Blob[]> {
+  const token = await requireIdToken();
+  const out: Blob[] = [];
+  for (let i = 0; i < docs.length; i += PDF_BATCH_SIZE) {
+    const slice = docs.slice(i, i + PDF_BATCH_SIZE);
+    const res = await renderPdfBatchServerFn({
+      data: {
+        callerIdToken: token,
+        docs: slice.map((d) => ({
+          html: buildPrintableHtml(d.el, !d.opts?.selfContained),
+          landscape: d.orientation === "landscape",
+        })),
+      },
+    });
+    for (const b64 of res.pdfsBase64) {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      out.push(new Blob([bytes], { type: "application/pdf" }));
+    }
+    onProgress?.(Math.min(i + PDF_BATCH_SIZE, docs.length), docs.length);
+  }
+  return out;
 }
 
 export function downloadFile(file: File) {

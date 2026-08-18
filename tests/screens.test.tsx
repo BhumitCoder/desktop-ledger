@@ -23,6 +23,7 @@ import { act, type ReactNode } from "react";
 import { createRouter, createMemoryHistory, RouterProvider, Outlet } from "@tanstack/react-router";
 import { QueryClient } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
+import { BulkUpdateItemsDialog } from "@/components/BulkUpdateItemsDialog";
 import { fmtMoney, ymd } from "@/lib/format";
 import {
   PartyRepo,
@@ -70,7 +71,7 @@ const D2 = inMonth(2),
 /* ── A small but complete book ────────────────────────────────────────── */
 function seed() {
   CompanyRepo.save({
-    name: "OM IMPEX",
+    name: "AIM ENTERPRISE",
     currency: "INR",
     invoicePrefix: "INV-",
     purchasePrefix: "PUR-",
@@ -397,6 +398,14 @@ export async function run(): Promise<Results> {
   // 1000 − 100 − 540 COGS − 5000 expenses (GST-exclusive, so unchanged here)
   has(home, `₹ ${fmt(-4640)}`, "dashboard: Net Profit = −4640");
 
+  // A back control on every page that can be drilled into — the client
+  // reported the party statement specifically.
+  for (const url of ["/parties", "/items", "/expenses", "/reports", "/parties/P1"]) {
+    await renderRoute(url);
+    const backs = document.querySelectorAll('[aria-label="Go back"]').length;
+    assert(backs > 0, url + ": must offer a back control");
+  }
+
   // Expenses: edit and delete must be visible controls, not just a row
   // click and a Ctrl+Delete nobody can discover.
   const expensesPage = await renderRoute("/expenses");
@@ -485,6 +494,60 @@ export async function run(): Promise<Results> {
     "archived party: the Parties page hides ₹200 of receivable that the dashboard counts — " +
       "the two screens disagree",
   );
+
+  /* ── Bulk Update with a real-sized catalogue ──────────────────────────
+     The client's shop has ~1,400 items and the screen froze on open,
+     because every row mounted at once and each carries several live
+     inputs. It pages now — this proves only a page reaches the DOM, and
+     that mounting stays fast enough to be usable. */
+  for (let i = 0; i < 1400; i++) {
+    ItemRepo.add({
+      id: `BULK${i}`,
+      createdAt: "2026-01-01T00:00:00Z",
+      name: `Bulk Test Item ${i}`,
+      unit: "pcs",
+      gstRate: 18,
+      purchasePrice: 100,
+      salePrice: 150,
+      stock: 5,
+      openingStock: 5,
+    } as never);
+  }
+
+  const bulkHost = document.createElement("div");
+  document.body.appendChild(bulkHost);
+  const bulkRoot = createRoot(bulkHost);
+  const startedAt = performance.now();
+  await act(async () => {
+    bulkRoot.render(<BulkUpdateItemsDialog open onOpenChange={() => {}} onSaved={() => {}} />);
+  });
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 120));
+  });
+  const mountMs = performance.now() - startedAt;
+
+  // The dialog portals into document.body, so count across the document.
+  // A page is 50 rows. Both the desktop table and the phone card list are in
+  // the DOM at once (they're switched by CSS, as everywhere else in this
+  // app), so ~50 x 4 fields x 2 layouts + the toolbar ≈ 400. Unpaginated it
+  // would be 1400 x 4 x 2 ≈ 11,000, which is what froze the screen — so this
+  // ceiling is far below "all rows" while leaving room for layout changes.
+  const inputCount = document.querySelectorAll("input").length;
+  assert(
+    inputCount > 0 && inputCount < 600,
+    `bulk update: only a page of rows may mount — found ${inputCount} inputs for 1400+ items`,
+  );
+  assert(
+    mountMs < 4000,
+    `bulk update: opening with 1400 items must not hang — took ${Math.round(mountMs)}ms`,
+  );
+  // The dialog renders through a portal, so it is NOT inside bulkHost.
+  assert(
+    (document.body.textContent ?? "").includes("Bulk Update Items"),
+    "bulk update: dialog actually rendered",
+  );
+  bulkRoot.unmount();
+  bulkHost.remove();
 
   if (root) root.unmount();
   if (host) host.remove();

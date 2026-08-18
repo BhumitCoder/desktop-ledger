@@ -85,7 +85,7 @@ function ItemsPage() {
   const [adjustItem, setAdjustItem] = useState<Item | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
   const refresh = () => setRows(ItemRepo.all());
   const _repoV = useRepoData();
   useEffect(refresh, [_repoV]);
@@ -117,39 +117,7 @@ function ItemsPage() {
 
   const pg = usePagination(filtered);
 
-  const allFilteredSelected = filtered.length > 0 && filtered.every((r) => selectedIds.has(r.id));
-  const toggleAllFiltered = () => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (allFilteredSelected) filtered.forEach((r) => next.delete(r.id));
-      else filtered.forEach((r) => next.add(r.id));
-      return next;
-    });
-  };
-  const toggleOne = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
   const columns: Column<Item>[] = [
-    {
-      key: "sel",
-      label: "",
-      width: "32px",
-      render: (r) => (
-        <input
-          type="checkbox"
-          checked={selectedIds.has(r.id)}
-          onChange={() => toggleOne(r.id)}
-          onClick={(e) => e.stopPropagation()}
-          className="accent-primary"
-        />
-      ),
-    },
     {
       key: "name",
       label: "Name",
@@ -239,6 +207,7 @@ function ItemsPage() {
   return (
     <div className="flex flex-col h-full">
       <PageHeader
+        showBack
         title="Items"
         subtitle={`${rows.length} items`}
         icon={<Package className="h-5 w-5" />}
@@ -285,7 +254,7 @@ function ItemsPage() {
                 variant="outline"
                 onClick={() => setBulkEditOpen(true)}
                 title="Bulk Update Items"
-                className="hidden sm:inline-flex"
+                className="w-full sm:w-auto"
               >
                 <Pencil className="h-3.5 w-3.5" /> Bulk Update
               </Button>
@@ -305,32 +274,6 @@ function ItemsPage() {
           </>
         }
       />
-      {/* Stays out of the way until the cashier actually selects something —
-          then a single highlighted action bar appears with Select-all,
-          count, and bulk actions together, instead of an empty bar sitting
-          under the header all the time. */}
-      {selectedIds.size > 0 && (
-        <div className="px-5 py-2 border-b bg-primary-soft flex items-center gap-3 flex-wrap">
-          <label className="flex items-center gap-1.5 text-xs font-medium text-primary cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={allFilteredSelected}
-              onChange={toggleAllFiltered}
-              className="accent-primary"
-            />
-            Select all {filtered.length}
-          </label>
-          <span className="text-xs font-semibold text-foreground">{selectedIds.size} selected</span>
-          <div className="flex items-center gap-2 ml-auto">
-            <Button size="sm" variant="outline" onClick={() => setBulkEditOpen(true)}>
-              <Pencil className="h-3.5 w-3.5" /> Bulk Update ({selectedIds.size})
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
-              Clear
-            </Button>
-          </div>
-        </div>
-      )}
       {/* Mobile card list — a table of 6 columns doesn't fit a phone; this
           is the same data as one tappable card per item instead. */}
       <div className="md:hidden flex-1 overflow-auto">
@@ -453,15 +396,7 @@ function ItemsPage() {
       </div>
       <ItemDialog open={open} onOpenChange={setOpen} item={edit} onSaved={refresh} />
       <BulkImportDialog open={bulkOpen} onOpenChange={setBulkOpen} onSaved={refresh} />
-      <BulkUpdateItemsDialog
-        open={bulkEditOpen}
-        itemIds={Array.from(selectedIds)}
-        onOpenChange={setBulkEditOpen}
-        onSaved={() => {
-          refresh();
-          setSelectedIds(new Set());
-        }}
-      />
+      <BulkUpdateItemsDialog open={bulkEditOpen} onOpenChange={setBulkEditOpen} onSaved={refresh} />
       <StockAdjustDialog
         item={adjustItem}
         onOpenChange={(v) => {

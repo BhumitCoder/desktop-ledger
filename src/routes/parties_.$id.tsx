@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   PartyRepo,
@@ -9,7 +9,7 @@ import {
   PaymentRepo,
   CompanyRepo,
 } from "@/repositories";
-import { buildPartyStatement, type PartyStatementRow } from "@/lib/ledger";
+import { buildPartyStatement, buildSimpleLedgerRows, type PartyStatementRow } from "@/lib/ledger";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
@@ -40,6 +40,7 @@ import {
   X,
   Loader2,
   type LucideIcon,
+  ChevronLeft,
 } from "lucide-react";
 import {
   Dialog,
@@ -68,6 +69,7 @@ function PartyStatementPage() {
   const _repoV = useRepoData();
   const { id } = Route.useParams();
   const navigate = useNavigate();
+  const router = useRouter();
   const { isOwner, canEdit } = usePermissions();
   const editAllowed = isOwner || canEdit("masterData");
   const [party, setParty] = useState<Party | null | undefined>(undefined);
@@ -125,40 +127,8 @@ function PartyStatementPage() {
   // each row (not re-derived independently from total/receivedOrPaid), so
   // this can never disagree with the balance the existing statement already
   // shows and the ledger audit suite already covers.
-  const simpleLedgerRows = useMemo(() => {
-    const particularsOf = (r: LedgerRow) => {
-      if (r.docKind === "sale") return `Sal. Bill No.: ${r.ref}`;
-      if (r.docKind === "purchase") return `Pur. Bill No.: ${r.ref}`;
-      if (r.docKind === "sale-return") return `Sale Return No.: ${r.ref}`;
-      if (r.docKind === "purchase-return") return `Purchase Return No.: ${r.ref}`;
-      return r.type; // Payment Received / Payment Made / Beginning Balance / Balance b/f
-    };
-    let prevBalance = 0;
-    return rows.map((r, i) => {
-      if (i === 0) {
-        prevBalance = r.balance;
-        return {
-          date: "",
-          particulars: r.type === "Balance b/f" ? "Balance B/F" : "Opening Balance",
-          qty: "",
-          credit: 0,
-          debit: 0,
-          balance: r.balance,
-        };
-      }
-      const delta = r2(r.balance - prevBalance);
-      prevBalance = r.balance;
-      const qty = r.items?.length ? r.items.reduce((s, it) => s + it.qty, 0) : null;
-      return {
-        date: r.date,
-        particulars: particularsOf(r),
-        qty: qty != null ? String(qty) : "",
-        credit: delta < 0 ? -delta : 0,
-        debit: delta > 0 ? delta : 0,
-        balance: r.balance,
-      };
-    });
-  }, [rows]);
+  // Shared with the bulk ledger export — see buildSimpleLedgerRows.
+  const simpleLedgerRows = useMemo(() => buildSimpleLedgerRows(rows), [rows]);
 
   const openRow = (e: LedgerRow) => {
     if (!e.docId || !e.docKind) return;
@@ -329,6 +299,17 @@ function PartyStatementPage() {
       <div className="no-print bg-white border-b px-5 py-3 flex flex-col gap-3">
         <div className="flex items-center justify-between gap-2.5">
           <div className="flex items-center gap-2.5 min-w-0">
+            {/* You arrive here by drilling in from Parties (or from a global
+                search hit), so there has to be a way back that isn't the
+                browser chrome — the client reported this page in particular. */}
+            <button
+              type="button"
+              onClick={() => router.history.back()}
+              aria-label="Go back"
+              className="shrink-0 h-8 w-8 -ml-1 rounded-md border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-100 active:bg-gray-100 transition"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
             <div className="h-8 w-8 shrink-0 rounded-full bg-primary-soft text-primary flex items-center justify-center font-bold text-[13px] uppercase">
               {party.name.trim().charAt(0) || "?"}
             </div>

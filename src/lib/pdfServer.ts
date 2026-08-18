@@ -25,11 +25,15 @@ const LOCAL_CHROME_CANDIDATES = [
  * Chromium and renders `html` to raw PDF bytes. Not exported: callers only
  * ever want one of the two response shapes below (Blob for download/share,
  * base64 for the WhatsApp send), never these raw bytes directly. */
-async function renderPdfBuffer(
-  html: string,
-  landscape: boolean,
-  pageWidthMm?: number,
-): Promise<Buffer> {
+type PdfBrowser = Awaited<ReturnType<typeof import("puppeteer-core").launch>>;
+
+/** Launch Chromium, run `fn`, always close.
+ *
+ * Launching is by far the most expensive part of producing a PDF — on
+ * Vercel it means starting a real browser binary, several seconds even when
+ * the function is warm. Anything rendering more than one document must do
+ * it inside ONE of these, not one per document. */
+async function withBrowser<T>(fn: (browser: PdfBrowser) => Promise<T>): Promise<T> {
   const chromium = (await import("@sparticuz/chromium")).default;
   const { launch } = await import("puppeteer-core");
 
@@ -48,6 +52,20 @@ async function renderPdfBuffer(
     headless: true,
   });
   try {
+    return await fn(browser);
+  } finally {
+    await browser.close();
+  }
+}
+
+/** Render one document in an already-running browser. */
+async function renderInBrowser(
+  browser: PdfBrowser,
+  html: string,
+  landscape: boolean,
+  pageWidthMm?: number,
+): Promise<Buffer> {
+  {
     const page = await browser.newPage();
     await page.emulateMediaType("print");
     await page.setContent(html, { waitUntil: "load" });
@@ -115,10 +133,19 @@ async function renderPdfBuffer(
         margin: { top: "0", right: "0", bottom: "0", left: "0" },
       });
     }
+    // Close the tab (not the browser) so a batch doesn't accumulate pages.
+    await page.close();
     return Buffer.from(pdf);
-  } finally {
-    await browser.close();
   }
+}
+
+/** Single-document convenience wrapper — one launch, one render. */
+async function renderPdfBuffer(
+  html: string,
+  landscape: boolean,
+  pageWidthMm?: number,
+): Promise<Buffer> {
+  return withBrowser((b) => renderInBrowser(b, html, landscape, pageWidthMm));
 }
 
 const validateRenderInput = (data: unknown): RenderPdfInput => {
@@ -149,6 +176,62 @@ export const renderPdfServerFn = createServerFn({ method: "POST" })
     return new Response(new Blob([new Uint8Array(pdf)], { type: "application/pdf" }), {
       headers: { "Content-Type": "application/pdf" },
     });
+  });
+
+type RenderPdfBatchInput = {
+  callerIdToken: string;
+  docs: { html: string; landscape: boolean; pageWidthMm?: number }[];
+};
+
+/** Hard ceiling per request: the response carries every PDF as base64
+ * (~1.33x their real size) and a serverless response has a few-MB limit, so
+ * the client chunks longer runs rather than losing the lot to one oversized
+ * reply. */
+const MAX_BATCH = 10;
+
+const validateBatchInput = (data: unknown): RenderPdfBatchInput => {
+  const d = data as Partial<RenderPdfBatchInput>;
+  if (typeof d?.callerIdToken !== "string" || !d.callerIdToken)
+    throw new Error("Not authenticated");
+  if (!Array.isArray(d.docs) || !d.docs.length) throw new Error("docs is required");
+  if (d.docs.length > MAX_BATCH) throw new Error(`At most ${MAX_BATCH} documents per request`);
+  return {
+    callerIdToken: d.callerIdToken,
+    docs: d.docs.map((doc) => {
+      if (typeof doc?.html !== "string" || !doc.html) throw new Error("each doc needs html");
+      return {
+        html: doc.html,
+        landscape: !!doc.landscape,
+        pageWidthMm: typeof doc.pageWidthMm === "number" ? doc.pageWidthMm : undefined,
+      };
+    }),
+  };
+};
+
+/**
+ * Render SEVERAL documents from ONE Chromium launch.
+ *
+ * The bulk party-ledger export used to call renderPdfServerFn once per
+ * party, which meant starting a whole browser per party — the launch, not
+ * the rendering, is what made a ten-party download feel like it had hung.
+ * One launch and N tabs turns that into roughly one browser start plus a
+ * little per document.
+ */
+export const renderPdfBatchServerFn = createServerFn({ method: "POST" })
+  .validator(validateBatchInput)
+  .handler(async ({ data }) => {
+    // Same gate as every other server fn — this is still headless Chromium
+    // on demand, and a batch endpoint is a bigger prize, not a smaller one.
+    await requireActiveUser(data.callerIdToken);
+    const out = await withBrowser(async (browser) => {
+      const pdfs: string[] = [];
+      for (const doc of data.docs) {
+        const buf = await renderInBrowser(browser, doc.html, doc.landscape, doc.pageWidthMm);
+        pdfs.push(buf.toString("base64"));
+      }
+      return pdfs;
+    });
+    return { pdfsBase64: out };
   });
 
 /** Same rendering as renderPdfServerFn, but returns base64 JSON instead of a

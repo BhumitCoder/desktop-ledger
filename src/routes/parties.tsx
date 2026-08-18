@@ -532,6 +532,7 @@ function PartiesPage() {
   return (
     <div className="flex flex-col h-full">
       <PageHeader
+        showBack
         title="Parties"
         subtitle={`${rows.length} customers / suppliers`}
         icon={<Users className="h-5 w-5" />}
@@ -768,7 +769,10 @@ function PartiesPage() {
           rowKey={(r) => r.id}
           footer={
             <tr>
-              <td colSpan={2}>Total ({filtered.length} parties)</td>
+              {/* Spans the select checkbox + Name + Phone. Must match the
+                  real column count or the last column drops outside the
+                  footer row entirely. */}
+              <td colSpan={3}>Total ({filtered.length} parties)</td>
               <td className="text-right tabular-nums">{fmtMoney(receivable)}</td>
               <td className="text-right tabular-nums">{fmtMoney(payable)}</td>
               <td colSpan={2} />

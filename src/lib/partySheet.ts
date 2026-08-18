@@ -2,6 +2,7 @@ import type { Company } from "@/types";
 import type { PartyStatementRow } from "@/lib/ledger";
 import type { XlsxSheet } from "@/lib/xlsx";
 import { fmtDate } from "@/lib/format";
+import { buildSimpleLedgerRows } from "@/lib/ledger";
 
 const num = (n: number) => Math.round(n * 100) / 100;
 
@@ -13,6 +14,59 @@ const num = (n: number) => Math.round(n * 100) / 100;
  * Amounts go in as real NUMBERS (not "₹1,234" strings) so Excel right-aligns
  * them, sums them, and never shows them cut off as text.
  */
+/**
+ * Excel counterpart of the Simple Ledger — one line per transaction, the
+ * same six columns as the printed version. Rows come from the shared
+ * buildSimpleLedgerRows, so the spreadsheet and the PDF always agree.
+ */
+export function partySimpleLedgerSheet(
+  party: { name: string; phone?: string; gstin?: string },
+  rows: PartyStatementRow[],
+  company: Company,
+  periodLabel: string,
+): XlsxSheet {
+  const simple = buildSimpleLedgerRows(rows);
+  const closing = rows.length ? rows[rows.length - 1].balance : 0;
+  const num = (n: number) => Math.round(n * 100) / 100;
+
+  const out: (string | number)[][] = [
+    [company.name],
+    [`Ledger Of ${party.name}`],
+    [`Phone: ${party.phone || "—"}`],
+    [`Period: ${periodLabel}`],
+    [`Generated: ${fmtDate(new Date().toISOString())}`],
+    [],
+    ["Date", "Particulars", "Quantity", "Credit", "Debit", "Balance"],
+  ];
+  for (const r of simple) {
+    out.push([
+      r.date ? fmtDate(r.date) : "",
+      r.particulars,
+      r.qty,
+      r.credit ? num(r.credit) : "",
+      r.debit ? num(r.debit) : "",
+      num(Math.abs(r.balance)),
+    ]);
+  }
+  out.push([
+    "",
+    "Closing Balance",
+    "",
+    closing > 0 ? num(closing) : "",
+    closing < 0 ? num(-closing) : "",
+    "",
+  ]);
+  out.push([
+    "",
+    "Total",
+    "",
+    num(simple.reduce((s, r) => s + r.credit, 0)),
+    num(simple.reduce((s, r) => s + r.debit, 0)),
+    "",
+  ]);
+  return { name: party.name, rows: out };
+}
+
 export function partyStatementSheet(
   party: { name: string; phone?: string; gstin?: string },
   rows: PartyStatementRow[],

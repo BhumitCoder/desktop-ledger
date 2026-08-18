@@ -798,6 +798,62 @@ export function buildBankLedger(
   return { rows: out, fullBalance, totalDebit, totalCredit };
 }
 
+export interface SimpleLedgerRow {
+  date: string;
+  particulars: string;
+  qty: string;
+  credit: number;
+  debit: number;
+  balance: number;
+}
+
+/**
+ * Collapse a party statement into the plain one-line-per-transaction ledger
+ * — Date / Particulars / Quantity / Credit / Debit / Balance — that people
+ * expect to hand to a customer or an accountant.
+ *
+ * Credit and debit are derived from the MOVEMENT in the running balance
+ * rather than re-deriving each document's sign, so this can never disagree
+ * with the statement it came from.
+ *
+ * Lives here, not in the statement page, because the page and the bulk
+ * ledger export both render it and must produce identical rows.
+ */
+export function buildSimpleLedgerRows(rows: PartyStatementRow[]): SimpleLedgerRow[] {
+  const particularsOf = (r: PartyStatementRow) => {
+    if (r.docKind === "sale") return `Sal. Bill No.: ${r.ref}`;
+    if (r.docKind === "purchase") return `Pur. Bill No.: ${r.ref}`;
+    if (r.docKind === "sale-return") return `Sale Return No.: ${r.ref}`;
+    if (r.docKind === "purchase-return") return `Purchase Return No.: ${r.ref}`;
+    return r.type; // Payment Received / Made / Beginning Balance / Balance b/f
+  };
+  let prevBalance = 0;
+  return rows.map((r, i) => {
+    if (i === 0) {
+      prevBalance = r.balance;
+      return {
+        date: "",
+        particulars: r.type === "Balance b/f" ? "Balance B/F" : "Opening Balance",
+        qty: "",
+        credit: 0,
+        debit: 0,
+        balance: r.balance,
+      };
+    }
+    const delta = r2(r.balance - prevBalance);
+    prevBalance = r.balance;
+    const qty = r.items?.length ? r.items.reduce((s, it) => s + it.qty, 0) : null;
+    return {
+      date: r.date,
+      particulars: particularsOf(r),
+      qty: qty != null ? String(qty) : "",
+      credit: delta < 0 ? -delta : 0,
+      debit: delta > 0 ? delta : 0,
+      balance: r.balance,
+    };
+  });
+}
+
 /**
  * Net-of-GST value of a set of bills or returns — `total` minus the output
  * tax inside it.

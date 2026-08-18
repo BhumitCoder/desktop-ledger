@@ -1,5 +1,5 @@
 import { fmtMoney, fmtDate } from "@/lib/format";
-import type { PartyStatementRow } from "@/lib/ledger";
+import { buildSimpleLedgerRows, type PartyStatementRow } from "@/lib/ledger";
 import type { Company, Party } from "@/types";
 
 /**
@@ -16,13 +16,109 @@ export function PrintablePartyStatement({
   rows,
   company,
   periodLabel,
+  format = "full",
 }: {
   party: Party;
   rows: PartyStatementRow[];
   company: Company;
   periodLabel: string;
+  /** Same two layouts the statement page offers, so a bulk download and a
+   * single download produce the same document. */
+  format?: "full" | "simple";
 }) {
   const closing = rows.length ? rows[rows.length - 1].balance : 0;
+
+  // Simple Ledger — one line per transaction, the layout people hand to a
+  // customer or an accountant. Rows come from the shared builder, so this
+  // and the statement page can't drift.
+  if (format === "simple") {
+    const simple = buildSimpleLedgerRows(rows);
+    const creditTotal = simple.reduce((s, r) => s + r.credit, 0);
+    const debitTotal = simple.reduce((s, r) => s + r.debit, 0);
+    const sTh: React.CSSProperties = {
+      padding: "5px 8px",
+      borderBottom: "2px solid #000",
+      fontSize: 11.5,
+      fontWeight: 600,
+      whiteSpace: "nowrap",
+    };
+    const sTd: React.CSSProperties = {
+      padding: "4px 8px",
+      borderBottom: "1px solid #e5e7eb",
+      fontSize: 11.5,
+      whiteSpace: "nowrap",
+    };
+    const sNum: React.CSSProperties = {
+      ...sTd,
+      textAlign: "right",
+      fontVariantNumeric: "tabular-nums",
+    };
+    return (
+      <div
+        style={{
+          background: "#fff",
+          color: "#111",
+          padding: 24,
+          width: 900,
+          fontFamily: "system-ui, sans-serif",
+        }}
+      >
+        <div style={{ textAlign: "center", marginBottom: 12 }}>
+          <div style={{ fontSize: 17, fontWeight: 800, textTransform: "uppercase" }}>
+            {company.name}
+          </div>
+          <div style={{ fontSize: 11, color: "#555" }}>
+            Ledger Of {party.name} · {periodLabel}
+          </div>
+        </div>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              {["Date", "Particulars", "Quantity", "Credit", "Debit", "Balance"].map((h, i) => (
+                <th key={h} style={{ ...sTh, textAlign: i >= 2 ? "right" : "left" }}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {simple.map((r, i) => (
+              <tr key={i}>
+                <td style={sTd}>{r.date ? fmtDate(r.date) : ""}</td>
+                <td style={{ ...sTd, fontWeight: i === 0 ? 600 : 400 }}>{r.particulars}</td>
+                <td style={sNum}>{r.qty}</td>
+                <td style={sNum}>{r.credit ? fmtMoney(r.credit) : ""}</td>
+                <td style={sNum}>{r.debit ? fmtMoney(r.debit) : ""}</td>
+                <td style={{ ...sNum, fontWeight: 600 }}>{fmtMoney(Math.abs(r.balance))}</td>
+              </tr>
+            ))}
+            <tr>
+              <td style={{ ...sTd, fontWeight: 600 }} colSpan={2}>
+                Closing Balance
+              </td>
+              <td style={sTd} />
+              <td style={{ ...sNum, fontWeight: 600 }}>{closing > 0 ? fmtMoney(closing) : ""}</td>
+              <td style={{ ...sNum, fontWeight: 600 }}>{closing < 0 ? fmtMoney(-closing) : ""}</td>
+              <td style={sTd} />
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td style={{ ...sTd, borderTop: "2px solid #000" }} colSpan={3} />
+              <td style={{ ...sNum, borderTop: "2px solid #000", fontWeight: 700 }}>
+                {fmtMoney(creditTotal)}
+              </td>
+              <td style={{ ...sNum, borderTop: "2px solid #000", fontWeight: 700 }}>
+                {fmtMoney(debitTotal)}
+              </td>
+              <td style={{ ...sTd, borderTop: "2px solid #000" }} />
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    );
+  }
+
   const totalBilled = rows.reduce((s, r) => s + (r.total || 0), 0);
   const totalSettled = rows.reduce((s, r) => s + (r.receivedOrPaid || 0), 0);
 

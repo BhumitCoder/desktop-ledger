@@ -1085,36 +1085,43 @@ function ReceivePaymentDialog({
                             </div>
                           </div>
                         </div>
-                        <div className="flex items-center justify-between sm:justify-end gap-4 sm:shrink-0">
+                        {/* On a phone this used to be Due + two 96px inputs
+                            crammed onto one line, which is what made the
+                            sheet feel cheap and the boxes hard to hit. It is
+                            a 3-up grid with full-width controls there, and
+                            only collapses to the inline row from sm: up. */}
+                        <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center sm:justify-end sm:gap-4 sm:shrink-0">
                           <div className="text-left sm:text-right">
                             <p className="text-[10px] text-gray-400 mb-1">Due</p>
                             <p
-                              className={`text-sm font-bold tabular-nums ${isIn ? "text-emerald-700" : "text-rose-700"}`}
+                              className={`text-sm font-bold tabular-nums leading-9 sm:leading-normal ${isIn ? "text-emerald-700" : "text-rose-700"}`}
                             >
                               {fmtMoney(row.due)}
                             </p>
                           </div>
-                          <div className="shrink-0 w-24">
-                            <p className="text-[10px] text-gray-400 mb-1 text-right">Apply (₹)</p>
+                          <div className="sm:shrink-0 sm:w-24">
+                            <p className="text-[10px] text-gray-400 mb-1 sm:text-right">
+                              Apply (₹)
+                            </p>
                             <NumInput
                               value={row.apply}
                               onValue={(n) => setApply(idx, n)}
                               placeholder="0.00"
-                              className={`w-full h-7 px-2 text-right text-xs border rounded outline-none focus:ring-1 ${row.checked ? (isIn ? "border-emerald-400 focus:ring-emerald-300 bg-white" : "border-rose-400 focus:ring-rose-300 bg-white") : "border-gray-200 bg-gray-50"} tabular-nums`}
+                              className={`w-full h-9 sm:h-7 px-2 text-right text-base sm:text-xs border rounded outline-none focus:ring-1 ${row.checked ? (isIn ? "border-emerald-400 focus:ring-emerald-300 bg-white" : "border-rose-400 focus:ring-rose-300 bg-white") : "border-gray-200 bg-gray-50"} tabular-nums`}
                             />
                           </div>
                           {/* Settle the last few rupees without pretending they
                               were collected: 20,000 against a 20,500 bill plus
                               500 here closes it exactly. */}
-                          <div className="shrink-0 w-24">
-                            <p className="text-[10px] text-gray-400 mb-1 text-right">
+                          <div className="sm:shrink-0 sm:w-24">
+                            <p className="text-[10px] text-gray-400 mb-1 sm:text-right">
                               Discount (₹)
                             </p>
                             <NumInput
                               value={row.discount}
                               onValue={(n) => setRowDiscount(idx, n)}
                               placeholder="0.00"
-                              className={`w-full h-7 px-2 text-right text-xs border rounded outline-none focus:ring-1 tabular-nums ${row.discount > 0 ? "border-amber-400 focus:ring-amber-300 bg-white" : "border-gray-200 bg-gray-50"}`}
+                              className={`w-full h-9 sm:h-7 px-2 text-right text-base sm:text-xs border rounded outline-none focus:ring-1 tabular-nums ${row.discount > 0 ? "border-amber-400 focus:ring-amber-300 bg-white" : "border-gray-200 bg-gray-50"}`}
                             />
                             {r2(row.due - row.apply - row.discount) > 0.01 && row.checked && (
                               <button

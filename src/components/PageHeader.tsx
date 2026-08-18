@@ -22,13 +22,12 @@ export function PageHeader({
   actions?: ReactNode;
   icon?: ReactNode;
   iconClassName?: string;
-  /** Show a back chevron on PHONES only.
+  /** Show a back chevron.
    *
-   * The bottom tab bar only carries Home / Items / Parties / Purchase, so
-   * every other page — Daybook, GST, Cash, Bank, Payees, Reports, Settings —
-   * is reached through the nav drawer and, until now, had no way back on a
-   * phone: a dead end unless you reopened the drawer. Desktop is unaffected,
-   * because the sidebar is always docked there. */
+   * Visible on EVERY size, not just phones. The sidebar tells you where you
+   * are but not where you came from, and drilling in (party → statement →
+   * bill) leaves no way back without retracing through the menu. The client
+   * asked for this on every page. */
   showBack?: boolean;
   /** Rendered at the far right of the title row, mobile only (hidden at
    * sm: and up, where `actions` already sits inline next to the title with
@@ -47,7 +46,7 @@ export function PageHeader({
               type="button"
               onClick={() => router.history.back()}
               aria-label="Go back"
-              className="md:hidden shrink-0 h-8 w-8 -ml-1 rounded-md border border-gray-200 flex items-center justify-center text-gray-500 active:bg-gray-100 transition"
+              className="shrink-0 h-8 w-8 -ml-1 rounded-md border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-100 active:bg-gray-100 transition"
             >
               <ChevronLeft className="h-4.5 w-4.5" />
             </button>

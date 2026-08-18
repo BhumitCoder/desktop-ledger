@@ -4,8 +4,8 @@
  * page, the browser tab, the backup errors and the home-screen icon label
  * all still saying the old name. Keep public/manifest.webmanifest in step by
  * hand — a static JSON file can't import this. */
-export const APP_NAME = "OM IMPEX";
+export const APP_NAME = "AIM ENTERPRISE";
 
 /** Bump on every deploy — shown on the login page and Settings so we can
  * always tell which version a user is actually running. */
-export const APP_VERSION = "18 Aug 2026 · v51";
+export const APP_VERSION = "18 Aug 2026 · v52";

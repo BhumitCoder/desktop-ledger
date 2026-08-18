@@ -207,6 +207,7 @@ function SalesPage() {
   return (
     <div className="flex flex-col h-full bg-[#f5f6fa]">
       <PageHeader
+        showBack
         title="Sales"
         subtitle={`${filtered.length} of ${rows.length} invoices`}
         icon={<Receipt className="h-5 w-5" />}

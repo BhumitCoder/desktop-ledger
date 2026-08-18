@@ -407,7 +407,7 @@ function DaybookPage() {
               type="button"
               onClick={() => router.history.back()}
               aria-label="Go back"
-              className="md:hidden shrink-0 h-8 w-8 -ml-1 rounded-md border border-gray-200 flex items-center justify-center text-gray-500 active:bg-gray-100 transition"
+              className="shrink-0 h-8 w-8 -ml-1 rounded-md border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-100 active:bg-gray-100 transition"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>

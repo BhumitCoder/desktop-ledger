@@ -8,9 +8,9 @@ import { FileDown, Sheet, Loader2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { buildPartyStatement } from "@/lib/ledger";
 import { PrintablePartyStatement } from "@/components/PrintablePartyStatement";
-import { partyStatementSheet } from "@/lib/partySheet";
+import { partyStatementSheet, partySimpleLedgerSheet } from "@/lib/partySheet";
 import { downloadXlsx } from "@/lib/xlsx";
-import { downloadElementAsPdf } from "@/lib/pdf";
+import { elementsToPdfBlobs, downloadFile } from "@/lib/pdf";
 import { fmtDate, ymd } from "@/lib/format";
 import {
   SalesRepo,
@@ -52,15 +52,29 @@ export function PartyLedgerExportDialog({
   onOpenChange: (v: boolean) => void;
   parties: Party[];
 }) {
-  const [dateFrom, setDateFrom] = useState(monthStart);
-  const [dateTo, setDateTo] = useState(() => ymd(new Date()));
+  // Empty = the FULL ledger. The client often wants everything, and being
+  // forced to pick a range first (the old default of "this month") quietly
+  // truncated the download to whatever month it happened to be.
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [format, setFormat] = useState<"full" | "simple">("full");
   const [busy, setBusy] = useState<null | { kind: "excel" | "pdf"; done: number }>(null);
 
   useEffect(() => {
-    if (open) setBusy(null);
+    if (open) {
+      setBusy(null);
+      setDateFrom("");
+      setDateTo("");
+      setFormat("full");
+    }
   }, [open]);
 
-  const periodLabel = `${fmtDate(dateFrom)} — ${fmtDate(dateTo)}`;
+  const wholeLedger = !dateFrom && !dateTo;
+  const periodLabel = wholeLedger
+    ? "All transactions"
+    : `${dateFrom ? fmtDate(dateFrom) : "Beginning"} — ${dateTo ? fmtDate(dateTo) : "Today"}`;
+  /** Filenames shouldn't claim a range that wasn't applied. */
+  const fileSuffix = wholeLedger ? "all" : `${dateFrom || "start"}-to-${dateTo || "today"}`;
 
   /** Statement rows for one party over the chosen window. */
   const rowsFor = (party: Party) =>
@@ -87,9 +101,11 @@ export function PartyLedgerExportDialog({
     try {
       for (let i = 0; i < parties.length; i++) {
         const p = parties[i];
-        await downloadXlsx(`Statement-${safeName(p.name)}-${dateFrom}-to-${dateTo}`, [
-          partyStatementSheet(p, rowsFor(p), company, periodLabel),
-        ]);
+        const sheet =
+          format === "simple"
+            ? partySimpleLedgerSheet(p, rowsFor(p), company, periodLabel)
+            : partyStatementSheet(p, rowsFor(p), company, periodLabel);
+        await downloadXlsx(`Statement-${safeName(p.name)}-${fileSuffix}`, [sheet]);
         setBusy({ kind: "excel", done: i + 1 });
         if (i < parties.length - 1) await pause(DOWNLOAD_GAP_MS);
       }
@@ -111,48 +127,69 @@ export function PartyLedgerExportDialog({
     if (!parties.length) return;
     setBusy({ kind: "pdf", done: 0 });
     const company = CompanyRepo.get();
-    // The PDF service renders an element's markup, so each statement has to
-    // exist in the DOM. It's mounted off-screen (not display:none — a hidden
-    // element has no layout, and the renderer needs real dimensions), one
-    // party at a time, and torn down immediately after.
+    // The PDF service renders an element's markup, so every statement has to
+    // exist in the DOM first. They mount off-screen (not display:none — a
+    // hidden element has no layout, and the renderer needs real dimensions)
+    // and are all torn down together in the finally below.
     const holder = document.createElement("div");
     holder.style.cssText = "position:fixed;left:-10000px;top:0;width:900px;";
     document.body.appendChild(holder);
-    const root = createRoot(holder);
+    const roots: ReturnType<typeof createRoot>[] = [];
     try {
-      for (let i = 0; i < parties.length; i++) {
-        const p = parties[i];
+      // Build every statement's markup FIRST, then render them all in one
+      // go. Doing a request per party started a whole headless Chromium per
+      // party, and that launch — not the drawing — is what made this feel
+      // like it had frozen. The statement is styled entirely inline, so
+      // selfContained also drops ~108 KB of app CSS from every document.
+      const docs: {
+        el: HTMLElement;
+        orientation: "portrait";
+        opts: { selfContained: true };
+      }[] = [];
+      for (const p of parties) {
+        const slot = document.createElement("div");
+        holder.appendChild(slot);
+        const slotRoot = createRoot(slot);
+        roots.push(slotRoot);
         flushSync(() => {
-          root.render(
+          slotRoot.render(
             <PrintablePartyStatement
               party={p}
               rows={rowsFor(p)}
               company={company}
               periodLabel={periodLabel}
+              format={format}
             />,
           );
         });
-        const el = holder.firstElementChild as HTMLElement | null;
-        if (!el) continue;
-        await downloadElementAsPdf(
-          el,
-          `Statement-${safeName(p.name)}-${dateFrom}-to-${dateTo}`,
-          "portrait",
-        );
-        setBusy({ kind: "pdf", done: i + 1 });
-        if (i < parties.length - 1) await pause(DOWNLOAD_GAP_MS);
+        const el = slot.firstElementChild as HTMLElement | null;
+        if (el) docs.push({ el, orientation: "portrait", opts: { selfContained: true } });
       }
+
+      const blobs = await elementsToPdfBlobs(docs, (done) =>
+        setBusy({ kind: "pdf", done: Math.min(done, parties.length) }),
+      );
+
+      for (let i = 0; i < blobs.length; i++) {
+        downloadFile(
+          new File([blobs[i]], `Statement-${safeName(parties[i].name)}-${fileSuffix}.pdf`, {
+            type: "application/pdf",
+          }),
+        );
+        if (i < blobs.length - 1) await pause(DOWNLOAD_GAP_MS);
+      }
+
       toast.success(
         parties.length === 1
           ? `Ledger PDF downloaded for ${parties[0].name}`
-          : `${parties.length} ledger PDFs downloaded`,
+          : `${blobs.length} ledger PDFs downloaded`,
       );
       onOpenChange(false);
     } catch (err) {
       console.error("Ledger PDF export failed", err);
       toast.error("Could not build the PDF ledger — check your connection and try again");
     } finally {
-      root.unmount();
+      roots.forEach((r) => r.unmount());
       holder.remove();
       setBusy(null);
     }
@@ -189,19 +226,72 @@ export function PartyLedgerExportDialog({
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Field
-              label="From"
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-            />
-            <Field
-              label="To"
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-            />
+          {/* Same two layouts the statement page offers. */}
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
+              Ledger format
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {(
+                [
+                  ["full", "Full Detail", "Item breakdown, payment status"],
+                  ["simple", "Simple", "One line per transaction"],
+                ] as const
+              ).map(([key, title, desc]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setFormat(key)}
+                  className={`text-left rounded-md border p-2.5 transition ${
+                    format === key
+                      ? "border-primary bg-primary-soft"
+                      : "border-input hover:bg-accent"
+                  }`}
+                >
+                  <p className="text-[13px] font-semibold">{title}</p>
+                  <p className="text-[11px] text-muted-foreground leading-tight mt-0.5">{desc}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Date range <span className="font-normal normal-case">(optional)</span>
+              </p>
+              {!wholeLedger && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDateFrom("");
+                    setDateTo("");
+                  }}
+                  className="text-[11px] text-primary hover:underline"
+                >
+                  Clear — full ledger
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field
+                label="From"
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+              />
+              <Field
+                label="To"
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+              />
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-1.5">
+              {wholeLedger
+                ? "Leave both empty for the complete ledger — every transaction."
+                : `Showing ${periodLabel}.`}
+            </p>
           </div>
 
           {lots && !busy && (
