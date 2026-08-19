@@ -289,7 +289,13 @@ export function BulkUpdateItemsDialog({
   return (
     <Dialog open={open} onOpenChange={(v) => !saving && onOpenChange(v)}>
       <DialogContent className="max-w-[min(1200px,96vw)] h-[92vh] p-0 flex flex-col gap-0">
-        <DialogHeader className="px-4 sm:px-5 py-3 border-b">
+        {/* The dialog's own close button is absolutely positioned at
+            right-4/top-4, so the header must leave room for it — the tab
+            group ran straight underneath the X. Padding is asymmetric on
+            purpose: on a phone the tabs sit on their own row below the
+            title and need the full width, so only the wider layout, where
+            the tabs are inline and reach the corner, gets the clearance. */}
+        <DialogHeader className="pl-4 sm:pl-5 pr-4 sm:pr-14 py-3 border-b">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <DialogTitle className="text-[15px] sm:text-[17px]">Bulk Update Items</DialogTitle>
             {/* Tabs sit top-right on desktop and stack full-width on a phone,

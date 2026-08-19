@@ -851,6 +851,29 @@ export async function run(): Promise<Results> {
     (document.body.textContent ?? "").includes("Bulk Update Items"),
     "bulk update: dialog actually rendered",
   );
+
+  // The dialog's close button is absolutely positioned in the corner, so the
+  // header content must not run underneath it — the tab group did, leaving
+  // the X sitting on top of "Item Information".
+  {
+    const closeBtn = Array.from(document.querySelectorAll("button")).find(
+      (b) => (b.textContent ?? "").trim() === "Close",
+    );
+    // Target THIS dialog's tab group by its label — other radiogroups
+    // (payment ModePills) can still be in the document from earlier mounts.
+    const tabs = document.querySelector('[role="radiogroup"][aria-label="What to update"]');
+    assert(!!closeBtn, "bulk update: found the close button");
+    assert(!!tabs, "bulk update: found the mode tabs");
+    if (closeBtn && tabs) {
+      const c = closeBtn.getBoundingClientRect();
+      const t = tabs.getBoundingClientRect();
+      const overlaps = t.right > c.left && t.left < c.right && t.bottom > c.top && t.top < c.bottom;
+      assert(
+        !overlaps,
+        `bulk update: tabs must not sit under the close button — tabs ${Math.round(t.left)}..${Math.round(t.right)} x ${Math.round(t.top)}..${Math.round(t.bottom)}; X ${Math.round(c.left)}..${Math.round(c.right)} x ${Math.round(c.top)}..${Math.round(c.bottom)}; vw=${window.innerWidth}`,
+      );
+    }
+  }
   bulkRoot.unmount();
   bulkHost.remove();
 

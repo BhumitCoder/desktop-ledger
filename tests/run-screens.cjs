@@ -112,6 +112,26 @@ run().then((r) => { (window as any).__RESULT__ = r; })
   })();
   if (!builtCss) {
     console.warn("! No compiled CSS found (build first) — visual checks are skipped.");
+  } else {
+    // A stale stylesheet is worse than none: a Tailwind class added since the
+    // last build simply won't exist, so a layout assertion measures the OLD
+    // design and quietly passes. Cost me a wrong conclusion once already.
+    const cssTime = fs.statSync(builtCss).mtimeMs;
+    const newestSrc = (function walk(dir) {
+      let newest = 0;
+      for (const name of fs.readdirSync(dir)) {
+        const p = path.join(dir, name);
+        const st = fs.statSync(p);
+        newest = Math.max(newest, st.isDirectory() ? walk(p) : st.mtimeMs);
+      }
+      return newest;
+    })(path.resolve(__dirname, "../src"));
+    if (newestSrc > cssTime) {
+      console.warn(
+        "! The compiled CSS is OLDER than src/ — run a production build first, or any " +
+          "layout assertion here is measuring the previous design.",
+      );
+    }
   }
   fs.writeFileSync(
     path.join(OUT_DIR, "index.html"),
