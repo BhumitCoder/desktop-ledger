@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { matchesQuery } from "@/lib/search";
 import { useEffect, useMemo, useState } from "react";
 import {
   PurchaseRepo,
@@ -86,8 +87,7 @@ function PurchasePage() {
       }
       if (search) {
         const q = search.toLowerCase();
-        if (!r.number.toLowerCase().includes(q) && !r.partyName.toLowerCase().includes(q))
-          return false;
+        if (!matchesQuery(q, r.number, r.partyName)) return false;
       }
       return true;
     });

@@ -25,14 +25,13 @@ import type {
 } from "@/types";
 import { fmtMoney, ymd } from "@/lib/format";
 import {
-  partyBalances,
+  netPartyPositions,
   cashFlows,
   netFlow,
   computeCogs,
   bankFlows,
   valueExTax,
   totalSettlementDiscount,
-  type PartyBalance,
 } from "@/lib/ledger";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -177,32 +176,40 @@ function Dashboard() {
   // so they're memoized on `data` — recomputing them on every unrelated render
   // (opening a dropdown, the party dialog) was the dashboard's perf cost at
   // scale. Values are identical to the inline version; only the frequency drops.
+  // ONE net position per party, then split by its sign — see
+  // netPartyPositions. Summing a customer side and a supplier side
+  // separately put a party who owed money AND had been sold goods on BOTH
+  // tiles at once, so the dashboard disagreed with that party's own
+  // statement. A party now appears on exactly one side, or neither.
+  const positions = useMemo(
+    () =>
+      netPartyPositions(data.parties, {
+        sales: data.sales,
+        purchases: data.purchases,
+        saleReturns: data.saleReturns,
+        purchaseReturns: data.purchaseReturns,
+        payments: data.payments,
+      }),
+    [data],
+  );
   const customerBalances = useMemo(
     () =>
-      partyBalances(
-        data.sales,
-        data.saleReturns,
-        data.payments.filter((p) => p.type === "in"),
-        data.parties.filter((p) => p.type !== "supplier"),
-        "customer",
-      ),
-    [data],
+      positions
+        .filter((p) => p.net > 0.01)
+        .map((p) => ({ partyId: p.partyId, name: p.name, balance: p.net })),
+    [positions],
   );
   const supplierBalances = useMemo(
     () =>
-      partyBalances(
-        data.purchases,
-        data.purchaseReturns,
-        data.payments.filter((p) => p.type === "out"),
-        data.parties.filter((p) => p.type !== "customer"),
-        "supplier",
-      ),
-    [data],
+      positions
+        .filter((p) => p.net < -0.01)
+        .map((p) => ({ partyId: p.partyId, name: p.name, balance: -p.net })),
+    [positions],
   );
-  const receivable = customerBalances.reduce((a, b) => a + Math.max(0, b.balance), 0);
-  const payable = supplierBalances.reduce((a, b) => a + Math.max(0, b.balance), 0);
-  const receivableParties = customerBalances.filter((b) => b.balance > 0.01).length;
-  const payableParties = supplierBalances.filter((b) => b.balance > 0.01).length;
+  const receivable = customerBalances.reduce((a, b) => a + b.balance, 0);
+  const payable = supplierBalances.reduce((a, b) => a + b.balance, 0);
+  const receivableParties = customerBalances.length;
+  const payableParties = supplierBalances.length;
 
   const stockValue = data.items.reduce((a, i) => a + (i.stock || 0) * (i.purchasePrice || 0), 0);
   const cashInHand = useMemo(
@@ -581,7 +588,8 @@ function PartyBalanceListDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
   title: string;
-  parties: PartyBalance[];
+  /** Only what this list renders — a name and the amount on this side. */
+  parties: { partyId: string; name: string; balance: number }[];
   tone: "emerald" | "rose";
   onOpenParty: (partyId: string) => void;
 }) {

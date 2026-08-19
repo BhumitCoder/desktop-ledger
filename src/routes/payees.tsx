@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { matchesQuery } from "@/lib/search";
 import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
@@ -42,7 +43,7 @@ function PayeesPage() {
 
   const filtered = rows.filter((r) => {
     const s = q.toLowerCase();
-    return !s || r.name.toLowerCase().includes(s);
+    return matchesQuery(s, r.name);
   });
 
   const pg = usePagination(filtered);

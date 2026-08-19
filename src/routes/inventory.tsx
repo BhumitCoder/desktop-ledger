@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { matchesQuery } from "@/lib/search";
 import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
@@ -125,7 +126,7 @@ function InventoryPage() {
 
   const filtered = rows.filter((r) => {
     const s = q.toLowerCase();
-    return !s || r.name.toLowerCase().includes(s) || r.sku?.toLowerCase().includes(s);
+    return matchesQuery(s, r.name, r.sku);
   });
 
   // Footer totals cover the filtered rows the table actually shows

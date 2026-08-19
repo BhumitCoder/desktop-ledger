@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { matchesQuery } from "@/lib/search";
 import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -60,7 +61,7 @@ function CashPage() {
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return dateFiltered;
-    return dateFiltered.filter((e) => [e.type, e.ref].some((v) => v.toLowerCase().includes(s)));
+    return dateFiltered.filter((e) => matchesQuery(s, e.type, e.ref));
   }, [dateFiltered, q]);
 
   // Footer In/Out cover the filtered rows the table actually shows (date

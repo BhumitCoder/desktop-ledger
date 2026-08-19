@@ -16,10 +16,11 @@ import { useRepoData } from "@/hooks/useRepoData";
 import type { Party, Item, Invoice } from "@/types";
 import { matchesQuery, byRelevance } from "@/lib/search";
 
-/** Rows rendered per group. Unlike before, the search runs over the FULL
- * collection first and only the display is capped — see the note in the
- * component. */
-const PER_GROUP = 8;
+/** How many rows to show per group when the box is EMPTY — a browse list,
+ * not a search result. Once anything is typed every match is listed and the
+ * panel scrolls, because hiding matches behind "+N more" is the one thing a
+ * search must never do. */
+const BROWSE_LIMIT = 8;
 import { Users, Package, ShoppingCart, Truck } from "lucide-react";
 
 export function GlobalSearch() {
@@ -103,10 +104,12 @@ export function GlobalSearch() {
     [data.purchases, q],
   );
 
+  // Typing = show everything that matches. Empty = a short browse list.
+  const limit = q.trim() ? Number.POSITIVE_INFINITY : BROWSE_LIMIT;
   const more = (shown: number, total: number) =>
     total > shown ? (
       <div className="px-3 py-1.5 text-[11px] text-muted-foreground">
-        +{total - shown} more — keep typing to narrow it down
+        +{total - shown} more — start typing to search all of them
       </div>
     ) : null;
 
@@ -123,7 +126,7 @@ export function GlobalSearch() {
           <CommandEmpty>No results.</CommandEmpty>
           {parties.length > 0 && (
             <CommandGroup heading="Parties">
-              {parties.slice(0, PER_GROUP).map((p) => (
+              {parties.slice(0, limit).map((p) => (
                 <CommandItem
                   key={p.id}
                   onSelect={() => goParty(p.id)}
@@ -139,12 +142,12 @@ export function GlobalSearch() {
                   <span className="ml-auto text-xs text-muted-foreground">{p.phone}</span>
                 </CommandItem>
               ))}
-              {more(PER_GROUP, parties.length)}
+              {more(limit, parties.length)}
             </CommandGroup>
           )}
           {items.length > 0 && (
             <CommandGroup heading="Items">
-              {items.slice(0, PER_GROUP).map((i) => (
+              {items.slice(0, limit).map((i) => (
                 <CommandItem
                   key={i.id}
                   onSelect={() => goItem(i.id)}
@@ -155,12 +158,12 @@ export function GlobalSearch() {
                   <span className="ml-auto text-xs text-muted-foreground">Stock: {i.stock}</span>
                 </CommandItem>
               ))}
-              {more(PER_GROUP, items.length)}
+              {more(limit, items.length)}
             </CommandGroup>
           )}
           {sales.length > 0 && (
             <CommandGroup heading="Sales Invoices">
-              {sales.slice(0, PER_GROUP).map((s) => (
+              {sales.slice(0, limit).map((s) => (
                 <CommandItem
                   key={s.id}
                   onSelect={() => goSale(s.id)}
@@ -170,12 +173,12 @@ export function GlobalSearch() {
                   {s.number} — {s.partyName}
                 </CommandItem>
               ))}
-              {more(PER_GROUP, sales.length)}
+              {more(limit, sales.length)}
             </CommandGroup>
           )}
           {purchases.length > 0 && (
             <CommandGroup heading="Purchase Bills">
-              {purchases.slice(0, PER_GROUP).map((s) => (
+              {purchases.slice(0, limit).map((s) => (
                 <CommandItem
                   key={s.id}
                   onSelect={() => goPurchase(s.id)}
@@ -185,7 +188,7 @@ export function GlobalSearch() {
                   {s.number} — {s.partyName}
                 </CommandItem>
               ))}
-              {more(PER_GROUP, purchases.length)}
+              {more(limit, purchases.length)}
             </CommandGroup>
           )}
         </CommandList>

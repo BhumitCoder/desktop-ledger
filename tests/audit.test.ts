@@ -17,6 +17,8 @@ import {
   valueExTax,
   buildBankLedger,
   totalSettlementDiscount,
+  netPartyPositions,
+  buildPartyStatement,
 } from "@/lib/ledger";
 import type {
   Invoice,
@@ -935,6 +937,97 @@ console.log(`\n═════════════════════�
     stockAdjustments: [],
   });
   assert(clean.length === 0, "T15: an untouched item reports no drift");
+}
+
+/* ═══ TEST 16: a party is never on BOTH sides at once ═══
+   The real case from production: JAY MOBILE DABHOLI carried a 9,850 payable
+   opening, then bought 11,000 of goods. Their statement said 1,150
+   receivable; the dashboard said 9,850 payable AND 11,000 receivable,
+   because the two sides were summed independently and never netted. */
+{
+  const party = { id: "JAY", name: "JAY MOBILE DABHOLI", openingBalance: -9850 };
+  const sale = {
+    id: "S",
+    number: "0002",
+    date: "2026-08-15",
+    partyId: "JAY",
+    partyName: "JAY MOBILE DABHOLI",
+    gstEnabled: false,
+    lineItems: [],
+    subtotal: 11000,
+    discount: 0,
+    taxAmount: 0,
+    total: 11000,
+    paid: 0,
+    paymentMode: "credit",
+    createdAt: "2026-08-15T09:00:00Z",
+  } as unknown as Invoice;
+
+  const [pos] = netPartyPositions([party], {
+    sales: [sale],
+    purchases: [],
+    saleReturns: [],
+    purchaseReturns: [],
+    payments: [],
+  });
+  assert(pos.net === 1150, `T16: net must be 1150 receivable, got ${pos.net}`);
+
+  const receivable = Math.max(0, pos.net);
+  const payable = Math.max(0, -pos.net);
+  assert(receivable === 1150, "T16: appears in receivable");
+  assert(payable === 0, "T16: and NOT in payable — never both");
+
+  // A pure supplier still lands wholly on the payable side.
+  const supplier = { id: "SUP", name: "Supplier", openingBalance: -9850 };
+  const purchase = {
+    id: "P",
+    number: "PUR-1",
+    date: "2026-08-15",
+    partyId: "SUP",
+    partyName: "Supplier",
+    gstEnabled: false,
+    lineItems: [],
+    subtotal: 450,
+    discount: 0,
+    taxAmount: 0,
+    total: 450,
+    paid: 0,
+    paymentMode: "credit",
+    createdAt: "2026-08-15T09:00:00Z",
+  } as unknown as Invoice;
+  const [sp] = netPartyPositions([supplier], {
+    sales: [],
+    purchases: [purchase],
+    saleReturns: [],
+    purchaseReturns: [],
+    payments: [],
+  });
+  assert(sp.net === -10300, `T16: supplier nets to -10300, got ${sp.net}`);
+
+  // And the net must agree with what the party's own statement closes at —
+  // the two disagreeing is exactly what the client reported.
+  const stmt = buildPartyStatement(party, {
+    sales: [sale],
+    purchases: [],
+    saleReturns: [],
+    purchaseReturns: [],
+    payments: [],
+  });
+  assert(
+    Math.abs(stmt.fullBalance - pos.net) < 0.01,
+    `T16: dashboard net (${pos.net}) must equal the statement's closing balance (${stmt.fullBalance})`,
+  );
+
+  // Paying a bill off moves the net, and an advance counts once.
+  const paidSale = { ...sale, paid: 11000 } as Invoice;
+  const [paidPos] = netPartyPositions([party], {
+    sales: [paidSale],
+    purchases: [],
+    saleReturns: [],
+    purchaseReturns: [],
+    payments: [],
+  });
+  assert(paidPos.net === -9850, "T16: settling the bill leaves just the opening");
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);

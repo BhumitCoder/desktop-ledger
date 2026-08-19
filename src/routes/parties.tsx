@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { matchesQuery } from "@/lib/search";
 import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
@@ -22,7 +23,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Field } from "@/components/Field";
 import { NumField, NumInput } from "@/components/NumInput";
 import { fmtMoney } from "@/lib/format";
-import { partyBalances } from "@/lib/ledger";
+import { netPartyPositions } from "@/lib/ledger";
 import { PartyLedgerExportDialog } from "@/components/PartyLedgerExportDialog";
 import {
   Plus,
@@ -207,7 +208,7 @@ function PartiesPage() {
     // from new-transaction pickers.
     if (view === "active" ? !!r.archived : !r.archived) return false;
     const s = q.toLowerCase();
-    return !s || r.name.toLowerCase().includes(s) || r.phone?.includes(s);
+    return matchesQuery(s, r.name, r.phone);
   });
 
   const pg = usePagination(filtered);
@@ -237,26 +238,18 @@ function PartiesPage() {
   // on-screen order so the downloads arrive in a predictable sequence.
   const selectedParties = () => filtered.filter((r) => selectedIds.has(r.id));
 
-  // Same per-party balance rules as the Dashboard/Customer-Supplier Ledger,
-  // so this total always agrees with those pages.
-  const customerBalances = partyBalances(
-    SalesRepo.all(),
-    SaleReturnRepo.all(),
-    PaymentRepo.all().filter((p) => p.type === "in"),
-    rows.filter((p) => p.type !== "supplier"),
-    "customer",
-  );
-  const supplierBalances = partyBalances(
-    PurchaseRepo.all(),
-    PurchaseReturnRepo.all(),
-    PaymentRepo.all().filter((p) => p.type === "out"),
-    rows.filter((p) => p.type !== "customer"),
-    "supplier",
-  );
-  const receivableByParty = new Map(
-    customerBalances.map((b) => [b.partyId, Math.max(0, b.balance)]),
-  );
-  const payableByParty = new Map(supplierBalances.map((b) => [b.partyId, Math.max(0, b.balance)]));
+  // ONE net position per party, split by sign — identical to the dashboard
+  // and to each party's own statement. Summing a customer side and a
+  // supplier side separately used to show a party in BOTH columns.
+  const positions = netPartyPositions(rows, {
+    sales: SalesRepo.all(),
+    purchases: PurchaseRepo.all(),
+    saleReturns: SaleReturnRepo.all(),
+    purchaseReturns: PurchaseReturnRepo.all(),
+    payments: PaymentRepo.all(),
+  });
+  const receivableByParty = new Map(positions.map((p) => [p.partyId, Math.max(0, p.net)]));
+  const payableByParty = new Map(positions.map((p) => [p.partyId, Math.max(0, -p.net)]));
   // Footer totals cover the same rows the table shows — searching narrows
   // the table, so an all-party total next to a filtered count would lie.
   const receivable = filtered.reduce((a, p) => a + (receivableByParty.get(p.id) ?? 0), 0);

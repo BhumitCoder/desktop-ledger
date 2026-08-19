@@ -1384,6 +1384,8 @@ export function InvoiceForm({ mode, existing }: Props) {
                     gstOn={gstOn}
                     isSale={isSale}
                     isInternational={!!inv.isInternational}
+                    showUnit={showUnitCol}
+                    showDisc={showDiscCol}
                     onAdd={(it) => {
                       focusQtyId.current = addLineItem(it);
                       completePendingRow(id);
@@ -1662,6 +1664,8 @@ function ItemEntryRow({
   gstOn,
   isSale,
   isInternational,
+  showUnit,
+  showDisc,
   registerInput,
 }: {
   items: Item[];
@@ -1670,6 +1674,11 @@ function ItemEntryRow({
   gstOn: boolean;
   isSale: boolean;
   isInternational: boolean;
+  /** Must mirror the header's optional columns exactly. This row kept
+   * emitting Unit and Disc% cells after they were dropped from the header,
+   * so the grid grew two dead boxes on the right and stopped lining up. */
+  showUnit: boolean;
+  showDisc: boolean;
   registerInput: (el: HTMLInputElement | null) => void;
 }) {
   const [q, setQ] = useState("");
@@ -1874,12 +1883,14 @@ function ItemEntryRow({
           className="w-full h-7 px-1.5 text-right border rounded bg-muted/40 text-muted-foreground/50 outline-none cursor-not-allowed"
         />
       </td>
-      <td className="py-1.5 px-1">
-        <input
-          disabled
-          className="w-full h-7 px-1.5 border rounded bg-muted/40 text-muted-foreground/50 outline-none cursor-not-allowed"
-        />
-      </td>
+      {showUnit && (
+        <td className="py-1.5 px-1">
+          <input
+            disabled
+            className="w-full h-7 px-1.5 border rounded bg-muted/40 text-muted-foreground/50 outline-none cursor-not-allowed"
+          />
+        </td>
+      )}
       {isInternational && (
         <td className="py-1.5 px-1">
           <input
@@ -1894,12 +1905,14 @@ function ItemEntryRow({
           className="w-full h-7 px-1.5 text-right border rounded bg-muted/40 text-muted-foreground/50 outline-none cursor-not-allowed"
         />
       </td>
-      <td className="py-1.5 px-1">
-        <input
-          disabled
-          className="w-full h-7 px-1.5 text-right border rounded bg-muted/40 text-muted-foreground/50 outline-none cursor-not-allowed"
-        />
-      </td>
+      {showDisc && (
+        <td className="py-1.5 px-1">
+          <input
+            disabled
+            className="w-full h-7 px-1.5 text-right border rounded bg-muted/40 text-muted-foreground/50 outline-none cursor-not-allowed"
+          />
+        </td>
+      )}
       {gstOn && (
         <td className="py-1.5 px-1">
           <input

@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { matchesQuery } from "@/lib/search";
 import { useEffect, useRef, useState } from "react";
 import {
   PaymentRepo,
@@ -100,8 +101,7 @@ function PaymentsPage() {
     if (tab !== "all" && r.type !== tab) return false;
     if (search) {
       const q = search.toLowerCase();
-      if (!r.partyName.toLowerCase().includes(q) && !(r.ref ?? "").toLowerCase().includes(q))
-        return false;
+      if (!matchesQuery(q, r.partyName, r.ref)) return false;
     }
     return true;
   });

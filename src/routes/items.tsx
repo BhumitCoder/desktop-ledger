@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { matchesQuery } from "@/lib/search";
 import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
@@ -107,12 +108,7 @@ function ItemsPage() {
 
   const filtered = rows.filter((r) => {
     const s = q.toLowerCase();
-    return (
-      !s ||
-      r.name.toLowerCase().includes(s) ||
-      r.sku?.toLowerCase().includes(s) ||
-      r.barcode?.includes(s)
-    );
+    return !s || matchesQuery(s, r.name, r.sku) || r.barcode?.includes(s);
   });
 
   const pg = usePagination(filtered);

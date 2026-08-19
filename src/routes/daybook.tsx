@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { matchesQuery } from "@/lib/search";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
@@ -266,9 +267,7 @@ function DaybookPage() {
   const filteredRows = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return rows;
-    return rows.filter((r) =>
-      [r.type, r.ref, r.party, modeLabel(r)].some((v) => v.toLowerCase().includes(s)),
-    );
+    return rows.filter((r) => matchesQuery(s, r.type, r.ref, r.party, modeLabel(r)));
   }, [rows, q, modeLabel]);
 
   const totalMoneyIn = rows.filter((r) => r.cash > 0).reduce((s, r) => s + r.cash, 0);

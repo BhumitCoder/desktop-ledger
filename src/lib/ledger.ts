@@ -140,6 +140,83 @@ export function partyBalances(
   return Array.from(map.values());
 }
 
+export interface PartyNetPosition {
+  partyId: string;
+  name: string;
+  /** Signed. Positive = they owe you (receivable). Negative = you owe them
+   * (payable). Zero = square. */
+  net: number;
+}
+
+/**
+ * ONE net position per party — the single source of truth for Receivable and
+ * Payable.
+ *
+ * Why this exists: `partyBalances(..., side)` computes the customer and
+ * supplier sides as two INDEPENDENT sums, assigning the opening balance to
+ * whichever side its sign implies. That is fine while a party only ever
+ * trades one way, but it cannot NET. A party carrying a 9,850 payable
+ * opening who is then sold 11,000 of goods came out as 9,850 payable AND
+ * 11,000 receivable — the same party counted twice, on both sides of the
+ * dashboard, when their real position is 1,150 receivable. The party's own
+ * statement always showed 1,150, because it works from one signed running
+ * balance; the dashboard disagreed with it.
+ *
+ * So: fold everything into one signed number per party, exactly as the
+ * statement does, and only then decide which side it lands on. A party can
+ * now appear in Receivable or Payable, never both.
+ *
+ * Sign convention matches Party.openingBalance and buildPartyStatement:
+ * sales and purchase returns increase what they owe you; purchases, sale
+ * returns and money you've received reduce it.
+ */
+export function netPartyPositions(
+  parties: { id: string; name: string; openingBalance?: number }[],
+  data: {
+    sales: Invoice[];
+    purchases: Invoice[];
+    saleReturns: Return[];
+    purchaseReturns: Return[];
+    payments: Payment[];
+  },
+): PartyNetPosition[] {
+  const map = new Map<string, PartyNetPosition>();
+  const entry = (id: string, name: string) => {
+    let e = map.get(id);
+    if (!e) {
+      e = { partyId: id, name, net: 0 };
+      map.set(id, e);
+    }
+    return e;
+  };
+  for (const p of parties) entry(p.id, p.name).net = p.openingBalance ?? 0;
+
+  const saleNumbers = new Set(data.sales.map((i) => i.number));
+  const purchaseNumbers = new Set(data.purchases.map((i) => i.number));
+
+  // They owe you more.
+  for (const s of data.sales) entry(s.partyId, s.partyName).net += s.total || 0;
+  for (const r of data.purchaseReturns) entry(r.partyId, r.partyName).net += r.total || 0;
+  // They owe you less.
+  for (const p of data.purchases) entry(p.partyId, p.partyName).net -= p.total || 0;
+  for (const r of data.saleReturns) entry(r.partyId, r.partyName).net -= r.total || 0;
+
+  // Money already settled ON a bill is inside invoice.paid; only the
+  // unallocated (advance) part of a payment moves the balance separately —
+  // the same rule partyBalances uses, so the two can't drift.
+  for (const s of data.sales) entry(s.partyId, s.partyName).net -= s.paid || 0;
+  for (const p of data.purchases) entry(p.partyId, p.partyName).net += p.paid || 0;
+  for (const pay of data.payments) {
+    const numbers = pay.type === "in" ? saleNumbers : purchaseNumbers;
+    const advance = advanceAmount(pay, numbers);
+    if (!advance) continue;
+    entry(pay.partyId, pay.partyName).net += pay.type === "in" ? -advance : advance;
+  }
+
+  for (const e of map.values()) e.net = r2(e.net);
+  return Array.from(map.values());
+}
+
 export interface FlowEntry {
   date: string;
   type: string;

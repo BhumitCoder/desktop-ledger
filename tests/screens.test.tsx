@@ -484,6 +484,47 @@ export async function run(): Promise<Results> {
     has(text, needle, `${url} content`);
   }
 
+  /* ── A party must never appear in BOTH Receivable and Payable ─────────
+     The production case: a payable opening plus a later sale. The party's
+     statement netted it correctly while the dashboard counted the party on
+     both tiles. */
+  {
+    PartyRepo.update("P2", { openingBalance: -9850 });
+    SalesRepo.add({
+      id: "NETS1",
+      createdAt: `${D5}T10:00:00Z`,
+      number: "INV-9002",
+      date: D5,
+      partyId: "P2",
+      partyName: "Sunrise Supply",
+      gstEnabled: false,
+      lineItems: [],
+      subtotal: 11000,
+      discount: 0,
+      taxAmount: 0,
+      total: 11000,
+      paid: 0,
+      paymentMode: "credit",
+      notes: "",
+    } as never);
+
+    // opening −9850 + 11000 sale − 450 purchase = 700 receivable, and the
+    // party must be gone from Payable entirely.
+    const netHome = await renderRoute("/");
+    has(netHome, "₹ 900", "netting: receivable is P1's 200 + P2's netted 700");
+    has(netHome, "From 2 Parties", "netting: both parties counted once");
+    assert(
+      !netHome.includes("₹ 9,850") && !netHome.includes("₹ 10,300"),
+      "netting: the payable opening must NOT also stand on its own",
+    );
+
+    const netParties = await renderRoute("/parties");
+    has(netParties, fmtMoney(700), "netting: Parties row shows the netted figure");
+
+    SalesRepo.remove("NETS1");
+    PartyRepo.update("P2", { openingBalance: 0 });
+  }
+
   /* ── Changing a party's OPENING BALANCE must reach every screen ───────
      Reported: "they change client opening — receivable, payable, ledger,
      statement, nothing updates". Opening balance is a stored field that
@@ -493,14 +534,18 @@ export async function run(): Promise<Results> {
     PartyRepo.update("P2", { openingBalance: 7000 });
 
     // Sign convention (as labelled in the party form): POSITIVE means they
-    // owe you, so +7000 belongs in RECEIVABLE — alongside P1's 200 = 7200.
-    // The 450 purchase bill stays in payable.
+    // owe you. P2 also has a 450 purchase bill, and the two NET against each
+    // other now — 7000 − 450 = 6550 receivable, plus P1's 200 = 6750. The
+    // party no longer stands in Payable at the same time.
     const home = await renderRoute("/");
-    has(home, "₹ 7,200", "opening balance: dashboard receivable picks it up (7000 + P1's 200)");
-    has(home, "₹ 450", "opening balance: payable still just the purchase bill");
+    has(
+      home,
+      "₹ 6,750",
+      "opening balance: dashboard receivable nets the purchase (7000 − 450 + 200)",
+    );
 
     const list = await renderRoute("/parties");
-    has(list, fmtMoney(7000), "opening balance: Parties list row updates");
+    has(list, fmtMoney(6550), "opening balance: Parties list row shows the netted figure");
 
     const stmt = await renderRoute("/parties/P2");
     has(stmt, fmtMoney(7000), "opening balance: statement shows the opening row");
@@ -787,11 +832,11 @@ export async function run(): Promise<Results> {
   const mountMs = performance.now() - startedAt;
 
   // The dialog portals into document.body, so count across the document.
-  // A page is 50 rows. Both the desktop table and the phone card list are in
-  // the DOM at once (they're switched by CSS, as everywhere else in this
-  // app), so ~50 x 4 fields x 2 layouts + the toolbar ≈ 400. Unpaginated it
-  // would be 1400 x 4 x 2 ≈ 11,000, which is what froze the screen — so this
-  // ceiling is far below "all rows" while leaving room for layout changes.
+  // The list is no longer paged — the whole catalogue scrolls — but only the
+  // rows on screen are mounted (see useWindowedRows). Both the desktop table
+  // and the phone card list exist at once (switched by CSS), so a window of
+  // ~30 rows each with a name + several fields lands well under this ceiling.
+  // Mounting all 1400 would be ~11,000 controls, which is what froze it.
   const inputCount = document.querySelectorAll("input").length;
   assert(
     inputCount > 0 && inputCount < 600,

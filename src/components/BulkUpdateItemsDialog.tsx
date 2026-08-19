@@ -7,8 +7,7 @@ import { toast } from "sonner";
 import { ItemRepo, StockAdjustmentRepo } from "@/repositories";
 import { newBatch, commitBatch } from "@/repositories/base";
 import { useRepoMemo } from "@/hooks/useRepoData";
-import { usePagination } from "@/hooks/usePagination";
-import { PaginationBar } from "@/components/Pagination";
+import { useWindowedRows } from "@/hooks/useWindowedRows";
 import { matchesQuery, byRelevance } from "@/lib/search";
 import { today } from "@/lib/format";
 import type { Item } from "@/types";
@@ -26,7 +25,7 @@ const MODES: { key: Mode; label: string }[] = [
 const MODE_FIELDS: Record<Mode, (keyof Item)[]> = {
   pricing: ["purchasePrice", "salePrice", "wholesalePrice", "gstRate"],
   stock: ["stock", "minStock"],
-  info: ["category", "unit", "sku", "hsn", "barcode"],
+  info: ["name", "category", "unit", "sku", "hsn", "barcode"],
 };
 
 /** Only the fields actually changed, per item. */
@@ -156,12 +155,15 @@ export function BulkUpdateItemsDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, q, changedOnly, draft]);
 
-  // A real catalogue is ~1,400 items and every row carries several inputs —
-  // rendering them all at once is thousands of live DOM controls, which is
-  // what made this screen hang on open. Only a page is ever mounted; the
-  // draft is keyed by item id, so edits survive paging and one Update still
-  // commits everything changed across every page.
-  const pg = usePagination(rows, 50);
+  // The whole catalogue is scrollable — no paging — but only the rows on
+  // screen are mounted. Every row carries several live inputs, so mounting
+  // 1,400 of them at once (~5,800 controls) is what froze this screen.
+  // Windowing keeps the full scrollbar and the full list while holding only
+  // ~30 rows in the DOM.
+  const ROW_H = 41;
+  const CARD_H = 168;
+  const win = useWindowedRows(rows.length, ROW_H);
+  const winMobile = useWindowedRows(rows.length, CARD_H);
 
   const save = async () => {
     if (savingRef.current) return;
@@ -355,7 +357,7 @@ export function BulkUpdateItemsDialog({
         </div>
 
         {/* Desktop grid */}
-        <div className="hidden md:block flex-1 overflow-auto">
+        <div ref={win.ref} onScroll={win.onScroll} className="hidden md:block flex-1 overflow-auto">
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-10 bg-muted/95 backdrop-blur text-[11px] uppercase tracking-wide text-muted-foreground">
               <tr>
@@ -372,12 +374,25 @@ export function BulkUpdateItemsDialog({
               </tr>
             </thead>
             <tbody>
-              {pg.paged.map((it, i) => (
-                <tr key={it.id} className="border-t hover:bg-accent/30">
+              {win.padTop > 0 && (
+                <tr style={{ height: win.padTop }} aria-hidden>
+                  <td colSpan={cols.length + 2} />
+                </tr>
+              )}
+              {rows.slice(win.start, win.end).map((it, i) => (
+                <tr key={it.id} className="border-t hover:bg-accent/30" style={{ height: ROW_H }}>
                   <td className="px-3 py-1.5 text-[11px] text-muted-foreground tabular-nums">
-                    {(pg.page - 1) * pg.pageSize + i + 1}
+                    {win.start + i + 1}
                   </td>
-                  <td className="px-3 py-1.5 font-medium">{it.name}</td>
+                  <td className="px-2 py-1.5">
+                    {/* Editable: renaming in bulk is the whole point of a
+                        spreadsheet view, and it was read-only before. */}
+                    <input
+                      value={String(valueOf(it, "name") ?? "")}
+                      onChange={(e) => setField(it, "name", e.target.value)}
+                      className={cellCls(isDirty(it, "name"))}
+                    />
+                  </td>
                   {cols.map((c) => (
                     <td key={c.label} className="px-2 py-1.5">
                       {c.cell(it)}
@@ -385,6 +400,11 @@ export function BulkUpdateItemsDialog({
                   ))}
                 </tr>
               ))}
+              {win.padBottom > 0 && (
+                <tr style={{ height: win.padBottom }} aria-hidden>
+                  <td colSpan={cols.length + 2} />
+                </tr>
+              )}
               {rows.length === 0 && (
                 <tr>
                   <td colSpan={cols.length + 2} className="py-16 text-center text-muted-foreground">
@@ -398,14 +418,23 @@ export function BulkUpdateItemsDialog({
 
         {/* Phone: a card per item — a 7-column grid is unusable on a phone,
             and this screen has to feel like the rest of the mobile app. */}
-        <div className="md:hidden flex-1 overflow-auto divide-y">
-          {pg.paged.map((it, i) => (
-            <div key={it.id} className="p-3">
+        <div
+          ref={winMobile.ref}
+          onScroll={winMobile.onScroll}
+          className="md:hidden flex-1 overflow-auto divide-y"
+        >
+          {winMobile.padTop > 0 && <div style={{ height: winMobile.padTop }} aria-hidden />}
+          {rows.slice(winMobile.start, winMobile.end).map((it, i) => (
+            <div key={it.id} className="p-3" style={{ height: CARD_H }}>
               <div className="flex items-baseline gap-2 mb-2">
                 <span className="text-[11px] text-muted-foreground tabular-nums">
-                  {(pg.page - 1) * pg.pageSize + i + 1}
+                  {winMobile.start + i + 1}
                 </span>
-                <span className="font-semibold text-sm">{it.name}</span>
+                <input
+                  value={String(valueOf(it, "name") ?? "")}
+                  onChange={(e) => setField(it, "name", e.target.value)}
+                  className={`${cellCls(isDirty(it, "name"))} font-semibold`}
+                />
               </div>
               <div className="grid grid-cols-2 gap-2">
                 {cols.map((c) => (
@@ -419,19 +448,11 @@ export function BulkUpdateItemsDialog({
               </div>
             </div>
           ))}
+          {winMobile.padBottom > 0 && <div style={{ height: winMobile.padBottom }} aria-hidden />}
           {rows.length === 0 && (
             <div className="py-16 text-center text-muted-foreground">No items match</div>
           )}
         </div>
-
-        <PaginationBar
-          page={pg.page}
-          totalPages={pg.totalPages}
-          pageSize={pg.pageSize}
-          total={pg.total}
-          onPage={pg.setPage}
-          onPageSize={pg.setPageSize}
-        />
 
         <div className="border-t px-4 sm:px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-3 bg-muted/40">
           <p className="text-xs text-muted-foreground flex-1">
