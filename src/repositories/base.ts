@@ -76,13 +76,23 @@ export function newBatch(): WriteBatch | null {
 
 /** Commit a batch started with `newBatch`. All staged writes succeed or fail
  * together — no partial state where stock moves but the invoice doesn't
- * save, or vice versa. */
-export async function commitBatch(batch: WriteBatch | null, action: string): Promise<void> {
-  if (!batch) return;
+ * save, or vice versa.
+ *
+ * Returns whether the commit landed. Callers that go on to report success to
+ * the user MUST check it: the cache is updated optimistically as each write is
+ * staged, so a rejected commit leaves the screens showing numbers the cloud
+ * never accepted. (Firestore rolls its own pending mutation back, so the next
+ * snapshot corrects the cache — but a dialog that has already said "Updated
+ * 266 items" and closed has told the shopkeeper something untrue.) Fire-and-
+ * forget callers can keep ignoring it; the toast still fires either way. */
+export async function commitBatch(batch: WriteBatch | null, action: string): Promise<boolean> {
+  if (!batch) return true;
   try {
     await batch.commit();
+    return true;
   } catch (err) {
     writeError(action)(err);
+    return false;
   }
 }
 
@@ -236,6 +246,38 @@ export class Repository<T extends { id: string }> {
   }
 
   /**
+   * The base an atomic adjustment adds to, and whether an increment is safe
+   * to use for it.
+   *
+   * This exists because the local cache and Firestore disagree about what
+   * "add 15 to this field" means when the field is not actually a number:
+   *
+   *   - Firestore's increment() treats ANY non-number as 0 and replaces the
+   *     field with the delta. It does not parse "5".
+   *   - JavaScript's `+` CONCATENATES, so a stock that arrived as the string
+   *     "5" became "5" + 15 → 515 in the cache while the cloud stored 15.
+   *     Subtraction is worse: "12" - 4 is NaN, which lands as null.
+   *
+   * That is a permanent local-vs-cloud split — the screens show one number,
+   * a reload shows another, and every later adjustment widens the gap. It is
+   * the one way a bulk stock correction can look applied and then disagree
+   * with itself everywhere.
+   *
+   * A malformed value therefore gets an ABSOLUTE write instead of an
+   * increment: that keeps the value the field was holding AND heals its type.
+   * The cost is the concurrency safety an increment gives, which only ever
+   * applies to data that is already broken. A MISSING field keeps the
+   * increment, because there Firestore's 0-base and ours already agree.
+   */
+  private adjustBase(idx: number, field: string): { base: number; canIncrement: boolean } {
+    const raw = (this.cache[idx] as Record<string, unknown>)[field];
+    if (raw == null) return { base: 0, canIncrement: true };
+    if (typeof raw === "number" && Number.isFinite(raw)) return { base: raw, canIncrement: true };
+    const parsed = Number(raw);
+    return { base: Number.isFinite(parsed) ? parsed : 0, canIncrement: false };
+  }
+
+  /**
    * Concurrency-safe numeric change (stock, paid…). Uses Firestore's atomic
    * increment so two devices changing the same number at the same moment
    * BOTH count — an absolute write would silently lose one of them.
@@ -248,12 +290,9 @@ export class Repository<T extends { id: string }> {
   ): T | undefined {
     const idx = this.cache.findIndex((i) => i.id === id);
     if (idx < 0) return undefined;
-    const cur = ((this.cache[idx] as Record<string, unknown>)[field] as number) ?? 0;
-    const merged = {
-      ...this.cache[idx],
-      ...(extra ?? {}),
-      [field]: Math.round((cur + delta) * 100) / 100,
-    } as T;
+    const { base, canIncrement } = this.adjustBase(idx, field);
+    const next = Math.round((base + delta) * 100) / 100;
+    const merged = { ...this.cache[idx], ...(extra ?? {}), [field]: next } as T;
     this.cache[idx] = merged;
     emitRepoChange();
     if (isBrowser) {
@@ -261,7 +300,10 @@ export class Repository<T extends { id: string }> {
       // batch that failure would void the whole invoice write
       setDoc(
         doc(db, this.name, id),
-        { [field]: increment(Math.round(delta * 100) / 100), ...stripUndefined(extra ?? {}) },
+        {
+          [field]: canIncrement ? increment(Math.round(delta * 100) / 100) : next,
+          ...stripUndefined(extra ?? {}),
+        },
         { merge: true },
       ).catch(writeError("update"));
     }
@@ -278,18 +320,18 @@ export class Repository<T extends { id: string }> {
   ): T | undefined {
     const idx = this.cache.findIndex((i) => i.id === id);
     if (idx < 0) return undefined;
-    const cur = ((this.cache[idx] as Record<string, unknown>)[field] as number) ?? 0;
-    const merged = {
-      ...this.cache[idx],
-      ...(extra ?? {}),
-      [field]: Math.round((cur + delta) * 100) / 100,
-    } as T;
+    const { base, canIncrement } = this.adjustBase(idx, field);
+    const next = Math.round((base + delta) * 100) / 100;
+    const merged = { ...this.cache[idx], ...(extra ?? {}), [field]: next } as T;
     this.cache[idx] = merged;
     emitRepoChange();
     if (isBrowser && batch) {
       batch.set(
         doc(db, this.name, id),
-        { ...stripUndefined(extra ?? {}), [field]: increment(Math.round(delta * 100) / 100) },
+        {
+          ...stripUndefined(extra ?? {}),
+          [field]: canIncrement ? increment(Math.round(delta * 100) / 100) : next,
+        },
         { merge: true },
       );
     }

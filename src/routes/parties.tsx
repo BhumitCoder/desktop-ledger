@@ -854,6 +854,7 @@ function BulkPartyImportDialog({
     if (!valid.length || importing) return;
     setImporting(true);
     try {
+      let committed = true;
       for (let i = 0; i < valid.length; i += 400) {
         const chunk = valid.slice(i, i + 400);
         const batch = newBatch();
@@ -880,7 +881,16 @@ function BulkPartyImportDialog({
             } as Party);
           }
         }
-        await commitBatch(batch, "bulk party import");
+        if (!(await commitBatch(batch, "bulk party import"))) committed = false;
+      }
+      // A rejected commit must not be reported as an import. The cache is
+      // updated as each write is staged, so the screen would show rows the
+      // cloud never accepted until the next snapshot took them away again.
+      if (!committed) {
+        toast.error(
+          "Some rows did not reach the cloud — reload the app and check before importing again",
+        );
+        return;
       }
       toast.success(
         `Imported: ${newCount} new, ${updateCount} updated` +

@@ -27,6 +27,8 @@ import { BulkUpdateItemsDialog } from "@/components/BulkUpdateItemsDialog";
 import { PrintableInvoice } from "@/components/PrintableInvoice";
 import { PrintableReturn } from "@/components/PrintableReturn";
 import { fmtMoney, ymd } from "@/lib/format";
+import { planStockRepair } from "@/lib/dataRepair";
+import { commitBatch } from "@/repositories/base";
 import {
   PartyRepo,
   ItemRepo,
@@ -39,6 +41,7 @@ import {
   BankTxnRepo,
   PaymentRepo,
   CompanyRepo,
+  StockAdjustmentRepo,
 } from "@/repositories";
 
 export interface Results {
@@ -58,6 +61,40 @@ function assert(cond: boolean, msg: string) {
 /** Assert a rendered page contains a value, naming what was missing. */
 function has(text: string, needle: string, label: string) {
   assert(text.includes(needle), `${label} — expected to find ${JSON.stringify(needle)}`);
+}
+
+/** Type into a controlled React input the way a person does — React listens
+ * for the native `input` event, and setting `.value` alone never fires it. */
+function setInput(el: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+  setter.call(el, value);
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+/** The bulk-update grid row whose first cell holds this item name, as its
+ * list of inputs: [name, ...the current tab's fields]. Returns null when the
+ * row is not mounted — which the windowed list makes a normal state. */
+function gridRow(name: string): HTMLInputElement[] | null {
+  for (const table of Array.from(document.querySelectorAll("table"))) {
+    for (const tr of Array.from(table.querySelectorAll("tbody tr"))) {
+      const inputs = Array.from(tr.querySelectorAll("input")) as HTMLInputElement[];
+      if (inputs.length && inputs[0].value === name) return inputs;
+    }
+  }
+  return null;
+}
+
+function findButton(re: RegExp): HTMLButtonElement | undefined {
+  return Array.from(document.querySelectorAll("button")).find((b) =>
+    re.test((b.textContent ?? "").trim()),
+  ) as HTMLButtonElement | undefined;
+}
+
+/** Let React's effects, timers and rAF-coalesced scroll handlers settle. */
+async function settleMs(ms: number) {
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, ms));
+  });
 }
 
 // Dates inside the CURRENT month, so the screens' default "this month"
@@ -798,6 +835,291 @@ export async function run(): Promise<Results> {
     }
     gridRoot.unmount();
     gridHost.remove();
+  }
+
+  /* ── A rejected commit must be reported as one ───────────────────────
+     Every write updates the in-memory cache the moment it is staged, so the
+     screens show the new numbers before the cloud has agreed to them. When the
+     commit is then rejected, Firestore rolls its own mutation back and the next
+     snapshot restores the truth — but a dialog that already said "Updated 266
+     items" and closed has told the shopkeeper something false, and what they
+     see next looks like the app losing their work. commitBatch used to swallow
+     the error, leaving callers no way to tell. */
+  {
+    const ok = { commit: () => Promise.resolve() } as unknown as Parameters<typeof commitBatch>[0];
+    const rejected = {
+      commit: () => Promise.reject(new Error("permission-denied")),
+    } as unknown as Parameters<typeof commitBatch>[0];
+
+    assert((await commitBatch(ok, "t19")) === true, "T19: a clean commit reports success");
+    assert(
+      (await commitBatch(rejected, "t19")) === false,
+      "T19: a rejected commit reports failure",
+    );
+    assert((await commitBatch(null, "t19")) === true, "T19: the SSR no-op is not a failure");
+  }
+
+  /* ── Bulk Update actually writes what was typed ───────────────────────
+     The client reported a bulk stock change disagreeing with the item's own
+     page and the items list afterwards. This drives the real dialog the way
+     a shopkeeper does — search, type, search again, type, save — and then
+     checks the number on BOTH screens plus the audit trail, because those
+     are the three places a stock correction has to reach.
+
+     It also covers the flow that only a real catalogue produces: the edited
+     rows are scrolled out of the window by the time Update is pressed, so a
+     save that only looked at mounted rows would silently drop them. */
+  {
+    // Enough filler for the list to actually scroll — the window only drops a
+    // row when there is something below it to scroll to, and without that the
+    // "edits survive being unmounted" half of this test proves nothing.
+    for (let i = 0; i < 120; i++) {
+      ItemRepo.add({
+        id: `FILL${i}`,
+        createdAt: "2026-01-01T00:00:00Z",
+        name: `Filler Item ${i}`,
+        unit: "pcs",
+        gstRate: 18,
+        purchasePrice: 100,
+        salePrice: 150,
+        stock: 5,
+        openingStock: 5,
+      } as never);
+    }
+    // Added last, so these two sit at the top of the list: on page one of the
+    // Items screen, and in the grid's first window until it is scrolled.
+    for (const [id, stock] of [
+      ["BU1", 17],
+      ["BU2", 39],
+    ] as const) {
+      ItemRepo.add({
+        id,
+        createdAt: "2026-01-01T00:00:00Z",
+        name: `Bulk Save ${id}`,
+        unit: "pcs",
+        gstRate: 18,
+        purchasePrice: 100,
+        salePrice: 150,
+        stock,
+        openingStock: stock,
+      } as never);
+    }
+
+    const h = document.createElement("div");
+    document.body.appendChild(h);
+    const r = createRoot(h);
+    await act(async () => {
+      r.render(<BulkUpdateItemsDialog open onOpenChange={() => {}} onSaved={() => {}} />);
+    });
+    await settleMs(80);
+
+    const stockTab = Array.from(document.querySelectorAll('[role="radio"]')).find((b) =>
+      (b.textContent ?? "").trim().startsWith("Stock"),
+    ) as HTMLButtonElement | undefined;
+    assert(!!stockTab, "bulk save: found the Stock tab");
+    await act(async () => {
+      stockTab!.click();
+    });
+    await settleMs(60);
+
+    const search = document.querySelector(
+      'input[placeholder="Search items…"]',
+    ) as HTMLInputElement | null;
+    assert(!!search, "bulk save: found the search box");
+
+    for (const [name, want] of [
+      ["Bulk Save BU1", 111],
+      ["Bulk Save BU2", 222],
+    ] as const) {
+      await act(async () => {
+        setInput(search!, name);
+      });
+      await settleMs(60);
+      const cells = gridRow(name);
+      assert(!!cells, `bulk save: ${name} is findable by search`);
+      if (cells) {
+        await act(async () => {
+          setInput(cells[1], String(want));
+        });
+        await settleMs(40);
+      }
+    }
+
+    // Clear the search and scroll away, so NEITHER edited row is mounted when
+    // Update is pressed. A save that walked the rendered rows instead of the
+    // catalogue would drop both edits here and report success anyway.
+    await act(async () => {
+      setInput(search!, "");
+    });
+    await settleMs(60);
+    // The grid's scroll container is the table's own parent — found that way
+    // rather than by class, so a Tailwind rename cannot quietly turn this
+    // into a no-op that still passes.
+    const scroller = document.querySelector('[role="dialog"] table')
+      ?.parentElement as HTMLDivElement | null;
+    assert(!!scroller, "bulk save: found the grid scroller");
+    await act(async () => {
+      scroller!.scrollTop = scroller!.scrollHeight;
+      scroller!.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+    await settleMs(120);
+    assert(
+      !gridRow("Bulk Save BU1") && !gridRow("Bulk Save BU2"),
+      "bulk save: the edited rows really are unmounted before saving",
+    );
+
+    const update = findButton(/^Update/);
+    assert(
+      (update?.textContent ?? "").includes("(2)"),
+      `bulk save: both edits are counted — button says ${JSON.stringify(update?.textContent)}`,
+    );
+    await act(async () => {
+      update!.click();
+    });
+    await settleMs(250);
+
+    assert(
+      ItemRepo.get("BU1")?.stock === 111 && ItemRepo.get("BU2")?.stock === 222,
+      `bulk save: typed values land — BU1=${ItemRepo.get("BU1")?.stock} (want 111), BU2=${ItemRepo.get("BU2")?.stock} (want 222)`,
+    );
+    // Stock moves only through an audited adjustment, never an absolute write.
+    const adjusted = StockAdjustmentRepo.all().filter(
+      (a) => a.itemId === "BU1" || a.itemId === "BU2",
+    );
+    assert(
+      adjusted.length === 2 &&
+        adjusted.every((a) => a.type === "add" && a.reason === "Bulk update"),
+      `bulk save: each stock change writes its audit row — got ${JSON.stringify(adjusted.map((a) => `${a.itemId}:${a.type}:${a.qty}`))}`,
+    );
+    // And the result must be self-consistent, or Fix Calculations would
+    // "repair" a correction the shopkeeper just made on purpose.
+    const drift = planStockRepair({
+      items: ItemRepo.all(),
+      sales: SalesRepo.all(),
+      purchases: PurchaseRepo.all(),
+      saleReturns: SaleReturnRepo.all(),
+      purchaseReturns: [],
+      stockAdjustments: StockAdjustmentRepo.all(),
+    }).filter((d) => d.id === "BU1" || d.id === "BU2");
+    assert(
+      drift.length === 0,
+      `bulk save: the corrected items must not read as drift — ${JSON.stringify(drift)}`,
+    );
+
+    r.unmount();
+    h.remove();
+
+    // The two screens the client compared.
+    const itemsList = await renderRoute("/items");
+    assert(itemsList.includes("111 pcs"), "bulk save: the items list shows the new stock");
+    const itemPage = await renderRoute("/items/BU1");
+    assert(itemPage.includes("111 pcs"), "bulk save: the item's own page shows the new stock");
+    assert(
+      itemPage.includes("Bulk update"),
+      "bulk save: the item's history shows where the change came from",
+    );
+  }
+
+  /* ── Bulk rename cannot manufacture two identical items ───────────────
+     Renaming in bulk shipped with no guard, while the single-item form has
+     always blocked duplicates. Two items sharing a name is precisely how the
+     list and an item's own page start disagreeing about which one is which. */
+  {
+    const h = document.createElement("div");
+    document.body.appendChild(h);
+    const r = createRoot(h);
+    await act(async () => {
+      r.render(<BulkUpdateItemsDialog open onOpenChange={() => {}} onSaved={() => {}} />);
+    });
+    await settleMs(80);
+
+    const infoTab = Array.from(document.querySelectorAll('[role="radio"]')).find((b) =>
+      (b.textContent ?? "").trim().startsWith("Item Information"),
+    ) as HTMLButtonElement | undefined;
+    await act(async () => {
+      infoTab!.click();
+    });
+    await settleMs(60);
+
+    const search = document.querySelector('input[placeholder="Search items…"]') as HTMLInputElement;
+    await act(async () => {
+      setInput(search, "Bulk Save BU2");
+    });
+    await settleMs(60);
+    const row = gridRow("Bulk Save BU2");
+    assert(!!row, "bulk rename: found the row to rename");
+    // Rename it to the OTHER item's name. (Every step below re-finds the row
+    // by its CURRENT name: if the guard under test is missing, the rename
+    // goes through and the old handle would be stale — this must report the
+    // broken guard, not crash the harness on it.)
+    await act(async () => {
+      setInput(row![0], "Bulk Save BU1");
+    });
+    await settleMs(60);
+    await act(async () => {
+      findButton(/^Update/)!.click();
+    });
+    await settleMs(200);
+    assert(
+      ItemRepo.get("BU2")?.name === "Bulk Save BU2",
+      `bulk rename: a duplicate name is refused — BU2 is now ${JSON.stringify(ItemRepo.get("BU2")?.name)}`,
+    );
+
+    // A blank name is refused too.
+    const stillThere = gridRow("Bulk Save BU1") ?? row;
+    await act(async () => {
+      setInput(stillThere![0], "   ");
+    });
+    await settleMs(60);
+    await act(async () => {
+      findButton(/^Update/)!.click();
+    });
+    await settleMs(200);
+    assert(
+      ItemRepo.get("BU2")?.name === "Bulk Save BU2",
+      `bulk rename: a blank name is refused — BU2 is now ${JSON.stringify(ItemRepo.get("BU2")?.name)}`,
+    );
+
+    /* A legal rename made in the SAME save as a stock change: the audit row
+       has to be filed under the new name. It used to copy the stored one, so
+       the item's history showed a movement labelled with a name that item no
+       longer had. */
+    const toRename = gridRow("   ") ?? gridRow("Bulk Save BU1") ?? row;
+    await act(async () => {
+      setInput(toRename![0], "Bulk Save Renamed");
+    });
+    await settleMs(60);
+    const stockTab2 = Array.from(document.querySelectorAll('[role="radio"]')).find((b) =>
+      (b.textContent ?? "").trim().startsWith("Stock"),
+    ) as HTMLButtonElement;
+    await act(async () => {
+      stockTab2.click();
+    });
+    await settleMs(60);
+    const renamedRow = gridRow("Bulk Save Renamed");
+    assert(!!renamedRow, "bulk rename: the renamed row keeps its edit across tabs");
+    if (renamedRow) {
+      await act(async () => {
+        setInput(renamedRow[1], "500");
+      });
+      await settleMs(60);
+    }
+    await act(async () => {
+      findButton(/^Update/)!.click();
+    });
+    await settleMs(250);
+    assert(
+      ItemRepo.get("BU2")?.name === "Bulk Save Renamed" && ItemRepo.get("BU2")?.stock === 500,
+      `bulk rename: a legal rename saves alongside the stock change — ${JSON.stringify(ItemRepo.get("BU2")?.name)} / ${ItemRepo.get("BU2")?.stock}`,
+    );
+    const renameAdj = StockAdjustmentRepo.all().filter((a) => a.itemId === "BU2");
+    assert(
+      renameAdj.some((a) => a.itemName === "Bulk Save Renamed"),
+      `bulk rename: the audit row carries the NEW name — got ${JSON.stringify(renameAdj.map((a) => a.itemName))}`,
+    );
+
+    r.unmount();
+    h.remove();
   }
 
   /* ── Bulk Update with a real-sized catalogue ──────────────────────────

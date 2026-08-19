@@ -3,6 +3,14 @@ import type { Invoice, Item, Return, StockAdjustment } from "@/types";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
+/** Coerce a stored figure that TypeScript believes is a number but Firestore
+ * may be holding as a string ("5") or not at all. Everything below does
+ * arithmetic on these, and `+` on a string concatenates. */
+const num = (v: unknown): number => {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
 export interface StockCorrection {
   id: string;
   name: string;
@@ -38,22 +46,28 @@ export function planStockRepair(data: {
   const add = (itemId: string, qty: number) =>
     movement.set(itemId, (movement.get(itemId) ?? 0) + qty);
 
-  for (const s of data.sales) for (const l of s.lineItems) add(l.itemId, -(l.qty || 0));
-  for (const p of data.purchases) for (const l of p.lineItems) add(l.itemId, l.qty || 0);
+  for (const s of data.sales) for (const l of s.lineItems) add(l.itemId, -num(l.qty));
+  for (const p of data.purchases) for (const l of p.lineItems) add(l.itemId, num(l.qty));
   // A sale return brings goods back in; a purchase return sends them out.
-  for (const r of data.saleReturns) for (const l of r.lineItems) add(l.itemId, l.qty || 0);
-  for (const r of data.purchaseReturns) for (const l of r.lineItems) add(l.itemId, -(l.qty || 0));
+  for (const r of data.saleReturns) for (const l of r.lineItems) add(l.itemId, num(l.qty));
+  for (const r of data.purchaseReturns) for (const l of r.lineItems) add(l.itemId, -num(l.qty));
   for (const a of data.stockAdjustments) {
-    add(a.itemId, a.type === "add" ? a.qty || 0 : -(a.qty || 0));
+    add(a.itemId, a.type === "add" ? num(a.qty) : -num(a.qty));
   }
 
   const out: StockCorrection[] = [];
   for (const it of data.items) {
-    const correct = r2((it.openingStock ?? 0) + (movement.get(it.id) ?? 0));
-    const stored = r2(it.stock ?? 0);
+    const correct = r2(num(it.openingStock) + (movement.get(it.id) ?? 0));
+    // A stock that is not actually a NUMBER always needs rebuilding, even when
+    // it reads as the right figure. Firestore will happily hold "5", every
+    // screen renders it fine, and then the first atomic adjustment concatenates
+    // instead of adding — see Repository.adjustBase. Repairing it rewrites the
+    // field as a real number, so include it whatever the arithmetic says.
+    const malformed = typeof it.stock !== "number" || !Number.isFinite(it.stock);
+    const stored = r2(num(it.stock));
     const delta = r2(correct - stored);
     // Half a unit of float dust is not drift.
-    if (Math.abs(delta) < 0.005) continue;
+    if (!malformed && Math.abs(delta) < 0.005) continue;
     out.push({ id: it.id, name: it.name, stored, correct, delta, unit: it.unit });
   }
   return out.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));

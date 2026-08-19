@@ -137,7 +137,14 @@ function SettingsPage() {
         // mid-repair still counts, rather than overwriting the total.
         ItemRepo.adjustFieldBatched(batch, it.id, "stock", it.delta);
       }
-      await commitBatch(batch, "recalculate stored totals");
+      if (!(await commitBatch(batch, "recalculate stored totals"))) {
+        // The cache already holds the corrected figures, so claiming success
+        // here would be the worst possible lie: the totals look repaired
+        // until the rollback lands and puts the wrong ones back.
+        setBankPlan(planDataRepair(bankRepairData()));
+        toast.error("The corrections did not reach the cloud — reload the app and try again");
+        return;
+      }
       setBankPlan(planDataRepair(bankRepairData()));
       toast.success(
         `Corrected ${plan.accounts.length} bank balance(s), ${plan.items.length} item stock(s) and ${plan.bills.length} bill record(s)`,

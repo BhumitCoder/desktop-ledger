@@ -21,6 +21,7 @@ import {
   buildPartyStatement,
 } from "@/lib/ledger";
 import type {
+  StockAdjustment,
   Invoice,
   Payment,
   Return,
@@ -1028,6 +1029,115 @@ console.log(`\n═════════════════════�
     payments: [],
   });
   assert(paidPos.net === -9850, "T16: settling the bill leaves just the opening");
+}
+
+/* ═══ TEST 17: a stored figure that is not actually a number ═══════════
+   Firestore is schemaless: TypeScript says Item.stock is a number, but a
+   document can hold the STRING "5" — from an older import, a hand edit, a
+   migration. Every screen renders it fine, so it stays invisible until an
+   atomic adjustment touches it, and then the local cache and the cloud
+   disagree PERMANENTLY:
+
+     local  "5" + 15   → "515"  (JavaScript concatenates)
+     cloud  increment  → 15     (Firestore treats a non-number as 0)
+
+   which is how a bulk stock correction can look applied on one screen and
+   wrong on the next. Subtraction is worse: "12" - 4 is NaN, stored as null.
+   These pin the coercion in Repository.adjustBase. */
+{
+  const repo = new Repository<{ id: string; stock: number; balance?: number }>("test-adjust");
+  const seed = (id: string, stock: unknown) =>
+    repo.add({ id, stock } as unknown as { id: string; stock: number });
+
+  seed("A", "5");
+  assert(
+    repo.adjustField("A", "stock", 15)?.stock === 20,
+    "T17: string base adds (not concatenates)",
+  );
+
+  seed("B", "12");
+  assert(repo.adjustField("B", "stock", -4)?.stock === 8, "T17: string base subtracts (not NaN)");
+
+  seed("C", 5);
+  assert(repo.adjustField("C", "stock", 15)?.stock === 20, "T17: a real number is unaffected");
+
+  // A MISSING field keeps working the way Firestore's increment does: base 0.
+  seed("D", undefined);
+  assert(repo.adjustField("D", "stock", 7)?.stock === 7, "T17: a missing field bases at zero");
+
+  // Junk that cannot be a number at all must not poison the record with NaN.
+  seed("E", "abc");
+  assert(repo.adjustField("E", "stock", 3)?.stock === 3, "T17: unparseable text bases at zero");
+
+  // Rounding still applies through the coercion.
+  seed("F", "2.005");
+  assert(
+    repo.adjustField("F", "stock", 0)?.stock === 2.01,
+    "T17: coerced values still round to 2dp",
+  );
+
+  // Repeated adjustments must stay stable once healed.
+  seed("G", "10");
+  repo.adjustField("G", "stock", 5);
+  assert(repo.adjustField("G", "stock", 5)?.stock === 20, "T17: the healed field keeps adding");
+}
+
+/* ═══ TEST 18: the repair planner must SEE a malformed stock ══════════
+   A string "5" that happens to equal the correct figure produced a delta of
+   zero, so Fix Calculations skipped it and the field stayed a string —
+   waiting to corrupt itself on the next adjustment. It has to be reported so
+   the repair rewrites it as a real number. */
+{
+  const mkItem = (id: string, stock: unknown, openingStock: unknown): Item =>
+    ({
+      id,
+      name: `Item ${id}`,
+      unit: "pcs",
+      gstRate: 0,
+      purchasePrice: 0,
+      salePrice: 0,
+      stock,
+      openingStock,
+      createdAt: "",
+    }) as unknown as Item;
+  const empty = {
+    sales: [],
+    purchases: [],
+    saleReturns: [],
+    purchaseReturns: [],
+    stockAdjustments: [],
+  };
+
+  const rightValueWrongType = planStockRepair({ ...empty, items: [mkItem("X", "5", 5)] });
+  assert(
+    rightValueWrongType.length === 1 && rightValueWrongType[0].correct === 5,
+    "T18: a string stock is reported even when it reads as the right number",
+  );
+
+  const genuinelyFine = planStockRepair({ ...empty, items: [mkItem("Y", 5, 5)] });
+  assert(genuinelyFine.length === 0, "T18: a correct numeric stock is still left alone");
+
+  // And the planner's own arithmetic must not concatenate string quantities.
+  const withStringQty = planStockRepair({
+    ...empty,
+    items: [mkItem("Z", 10, 10)],
+    stockAdjustments: [
+      {
+        id: "a1",
+        itemId: "Z",
+        itemName: "Item Z",
+        date: "2026-01-01",
+        type: "add",
+        qty: "5",
+        reason: "",
+        createdAt: "",
+      } as unknown as StockAdjustment,
+    ],
+  });
+  assert(
+    withStringQty.length === 1 && withStringQty[0].correct === 15,
+    `T18: a string qty adds as 5, not "105" — got ${withStringQty[0]?.correct}`,
+  );
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);

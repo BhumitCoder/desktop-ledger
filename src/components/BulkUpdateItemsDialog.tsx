@@ -165,10 +165,40 @@ export function BulkUpdateItemsDialog({
   const win = useWindowedRows(rows.length, ROW_H);
   const winMobile = useWindowedRows(rows.length, CARD_H);
 
+  /**
+   * The same two name rules the single-item form enforces, applied to a whole
+   * screenful of renames.
+   *
+   * Renaming in bulk was added with no guard at all, which let this screen
+   * blank a name or produce two items called the same thing. Duplicates are
+   * the worse of the two: the item picker, the "last sale price" lookup and
+   * every report then match by a name that no longer identifies one item, so
+   * the list and the item's own page can genuinely disagree about it. Checked
+   * against the OTHER drafts too, not just the stored catalogue — two rows
+   * renamed to the same thing in one sitting collide only after saving.
+   */
+  const nameProblem = (): string | null => {
+    const seen = new Map<string, string>();
+    for (const it of items) {
+      const name = String(valueOf(it, "name") ?? "").trim();
+      if (!name) return `"${it.name}" — a name cannot be blank`;
+      const key = name.toLowerCase();
+      const other = seen.get(key);
+      if (other) return `Two items would both be called "${name}" (${other} and ${it.name})`;
+      seen.set(key, it.name);
+    }
+    return null;
+  };
+
   const save = async () => {
     if (savingRef.current) return;
     if (!totalChanged) {
       toast.info("Nothing changed yet");
+      return;
+    }
+    const bad = nameProblem();
+    if (bad) {
+      toast.error(`Repeat items cannot be added — ${bad}`);
       return;
     }
     savingRef.current = true;
@@ -181,6 +211,7 @@ export function BulkUpdateItemsDialog({
       const CHUNK = 200;
       let itemCount = 0;
       let stockCount = 0;
+      let allCommitted = true;
 
       for (let i = 0; i < edited.length; i += CHUNK) {
         const batch = newBatch();
@@ -209,7 +240,11 @@ export function BulkUpdateItemsDialog({
           if (stockDelta !== 0) {
             StockAdjustmentRepo.addBatched(batch, {
               itemId: it.id,
-              itemName: it.name,
+              // The EDITED name, not the stored one — renaming an item and
+              // correcting its stock in the same save used to file the audit
+              // row under the old name, so the item's history showed a
+              // movement that no longer matched the item it belonged to.
+              itemName: String(valueOf(it, "name") ?? it.name).trim() || it.name,
               date: today(),
               type: stockDelta > 0 ? "add" : "reduce",
               qty: Math.abs(stockDelta),
@@ -218,7 +253,19 @@ export function BulkUpdateItemsDialog({
             stockCount++;
           }
         }
-        await commitBatch(batch, "bulk update items");
+        if (!(await commitBatch(batch, "bulk update items"))) allCommitted = false;
+      }
+
+      // Never claim success for writes the cloud rejected. The cache is
+      // updated as each write is staged, so the screen behind this dialog
+      // would show the new numbers for a moment and then snap back when
+      // Firestore's rollback arrives — which reads as "the app changed my
+      // stock and then lost it".
+      if (!allCommitted) {
+        toast.error(
+          "Some changes did not reach the cloud — reload the app and check those items before trying again",
+        );
+        return;
       }
 
       toast.success(
