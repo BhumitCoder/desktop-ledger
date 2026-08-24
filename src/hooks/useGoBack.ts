@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from "react";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { isEscapeClaimed } from "@/hooks/useFormKeys";
+import { useWorkspace } from "@/store/workspace";
 
 /**
  * One step back — the way a back button is supposed to behave.
@@ -105,26 +106,44 @@ export function useBackShortcuts(enabled: boolean, back: () => void) {
  *      page with the sheet still standing on top of the next one.
  *   3. A form that claims Escape (see useEscapeToLeave) — "leave THIS form,
  *      asking first if there is work on it" beats "go back a page".
- *   4. Otherwise: back one step.
+ *   4. The open tab — the app keeps its own Chrome-style tab strip, and
+ *      "close this screen" means that tab, exactly as its × does. You land
+ *      on the tab that takes its place, not wherever history happened to be.
+ *   5. Nothing in the strip? Then back one step.
  *
- * When there is nothing behind the page — a fresh tab, a bookmark, the print
- * window's escape hatch — Escape does nothing at all. It never tries to close
- * the browser tab: a page cannot close a tab it did not open, and quietly
- * shutting the app on a keystroke is not something to attempt on a till.
+ * With no tab and nothing behind the page — a fresh tab, a bookmark, the
+ * print window's escape hatch — Escape does nothing at all. It never tries to
+ * close the BROWSER tab: a page cannot close a tab it did not open, and
+ * quietly shutting the app on a keystroke is not something to attempt on a
+ * till.
  */
 export function useAppEscape() {
   const router = useRouter();
+  const navigate = useNavigate();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
       if (isTyping(e.target)) return;
       if (document.querySelector('[role="dialog"],[role="alertdialog"]')) return;
       if (isEscapeClaimed()) return;
+
+      // The tab strip is the app's own idea of "what is open", so closing the
+      // current tab is what closing the current screen means here.
+      const { tabs, closeTabAndNext } = useWorkspace.getState();
+      const path = router.state.location.pathname;
+      const open = tabs.find((t) => t.path === path);
+      if (open) {
+        e.preventDefault();
+        const next = closeTabAndNext(open.id, path);
+        if (next) navigate({ to: next });
+        return;
+      }
+
       if (!router.history.canGoBack()) return;
       e.preventDefault();
       router.history.back();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [router]);
+  }, [router, navigate]);
 }

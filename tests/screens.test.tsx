@@ -32,6 +32,7 @@ import { fmtMoney, ymd } from "@/lib/format";
 import { planStockRepair } from "@/lib/dataRepair";
 import { useEscapeToLeave } from "@/hooks/useFormKeys";
 import { useAppEscape } from "@/hooks/useGoBack";
+import { useWorkspace } from "@/store/workspace";
 import { buildPartyStatement, cashFlows } from "@/lib/ledger";
 import { commitBatch } from "@/repositories/base";
 import {
@@ -2047,6 +2048,94 @@ async function runAll(): Promise<Results> {
         typed.includes("Items"),
         "escape anywhere: Escape in a search box does not leave the page",
       );
+    }
+  }
+
+  /* ── Escape closes the open TAB ───────────────────────────────────────
+     The app keeps its own Chrome-style tab strip, so "close this screen"
+     means that tab — the same thing its × does — and you land on the tab
+     that takes its place rather than wherever browser history happened to
+     be. Escape used to step back through history instead, which left the
+     tab sitting in the strip after the screen behind it had changed. */
+  {
+    const restore = useWorkspace.getState();
+    try {
+      useWorkspace.setState({
+        tabs: [
+          { id: "/parties", title: "Parties", path: "/parties" },
+          { id: "/items/BU1", title: "Bulk Save BU1", path: "/items/BU1" },
+        ],
+        activeId: "/items/BU1",
+      });
+      const detail = await renderRoute(["/parties", "/items/BU1"]);
+      assert(detail.includes("Bulk Save BU1"), "esc tab: the detail page is open");
+
+      await act(async () => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      });
+      const after = await readMounted();
+
+      const left = useWorkspace.getState().tabs.map((t) => t.id);
+      assert(
+        !left.includes("/items/BU1"),
+        `esc tab: the tab is actually closed — strip still holds ${JSON.stringify(left)}`,
+      );
+      assert(left.includes("/parties"), "esc tab: the other tab is left alone");
+      assert(
+        useWorkspace.getState().activeId === "/parties",
+        `esc tab: the neighbouring tab becomes active — got ${useWorkspace.getState().activeId}`,
+      );
+      assert(
+        after.includes("customers / suppliers"),
+        `esc tab: and the screen follows it — landed on ${JSON.stringify(after.slice(0, 90))}`,
+      );
+
+      // Three tabs, closing the FIRST one: you land on the tab that takes
+      // its slot, not on the far end of the strip. With only two tabs open
+      // those two rules give the same answer, so this needs three.
+      useWorkspace.setState({
+        tabs: [
+          { id: "/parties", title: "Parties", path: "/parties" },
+          { id: "/items", title: "Items", path: "/items" },
+          { id: "/payments", title: "Payments", path: "/payments" },
+        ],
+        activeId: "/parties",
+      });
+      const adjacent = useWorkspace.getState().closeTabAndNext("/parties", "/parties");
+      assert(
+        adjacent === "/items",
+        `esc tab: you land on the neighbouring tab, not the last one — got ${adjacent}`,
+      );
+
+      // Closing the LAST tab has nowhere to go but the dashboard, and must
+      // never leave the strip pointing at a tab that is gone.
+      useWorkspace.setState({
+        tabs: [{ id: "/items", title: "Items", path: "/items" }],
+        activeId: "/items",
+      });
+      const only = useWorkspace.getState().closeTabAndNext("/items", "/items");
+      assert(only === "/", `esc tab: closing the last tab goes to the dashboard — got ${only}`);
+      assert(
+        useWorkspace.getState().tabs.length === 0 && useWorkspace.getState().activeId === null,
+        "esc tab: and the strip is left empty, not pointing at a closed tab",
+      );
+
+      // Closing a tab you are NOT looking at must not move you.
+      useWorkspace.setState({
+        tabs: [
+          { id: "/parties", title: "Parties", path: "/parties" },
+          { id: "/items", title: "Items", path: "/items" },
+        ],
+        activeId: "/items",
+      });
+      const stay = useWorkspace.getState().closeTabAndNext("/parties", "/items");
+      assert(stay === null, `esc tab: closing a background tab stays put — got ${stay}`);
+      assert(
+        useWorkspace.getState().activeId === "/items",
+        "esc tab: and the screen you were on is still the active one",
+      );
+    } finally {
+      useWorkspace.setState({ tabs: restore.tabs, activeId: restore.activeId });
     }
   }
 

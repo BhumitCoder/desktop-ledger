@@ -35,7 +35,7 @@ import { useRepoData } from "@/hooks/useRepoData";
 
 export function WorkspaceTabs() {
   useRepoData();
-  const { tabs, closeTab, openTab } = useWorkspace();
+  const { tabs, closeTabAndNext, openTab } = useWorkspace();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const routeTitle = titleFromPath(pathname);
@@ -55,12 +55,10 @@ export function WorkspaceTabs() {
 
   if (!tabs.length) return null;
 
-  // Closing the ACTIVE tab needs to actually move you somewhere — Chrome's
-  // rule is the adjacent tab (whichever now sits in this tab's old slot,
-  // i.e. the one that was to its right), falling back to the new last tab
-  // only when the closed tab was already the rightmost. Never just "the
-  // last tab in the whole strip" — that teleports you across open tabs.
-  const handleClose = (tabId: string, tabPath: string) => {
+  // Where closing lands you is decided by the store (see closeTabAndNext),
+  // because Escape closes tabs too and the rule must not exist twice. What
+  // stays here is the pixel trick above, which is purely about the mouse.
+  const handleClose = (tabId: string) => {
     const widths: Record<string, number> = { ...pinnedWidths };
     for (const t of tabs) {
       if (t.id === tabId) continue;
@@ -69,14 +67,8 @@ export function WorkspaceTabs() {
     }
     setPinnedWidths(widths);
 
-    const wasActive = tabPath === pathname;
-    const closedIndex = tabs.findIndex((t) => t.id === tabId);
-    closeTab(tabId);
-    if (wasActive) {
-      const remaining = tabs.filter((t) => t.id !== tabId);
-      const next = remaining[Math.min(closedIndex, remaining.length - 1)];
-      navigate({ to: next ? next.path : "/" });
-    }
+    const next = closeTabAndNext(tabId, pathname);
+    if (next) navigate({ to: next });
   };
 
   return (
@@ -115,7 +107,7 @@ export function WorkspaceTabs() {
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                handleClose(tab.id, tab.path);
+                handleClose(tab.id);
               }}
               className={cn(
                 "rounded-full p-0.5 hover:!opacity-100 hover:bg-accent transition-opacity shrink-0",
