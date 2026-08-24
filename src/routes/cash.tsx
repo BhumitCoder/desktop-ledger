@@ -18,7 +18,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/Field";
 import { NumField } from "@/components/NumInput";
-import { Banknote, Search, Calendar, X, SlidersHorizontal } from "lucide-react";
+import { Banknote, Search, Calendar, X, SlidersHorizontal, ArrowLeftRight } from "lucide-react";
+import { CashBankTransferDialog } from "@/components/CashBankTransferDialog";
 import { toast } from "sonner";
 import { usePermissions } from "@/hooks/usePermissions";
 
@@ -29,6 +30,7 @@ function CashPage() {
   const editAllowed = isOwner || canEdit("cashBank");
   const [entries, setEntries] = useState<FlowEntry[]>([]);
   const [adjustOpen, setAdjustOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
   const [q, setQ] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -131,9 +133,22 @@ function CashPage() {
               />
             </div>
             {editAllowed && (
-              <Button size="sm" onClick={() => setAdjustOpen(true)} className="w-full sm:w-auto">
-                <Banknote className="h-3.5 w-3.5" /> Adjust Cash
-              </Button>
+              <>
+                {/* "Put the day's takings in the bank" had no home on this
+                    page at all — it was a checkbox inside one bank account's
+                    Deposit action. */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setTransferOpen(true)}
+                  className="w-full sm:w-auto"
+                >
+                  <ArrowLeftRight className="h-3.5 w-3.5" /> Cash ↔ Bank
+                </Button>
+                <Button size="sm" onClick={() => setAdjustOpen(true)} className="w-full sm:w-auto">
+                  <Banknote className="h-3.5 w-3.5" /> Adjust Cash
+                </Button>
+              </>
             )}
           </>
         }
@@ -279,6 +294,11 @@ function CashPage() {
           }
         />
       </div>
+      <CashBankTransferDialog
+        open={transferOpen}
+        onOpenChange={setTransferOpen}
+        onSaved={refresh}
+      />
       <CashAdjustDialog
         open={adjustOpen}
         onOpenChange={setAdjustOpen}

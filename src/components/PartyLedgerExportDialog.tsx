@@ -132,7 +132,7 @@ export function PartyLedgerExportDialog({
     // hidden element has no layout, and the renderer needs real dimensions)
     // and are all torn down together in the finally below.
     const holder = document.createElement("div");
-    holder.style.cssText = "position:fixed;left:-10000px;top:0;width:900px;";
+    holder.style.cssText = "position:fixed;left:-10000px;top:0;width:1280px;";
     document.body.appendChild(holder);
     const roots: ReturnType<typeof createRoot>[] = [];
     try {
@@ -141,9 +141,14 @@ export function PartyLedgerExportDialog({
       // party, and that launch — not the drawing — is what made this feel
       // like it had frozen. The statement is styled entirely inline, so
       // selfContained also drops ~108 KB of app CSS from every document.
+      // The full statement is nine columns wide and carries an item table
+      // under each transaction, so it needs the same landscape page the
+      // statement screen prints on; the simple ledger is six narrow columns
+      // and belongs on portrait.
+      const orientation: "portrait" | "landscape" = format === "simple" ? "portrait" : "landscape";
       const docs: {
         el: HTMLElement;
-        orientation: "portrait";
+        orientation: "portrait" | "landscape";
         opts: { selfContained: true };
       }[] = [];
       for (const p of parties) {
@@ -163,7 +168,7 @@ export function PartyLedgerExportDialog({
           );
         });
         const el = slot.firstElementChild as HTMLElement | null;
-        if (el) docs.push({ el, orientation: "portrait", opts: { selfContained: true } });
+        if (el) docs.push({ el, orientation, opts: { selfContained: true } });
       }
 
       const blobs = await elementsToPdfBlobs(docs, (done) =>
@@ -234,8 +239,12 @@ export function PartyLedgerExportDialog({
             <div className="grid grid-cols-2 gap-2">
               {(
                 [
-                  ["full", "Full Detail", "Item breakdown, payment status"],
-                  ["simple", "Simple", "One line per transaction"],
+                  [
+                    "full",
+                    "Full Detail",
+                    "Same 9-column statement as the party page, with item breakdown",
+                  ],
+                  ["simple", "Simple", "One line per transaction — Credit / Debit / Balance"],
                 ] as const
               ).map(([key, title, desc]) => (
                 <button

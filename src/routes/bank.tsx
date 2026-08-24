@@ -21,7 +21,16 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Field } from "@/components/Field";
 import { NumField } from "@/components/NumInput";
 import { fmtMoney, today } from "@/lib/format";
-import { Plus, ArrowDownToLine, ArrowUpFromLine, History, Pencil, Landmark } from "lucide-react";
+import {
+  Plus,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  ArrowLeftRight,
+  History,
+  Pencil,
+  Landmark,
+} from "lucide-react";
+import { CashBankTransferDialog } from "@/components/CashBankTransferDialog";
 import { toast } from "sonner";
 import { usePermissions } from "@/hooks/usePermissions";
 
@@ -36,6 +45,7 @@ function BankPage() {
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<BankAccount | null>(null);
   const [txnOpen, setTxnOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
   const refresh = () => setRows(BankRepo.all());
   const _repoV = useRepoData();
   useEffect(refresh, [_repoV]);
@@ -134,6 +144,17 @@ function BankPage() {
                 className="w-full sm:w-auto"
               >
                 <ArrowDownToLine className="h-3.5 w-3.5" /> Deposit / Withdraw
+              </Button>
+            )}
+            {rows.length > 0 && editAllowed && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setTransferOpen(true)}
+                title="Move money between the counter and an account"
+                className="w-full sm:w-auto"
+              >
+                <ArrowLeftRight className="h-3.5 w-3.5" /> Cash ↔ Bank
               </Button>
             )}
             {editAllowed && (
@@ -255,6 +276,11 @@ function BankPage() {
       </div>
       <BankDialog open={open} onOpenChange={setOpen} bank={edit} onSaved={refresh} />
       <BankTxnDialog open={txnOpen} onOpenChange={setTxnOpen} accounts={rows} onSaved={refresh} />
+      <CashBankTransferDialog
+        open={transferOpen}
+        onOpenChange={setTransferOpen}
+        onSaved={refresh}
+      />
     </div>
   );
 }

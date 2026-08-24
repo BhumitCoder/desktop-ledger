@@ -165,7 +165,16 @@ run().then((r) => { (window as any).__RESULT__ = r; })
     if (m.type() !== "error" && m.type() !== "warning") return;
     const text = m.text();
     if (HARNESS_NOISE.test(text)) return;
-    pageErrors.push(`[${m.type()}] ${text}`);
+    // Where it came from matters more than the message: React's warnings
+    // name the problem ("Received NaN") but never the component, and hunting
+    // for it by reading code is exactly the guessing this harness exists to
+    // replace.
+    const frames = (m.stackTrace?.() ?? [])
+      .filter((f) => f && f.url && !f.url.includes("/bundle.js:0"))
+      .slice(0, 4)
+      .map((f) => `${f.url.split("/").pop()}:${f.lineNumber}:${f.columnNumber}`)
+      .join(" < ");
+    pageErrors.push(`[${m.type()}] ${text}${frames ? ` @ ${frames}` : ""}`);
   });
 
   await page.goto("file://" + path.join(OUT_DIR, "index.html").replace(/\\/g, "/"), {

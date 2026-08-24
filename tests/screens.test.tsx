@@ -24,10 +24,13 @@ import { createRouter, createMemoryHistory, RouterProvider, Outlet } from "@tans
 import { QueryClient } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
 import { BulkUpdateItemsDialog } from "@/components/BulkUpdateItemsDialog";
+import { PrintablePartyStatement } from "@/components/PrintablePartyStatement";
+import { CashBankTransferDialog } from "@/components/CashBankTransferDialog";
 import { PrintableInvoice } from "@/components/PrintableInvoice";
 import { PrintableReturn } from "@/components/PrintableReturn";
 import { fmtMoney, ymd } from "@/lib/format";
 import { planStockRepair } from "@/lib/dataRepair";
+import { buildPartyStatement, cashFlows } from "@/lib/ledger";
 import { commitBatch } from "@/repositories/base";
 import {
   PartyRepo,
@@ -42,6 +45,8 @@ import {
   PaymentRepo,
   CompanyRepo,
   StockAdjustmentRepo,
+  PurchaseReturnRepo,
+  CashAdjustmentRepo,
 } from "@/repositories";
 
 export interface Results {
@@ -1473,6 +1478,199 @@ async function runAll(): Promise<Results> {
         "category: an existing value is not offered as a new one",
       );
     }
+    r.unmount();
+    h.remove();
+  }
+
+  /* ── The bulk ledger download is the SAME document as the party page's ──
+     Selecting parties and downloading produced a cut-down six-column PDF with
+     no item breakdown, while opening one party and downloading gave the full
+     nine-column statement. Same words on the button, visibly different file.
+     This pins the printable statement against the columns the party page
+     actually shows, so the two cannot drift apart again. */
+  {
+    const statementParty = PartyRepo.get("P1")!;
+    const built = buildPartyStatement(statementParty, {
+      sales: SalesRepo.all(),
+      purchases: PurchaseRepo.all(),
+      saleReturns: SaleReturnRepo.all(),
+      purchaseReturns: PurchaseReturnRepo.all(),
+      payments: PaymentRepo.all(),
+    });
+
+    const h = document.createElement("div");
+    document.body.appendChild(h);
+    const r = createRoot(h);
+    await act(async () => {
+      r.render(
+        <PrintablePartyStatement
+          party={statementParty}
+          rows={built.rows}
+          company={CompanyRepo.get()}
+          periodLabel="All transactions"
+          format="full"
+        />,
+      );
+    });
+    await settleMs(60);
+    const text = h.textContent ?? "";
+
+    // Every column the statement page shows, by name.
+    for (const col of [
+      "Date",
+      "Txn Type",
+      "Ref No.",
+      "Payment Status",
+      "Total",
+      "Received/Paid",
+      "Txn Balance",
+      "Receivable Balance",
+      "Payable Balance",
+    ]) {
+      assert(text.includes(col), `bulk ledger: the full PDF has the "${col}" column`);
+    }
+    // And the per-transaction item breakdown, which was missing entirely.
+    assert(
+      text.includes("Item name") && text.includes("Price/Unit") && text.includes("Sub Total"),
+      "bulk ledger: the full PDF breaks each bill down by item",
+    );
+    assert(
+      text.includes("USB Cable"),
+      `bulk ledger: a real line item reaches the page — ${JSON.stringify(text.slice(0, 200))}`,
+    );
+    // The numbers are the statement's own, not recomputed.
+    const closing = built.rows.length ? built.rows[built.rows.length - 1].balance : 0;
+    assert(
+      text.includes(fmtMoney(Math.abs(closing))),
+      `bulk ledger: it closes on the statement's balance ${fmtMoney(Math.abs(closing))}`,
+    );
+
+    // The simple format stays the plain six-column ledger.
+    await act(async () => {
+      r.render(
+        <PrintablePartyStatement
+          party={statementParty}
+          rows={built.rows}
+          company={CompanyRepo.get()}
+          periodLabel="All transactions"
+          format="simple"
+        />,
+      );
+    });
+    await settleMs(60);
+    const simple = h.textContent ?? "";
+    assert(
+      simple.includes("Particulars") && simple.includes("Credit") && simple.includes("Debit"),
+      "bulk ledger: the simple format is the plain Credit/Debit ledger",
+    );
+    assert(
+      !simple.includes("Payment Status"),
+      "bulk ledger: and does NOT carry the full statement's columns",
+    );
+    r.unmount();
+    h.remove();
+  }
+
+  /* ── Cash ↔ Bank transfer moves both sides, atomically ────────────────
+     Money leaving the drawer without arriving in the bank is the one outcome
+     that would quietly cost the shop money, so both records go on one batch. */
+  {
+    BankRepo.add({
+      id: "TB1",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "Transfer Test Bank",
+      openingBalance: 0,
+      balance: 5000,
+    } as never);
+
+    const cashBefore = cashFlows(
+      SalesRepo.all(),
+      PurchaseRepo.all(),
+      ExpenseRepo.all(),
+      PaymentRepo.all(),
+      CashAdjustmentRepo.all(),
+    ).reduce((s, e) => s + e.in - e.out, 0);
+
+    const h = document.createElement("div");
+    document.body.appendChild(h);
+    const r = createRoot(h);
+    await act(async () => {
+      r.render(<CashBankTransferDialog open onOpenChange={() => {}} onSaved={() => {}} />);
+    });
+    await settleMs(80);
+
+    assert(
+      (document.body.textContent ?? "").includes("Transfer between Cash and Bank"),
+      "transfer: the dialog rendered",
+    );
+    // Cash in hand is shown, so the shopkeeper can see what is being moved.
+    assert(
+      (document.body.textContent ?? "").includes(fmtMoney(cashBefore)),
+      `transfer: it shows cash in hand ${fmtMoney(cashBefore)}`,
+    );
+
+    // Scope to THIS dialog: earlier routes stay mounted, and an unrelated
+    // <select> left behind by one of them is what this used to grab.
+    const dlg = document.querySelector('[role="dialog"]')!;
+    const bankSelect = dlg.querySelector("select") as HTMLSelectElement | null;
+    assert(!!bankSelect, "transfer: found the account picker");
+    if (bankSelect) {
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
+        setter.call(bankSelect, "TB1");
+        bankSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await settleMs(60);
+    }
+
+    const amountBox = dlg.querySelector(
+      'input[aria-label="Transfer amount"]',
+    ) as HTMLInputElement | null;
+    assert(!!amountBox, "transfer: found the amount box");
+    await act(async () => {
+      setInput(amountBox, "1500");
+    });
+    await settleMs(60);
+
+    const confirmBtn = Array.from(dlg.querySelectorAll("button")).find(
+      (b) => (b.textContent ?? "").trim() === "Transfer",
+    );
+    assert(!!confirmBtn, "transfer: found the Transfer button");
+    await act(async () => {
+      confirmBtn!.click();
+    });
+    await settleMs(200);
+
+    assert(
+      BankRepo.get("TB1")?.balance === 6500,
+      `transfer: the bank went UP by the amount — ${BankRepo.get("TB1")?.balance} (want 6500)`,
+    );
+    const cashAfter = cashFlows(
+      SalesRepo.all(),
+      PurchaseRepo.all(),
+      ExpenseRepo.all(),
+      PaymentRepo.all(),
+      CashAdjustmentRepo.all(),
+    ).reduce((s, e) => s + e.in - e.out, 0);
+    assert(
+      Math.abs(cashAfter - (cashBefore - 1500)) < 0.01,
+      `transfer: and cash went DOWN by the same — ${cashAfter} (want ${cashBefore - 1500})`,
+    );
+    // One record on each side, both describing the same movement.
+    const txn = BankTxnRepo.all().filter((t) => t.bankId === "TB1");
+    assert(
+      txn.length === 1 && txn[0].type === "deposit" && txn[0].amount === 1500,
+      `transfer: one bank record — ${JSON.stringify(txn.map((t) => `${t.type}:${t.amount}`))}`,
+    );
+    const adj = CashAdjustmentRepo.all().filter((a) => (a.reason ?? "").includes("Transfer"));
+    assert(
+      adj.length === 1 && adj[0].type === "reduce" && adj[0].amount === 1500,
+      `transfer: one cash record — ${JSON.stringify(adj.map((a) => `${a.type}:${a.amount}`))}`,
+    );
+    assert(
+      (adj[0]?.reason ?? "").includes("Transfer Test Bank"),
+      `transfer: the cash side names the account — ${JSON.stringify(adj[0]?.reason)}`,
+    );
     r.unmount();
     h.remove();
   }
