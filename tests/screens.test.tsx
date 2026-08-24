@@ -30,6 +30,7 @@ import { PrintableInvoice } from "@/components/PrintableInvoice";
 import { PrintableReturn } from "@/components/PrintableReturn";
 import { fmtMoney, ymd } from "@/lib/format";
 import { planStockRepair } from "@/lib/dataRepair";
+import { useEscapeToLeave } from "@/hooks/useFormKeys";
 import { buildPartyStatement, cashFlows } from "@/lib/ledger";
 import { commitBatch } from "@/repositories/base";
 import {
@@ -1739,6 +1740,217 @@ async function runAll(): Promise<Results> {
       (adj[0]?.reason ?? "").includes("Transfer Test Bank"),
       `transfer: the cash side names the account — ${JSON.stringify(adj[0]?.reason)}`,
     );
+    r.unmount();
+    h.remove();
+  }
+
+  /* ── Backspace walks back along a bill line ───────────────────────────
+     Billing runs left to right — item, qty, unit, price — and the only way
+     back was the mouse. Clearing a box and pressing Backspace again is what a
+     person already does on realising they are in the wrong one; each step
+     must land on the previous field with its contents selected, and stepping
+     back off the front of the line reopens the item picker. */
+  {
+    await renderRoute("/sales/new");
+
+    // Add a line by picking an item from the entry row.
+    const addRow = document.querySelector(
+      'input[placeholder="Type item name to add…"]',
+    ) as HTMLInputElement | null;
+    assert(!!addRow, "step back: found the item entry row");
+    if (addRow) {
+      await act(async () => {
+        setInput(addRow, "USB Cable");
+      });
+      await settleMs(80);
+      await act(async () => {
+        addRow.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      });
+      await settleMs(120);
+    }
+
+    const row = document.querySelector("tbody tr") as HTMLTableRowElement | null;
+    assert(!!row, "step back: a bill line was added");
+    if (row) {
+      const fields = Array.from(row.querySelectorAll("input")) as HTMLInputElement[];
+      assert(
+        fields.length >= 2,
+        `step back: the line has editable fields — found ${fields.length}`,
+      );
+      const [qty, ...rest] = fields;
+      const price = rest[rest.length - 1] ?? rest[0];
+
+      // From a LATER field back to an earlier one: clear it, then Backspace.
+      await act(async () => {
+        price.focus();
+        setInput(price, "");
+      });
+      await settleMs(40);
+      await act(async () => {
+        price.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true }));
+      });
+      await settleMs(40);
+      assert(document.activeElement !== price, "step back: Backspace in an empty box moves off it");
+      assert(
+        row.contains(document.activeElement),
+        "step back: and lands on another field in the SAME line, never another row",
+      );
+
+      // A box with something in it must still just delete a character.
+      await act(async () => {
+        qty.focus();
+        setInput(qty, "5");
+      });
+      await settleMs(40);
+      await act(async () => {
+        qty.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true }));
+      });
+      await settleMs(40);
+      assert(
+        document.activeElement === qty,
+        "step back: Backspace with text in the box deletes, it does not navigate",
+      );
+
+      // Off the front of the line: the item picker comes back.
+      await act(async () => {
+        qty.focus();
+        setInput(qty, "");
+      });
+      await settleMs(40);
+      await act(async () => {
+        qty.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true }));
+      });
+      await settleMs(80);
+      assert(
+        !!row.querySelector('input[placeholder="Type to change item…"]'),
+        "step back: stepping off the front of the line reopens the item picker",
+      );
+    }
+  }
+
+  /* ── Escape closes what is open, and only then leaves ─────────────────
+     Escape was wired straight to "navigate away", so closing the item picker
+     with it ALSO threw the whole bill away. */
+  {
+    await renderRoute("/sales/new");
+
+    // Put something on the bill so leaving would cost work.
+    const addRow2 = document.querySelector(
+      'input[placeholder="Type item name to add…"]',
+    ) as HTMLInputElement | null;
+    if (addRow2) {
+      await act(async () => {
+        setInput(addRow2, "USB Cable");
+      });
+      await settleMs(80);
+      await act(async () => {
+        addRow2.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      });
+      await settleMs(120);
+    }
+    assert(
+      !!document.querySelector("tbody tr"),
+      "escape: the bill has a line on it before we press Escape",
+    );
+
+    // Open the item picker on that line, then press Escape inside it.
+    const nameCell = document.querySelector(
+      'tbody tr [role="button"][tabindex]',
+    ) as HTMLElement | null;
+    assert(!!nameCell, "escape: found the item name cell");
+    if (nameCell) {
+      await act(async () => {
+        nameCell.click();
+      });
+      await settleMs(80);
+      const picker = document.querySelector(
+        'input[placeholder="Type to change item…"]',
+      ) as HTMLInputElement | null;
+      assert(!!picker, "escape: the item picker opened");
+      if (picker) {
+        await act(async () => {
+          picker.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        });
+        await settleMs(120);
+        assert(
+          !document.querySelector('input[placeholder="Type to change item…"]'),
+          "escape: closes the picker",
+        );
+        // The whole point: the bill is still here.
+        assert(
+          !!document.querySelector("tbody tr"),
+          "escape: and does NOT throw the bill away behind it",
+        );
+      }
+    }
+  }
+
+  /* ── The page-level Escape guard, on its own ──────────────────────────
+     The bill test above proves the picker keeps Escape to itself. This proves
+     the OTHER half — that the page listener also refuses an Escape something
+     nearer already handled. Both layers are needed: relying on the popup to
+     call stopPropagation means one picker written without it silently gets
+     "Escape throws the invoice away" back, and that is exactly how this bug
+     existed in the first place. */
+  {
+    // Land on a page with no unsaved form first: the previously mounted
+    // route stays in the DOM, and a dirty bill form left there would answer
+    // this Escape with its own confirm() before the probe ever sees it.
+    await renderRoute("/items");
+    let left = 0;
+    let dirty = false;
+    function EscProbe() {
+      useEscapeToLeave(
+        () => {
+          left++;
+        },
+        () => dirty,
+      );
+      return <input aria-label="esc probe" />;
+    }
+    const h = document.createElement("div");
+    document.body.appendChild(h);
+    const r = createRoot(h);
+    await act(async () => {
+      r.render(<EscProbe />);
+    });
+    await settleMs(40);
+
+    const press = async (init?: KeyboardEventInit & { handled?: boolean }) => {
+      const ev = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+      if (init?.handled) ev.preventDefault();
+      await act(async () => {
+        window.dispatchEvent(ev);
+      });
+      await settleMs(20);
+    };
+
+    await press();
+    assert(left === 1, `escape guard: a clean Escape leaves the page — fired ${left}`);
+
+    // Already handled by something nearer the keyboard.
+    await press({ handled: true });
+    assert(left === 1, `escape guard: an Escape a popup already handled is ignored — ${left}`);
+
+    // A dialog owns Escape while it is open.
+    const fake = document.createElement("div");
+    fake.setAttribute("role", "dialog");
+    document.body.appendChild(fake);
+    await press();
+    assert(left === 1, `escape guard: an open dialog keeps Escape to itself — ${left}`);
+    fake.remove();
+
+    // Unsaved work asks first, and "cancel" means stay.
+    dirty = true;
+    const realConfirm = window.confirm;
+    window.confirm = () => false;
+    await press();
+    assert(left === 1, `escape guard: declining the prompt stays on the page — ${left}`);
+    window.confirm = () => true;
+    await press();
+    assert(left === 2, `escape guard: accepting it leaves — ${left}`);
+    window.confirm = realConfirm;
+
     r.unmount();
     h.remove();
   }

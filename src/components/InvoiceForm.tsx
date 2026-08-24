@@ -46,6 +46,7 @@ import { NumInput, NumField } from "@/components/NumInput";
 import { ModePills } from "@/components/ModePills";
 import { QuickAddPartyDialog, type QuickAddPartyDetails } from "@/components/QuickAddPartyDialog";
 import { genId, newBatch, commitBatch } from "@/repositories/base";
+import { stepBackOnBackspace, useEscapeToLeave } from "@/hooks/useFormKeys";
 import { stockShortfalls } from "@/lib/stock";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 
@@ -939,11 +940,17 @@ export function InvoiceForm({ mode, existing }: Props) {
         e.preventDefault();
         save();
       }
-      if (e.key === "Escape") navigate({ to: isSale ? "/sales" : "/purchase" });
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   });
+
+  // A bill with a party or a line on it is work worth asking about before
+  // Escape throws it away — and Escape belongs to any open dropdown first.
+  useEscapeToLeave(
+    () => navigate({ to: isSale ? "/sales" : "/purchase" }),
+    () => !!inv.partyId || inv.lineItems.length > 0,
+  );
 
   return (
     <div className="flex flex-col h-full">
@@ -1137,6 +1144,12 @@ export function InvoiceForm({ mode, existing }: Props) {
                         if (partySuggests[partyIdx]) {
                           selectParty(partySuggests[partyIdx]);
                         } else phoneRef.current?.focus();
+                      } else if (e.key === "Escape" && partyOpen) {
+                        // Close the list, and nothing else — see the note on
+                        // useEscapeToLeave.
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setPartyOpen(false);
                       }
                     }}
                     className="h-9 px-3 border rounded-md bg-background focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none flex-1"
@@ -1288,7 +1301,15 @@ export function InvoiceForm({ mode, existing }: Props) {
               </thead>
               <tbody>
                 {inv.lineItems.map((l, idx) => (
-                  <tr key={l.id} className="border-t hover:bg-accent/30">
+                  <tr
+                    key={l.id}
+                    className="border-t hover:bg-accent/30"
+                    // Backspace in an empty box walks back along the line —
+                    // price to unit, unit to qty, qty to the item picker.
+                    onKeyDown={(e) =>
+                      stepBackOnBackspace(e, { onStart: () => setReopenPickerFor(l.id) })
+                    }
+                  >
                     <td className="px-3 py-1.5 text-muted-foreground text-[11px]">{idx + 1}</td>
                     <td className="px-3 py-1.5">
                       <ItemNameCell
@@ -1310,18 +1331,6 @@ export function InvoiceForm({ mode, existing }: Props) {
                           if (e.key === "Enter") {
                             e.preventDefault();
                             focusFirstPendingRow();
-                          } else if (
-                            (e.key === "Backspace" || e.key === "Delete") &&
-                            e.currentTarget.value === ""
-                          ) {
-                            // Backspace on an already-empty Qty means "I did
-                            // not want this item" — the same step-back a
-                            // browser address bar or a chip input gives you.
-                            // Focus lands here the moment an item is picked,
-                            // so a wrong pick is now two keystrokes to undo
-                            // instead of a hunt for the right thing to click.
-                            e.preventDefault();
-                            setReopenPickerFor(l.id);
                           }
                         }}
                         className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
@@ -1500,6 +1509,10 @@ export function InvoiceForm({ mode, existing }: Props) {
                         if (bankSuggests[bankIdx]) {
                           selectBank(bankSuggests[bankIdx]);
                         }
+                      } else if (e.key === "Escape" && bankOpen) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setBankOpen(false);
                       }
                     }}
                     placeholder="Search bank account…"
@@ -1820,6 +1833,10 @@ function ItemEntryRow({
             } else if (e.key === "Enter") {
               e.preventDefault();
               if (optionCount > 0) choose(idx);
+            } else if (e.key === "Escape" && open) {
+              e.preventDefault();
+              e.stopPropagation();
+              setOpen(false);
             }
           }}
           placeholder="Type item name to add…"
@@ -2078,6 +2095,7 @@ function ItemNameCell({
         onKeyDown={(e) => {
           if (e.key === "Escape") {
             e.preventDefault();
+            e.stopPropagation();
             setEditing(false);
           } else if (e.key === "ArrowDown") {
             e.preventDefault();

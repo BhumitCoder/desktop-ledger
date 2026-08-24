@@ -18,6 +18,7 @@ import { fmtMoney, today } from "@/lib/format";
 import { toast } from "sonner";
 import { Trash2, UserPlus, Save, X, CornerDownLeft, CornerUpLeft, Loader2 } from "lucide-react";
 import { genId, newBatch, commitBatch } from "@/repositories/base";
+import { stepBackOnBackspace, useEscapeToLeave } from "@/hooks/useFormKeys";
 import { stockShortfalls } from "@/lib/stock";
 import { NumInput } from "@/components/NumInput";
 import { QuickAddPartyDialog, type QuickAddPartyDetails } from "@/components/QuickAddPartyDialog";
@@ -435,11 +436,15 @@ export function ReturnForm({ mode }: Props) {
         e.preventDefault();
         save();
       }
-      if (e.key === "Escape") navigate({ to: backPath });
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   });
+
+  useEscapeToLeave(
+    () => navigate({ to: backPath }),
+    () => !!ret.partyId || ret.lineItems.length > 0,
+  );
 
   return (
     <div className="flex flex-col h-full">
@@ -628,7 +633,13 @@ export function ReturnForm({ mode }: Props) {
               </thead>
               <tbody>
                 {ret.lineItems.map((l, idx) => (
-                  <tr key={l.id} className="border-t hover:bg-accent/30">
+                  <tr
+                    key={l.id}
+                    className="border-t hover:bg-accent/30"
+                    // Same step-back as the bill grid: Backspace in an empty
+                    // box walks back along the line rather than doing nothing.
+                    onKeyDown={stepBackOnBackspace}
+                  >
                     <td className="px-3 py-1.5 text-muted-foreground text-[11px]">{idx + 1}</td>
                     <td className="px-3 py-1.5 font-medium">{l.name}</td>
                     <td className="py-1.5 px-1">

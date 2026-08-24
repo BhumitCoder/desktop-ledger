@@ -154,6 +154,14 @@ run().then((r) => { (window as any).__RESULT__ = r; })
   });
   const page = await browser.newPage();
   const pageErrors = [];
+  // A native confirm()/alert() BLOCKS the page until something answers it, so
+  // one stray prompt hangs the entire suite and prints nothing at all — which
+  // is exactly what a leftover mounted form's "leave without saving?" did.
+  // Dismiss them, and record them: a test that trips one wants to know.
+  page.on("dialog", (d) => {
+    pageErrors.push(`[dialog] ${d.type()}: ${d.message()}`);
+    d.dismiss().catch(() => {});
+  });
   page.on("pageerror", (e) =>
     pageErrors.push((e && e.stack ? e.stack : String(e)).split("\n").slice(0, 4).join("\n")),
   );
