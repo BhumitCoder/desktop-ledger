@@ -13,6 +13,7 @@ import {
 import { PartyRepo, ItemRepo, SalesRepo, PurchaseRepo } from "@/repositories";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useRepoData } from "@/hooks/useRepoData";
+import { useStickyState } from "@/hooks/useStickySearch";
 import type { Party, Item, Invoice } from "@/types";
 import { matchesQuery, byRelevance } from "@/lib/search";
 
@@ -28,7 +29,7 @@ export function GlobalSearch() {
   const { globalSearchOpen, setGlobalSearch } = useWorkspace();
   const navigate = useNavigate();
   const { isOwner, canView } = usePermissions();
-  const [q, setQ] = useState("");
+  const [q, setQ] = useStickyState("global.search", "");
   const [data, setData] = useState<{
     parties: Party[];
     items: Item[];
@@ -42,7 +43,9 @@ export function GlobalSearch() {
   // stays safe even if hydration's own scoping ever regresses later.
   useEffect(() => {
     if (globalSearchOpen) {
-      setQ("");
+      // The last search is kept, not wiped. Opening a result and coming back
+      // to an empty box meant retyping it every time; the text is selected on
+      // focus, so typing still replaces it in one go.
       setData({
         parties: isOwner || canView("masterData") ? PartyRepo.all() : [],
         items: isOwner || canView("masterData") ? ItemRepo.all() : [],
@@ -121,6 +124,9 @@ export function GlobalSearch() {
           autoFocus
           value={q}
           onValueChange={setQ}
+          // Select the remembered text so the next search replaces it with
+          // one keystroke — the same bargain a browser address bar makes.
+          onFocus={(e) => e.currentTarget.select()}
         />
         <CommandList>
           <CommandEmpty>No results.</CommandEmpty>

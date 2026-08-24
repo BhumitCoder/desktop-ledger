@@ -13,13 +13,15 @@ import {
   SaleReturnRepo,
   PurchaseReturnRepo,
 } from "@/repositories";
-import { useRepoData } from "@/hooks/useRepoData";
+import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
+import { useStickyState } from "@/hooks/useStickySearch";
 import { BulkUpdateItemsDialog } from "@/components/BulkUpdateItemsDialog";
 import { newBatch, commitBatch } from "@/repositories/base";
 import type { Item } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/Field";
+import { ComboInput } from "@/components/ComboInput";
 import { NumField } from "@/components/NumInput";
 import { fmtMoney, today } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
@@ -80,7 +82,7 @@ function ItemsPage() {
   const editAllowed = isOwner || canEdit("masterData");
   const deleteAllowed = isOwner || canDelete("masterData");
   const [rows, setRows] = useState<Item[]>([]);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useStickyState("items.search", "");
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<Item | null>(null);
   const [adjustItem, setAdjustItem] = useState<Item | null>(null);
@@ -553,6 +555,13 @@ export function ItemDialog({
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [nameOpen, setNameOpen] = useState(false);
+  // Every category already in use, so the shelf a shopkeeper means is one
+  // keystroke away instead of being retyped — and re-typed differently.
+  const knownCategories = useRepoMemo(() =>
+    ItemRepo.all()
+      .map((i) => i.category ?? "")
+      .filter(Boolean),
+  );
 
   useEffect(() => {
     if (open) {
@@ -681,11 +690,17 @@ export function ItemDialog({
               </div>
             )}
           </div>
-          <Field
-            label="Category"
-            value={f.category ?? ""}
-            onChange={(e) => setF({ ...f, category: e.target.value })}
-          />
+          <label className="flex flex-col gap-1 text-[12px]">
+            <span className="text-muted-foreground font-medium">Category</span>
+            <ComboInput
+              value={f.category ?? ""}
+              onValue={(v) => setF({ ...f, category: v })}
+              options={knownCategories}
+              ariaLabel="Category"
+              placeholder="Search or add…"
+              className="h-8 px-2 border rounded bg-background outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+            />
+          </label>
           <NumField
             label="Purchase Price"
             value={f.purchasePrice ?? 0}

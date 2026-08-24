@@ -14,7 +14,7 @@ import { useRepoData } from "@/hooks/useRepoData";
 import { newBatch, commitBatch } from "@/repositories/base";
 import type { Payment, PaymentAllocation, PaymentMode, Invoice, BankAccount, Party } from "@/types";
 import { fmtMoney, fmtDate, today } from "@/lib/format";
-import { partyBalances } from "@/lib/ledger";
+import { partyBalances, spreadFifo } from "@/lib/ledger";
 import {
   ArrowDownCircle,
   ArrowUpCircle,
@@ -568,6 +568,22 @@ function ReceivePaymentDialog({
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
 
+  /* Quick entry vs bill-by-bill.
+   *
+   * The counter takes one amount off a customer against everything they owe;
+   * they do not think in invoices, and making them tick boxes and type into
+   * one box per bill was the slow, error-prone part of this screen. Quick
+   * entry asks for the amount (and any discount) once and settles the OLDEST
+   * bills first, which is what "paying off the account" means everywhere.
+   *
+   * Bill-by-bill is still one click away for the cases FIFO cannot know
+   * about — "this cheque is specifically for INV-0042". Editing an existing
+   * payment always opens there, because a recorded allocation is a decision
+   * someone already made and re-spreading it silently would rewrite history. */
+  const [allocMode, setAllocMode] = useState<"auto" | "manual">("auto");
+  const [payAmount, setPayAmount] = useState(0);
+  const [payDiscount, setPayDiscount] = useState(0);
+
   // Archived parties are hidden from the picker; the full `allParties` list is
   // still used for save-time dedup (which auto-restores an archived match).
   const activeParties = allParties.filter((p) => !p.archived);
@@ -601,6 +617,9 @@ function ReceivePaymentDialog({
         setBankId(editing.bankId ?? "");
         setBankQ(BankRepo.all().find((b) => b.id === editing.bankId)?.name ?? "");
         setManualAmount(editing.allocations?.length ? 0 : editing.amount);
+        setAllocMode("manual");
+        setPayAmount(editing.amount);
+        setPayDiscount(r2((editing.allocations ?? []).reduce((s, a) => s + (a.discount ?? 0), 0)));
       } else {
         setPartyQ("");
         setSelectedParty(null);
@@ -609,6 +628,9 @@ function ReceivePaymentDialog({
         setBankId("");
         setBankQ("");
         setManualAmount(0);
+        setAllocMode("auto");
+        setPayAmount(0);
+        setPayDiscount(0);
         setTimeout(() => partyRef.current?.focus(), 60);
       }
       setApplyRows([]);
@@ -653,6 +675,30 @@ function ReceivePaymentDialog({
     );
   }, [selectedParty, isIn, editing]);
 
+  // Quick entry: re-spread the amount over the bills whenever it, the
+  // discount, or the bill list changes. Returning the previous array
+  // unchanged when nothing moved is what stops this looping — the effect
+  // depends on the rows it writes.
+  useEffect(() => {
+    if (allocMode !== "auto") return;
+    setApplyRows((rows) => {
+      const spread = spreadFifo(
+        rows.map((r) => r.due),
+        payAmount,
+        payDiscount,
+      );
+      let changed = false;
+      const next = rows.map((r, i) => {
+        const s = spread[i];
+        const checked = s.apply > 0 || s.discount > 0;
+        if (r.apply === s.apply && r.discount === s.discount && r.checked === checked) return r;
+        changed = true;
+        return { ...r, apply: s.apply, discount: s.discount, checked };
+      });
+      return changed ? next : rows;
+    });
+  }, [allocMode, payAmount, payDiscount, applyRows]);
+
   const selectParty = (p: { id: string; name: string }) => {
     setSelectedParty(p);
     setPartyQ(p.name);
@@ -681,6 +727,9 @@ function ReceivePaymentDialog({
   // Portion of the true balance not already represented by an open invoice
   // row above (e.g. opening balance, or a manual ledger correction).
   const unlinkedBalance = Math.max(0, r2(partyTrueBalance - totalOutstanding));
+  /** Everything this party owes — open bills PLUS anything carried outside
+   *  them, such as an opening balance. What "pay in full" has to mean. */
+  const totalDue = r2(totalOutstanding + unlinkedBalance);
   const totalApplied = r2(applyRows.reduce((s, r) => s + r.apply, 0));
   const totalDiscount = r2(applyRows.reduce((s, r) => s + r.discount, 0));
   // Advance / general payment whenever nothing is actually applied to an
@@ -689,7 +738,14 @@ function ReceivePaymentDialog({
   // invoices would populate an all-unchecked list, drive this to 0, hide the
   // manual amount field (it was only shown when applyRows.length===0), and
   // permanently block saving.
-  const effectiveAmount = totalApplied > 0 ? totalApplied : manualAmount;
+  // In quick entry the CASH TAKEN is what the shopkeeper typed, not the part
+  // of it that happened to land on a bill: hand over 25,000 against 20,000 of
+  // open bills and the extra 5,000 is a real advance that must be recorded,
+  // not quietly dropped from the receipt.
+  const effectiveAmount =
+    allocMode === "auto" ? payAmount : totalApplied > 0 ? totalApplied : manualAmount;
+  const advanceLeft = Math.max(0, r2(payAmount - totalApplied));
+  const unusedDiscount = Math.max(0, r2(payDiscount - totalDiscount));
 
   const toggleRow = (idx: number) => {
     setApplyRows((rows) =>
@@ -1013,7 +1069,7 @@ function ReceivePaymentDialog({
                     {fmtMoney(totalOutstanding + unlinkedBalance)}
                   </p>
                 </div>
-                {applyRows.length > 0 && (
+                {applyRows.length > 0 && allocMode === "manual" && (
                   <div className="flex gap-2 shrink-0">
                     <button
                       onClick={applyAll}
@@ -1031,14 +1087,156 @@ function ReceivePaymentDialog({
                 )}
               </div>
 
-              {applyRows.length === 0 ? (
-                <div className="flex items-center gap-2 text-xs text-gray-500 bg-white/60 rounded-md px-3 py-2">
+              {/* ── Quick entry: one amount, settled oldest bill first ───── */}
+              {allocMode === "auto" && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label className="block">
+                      <span className="text-[12px] font-semibold text-gray-600 flex items-center justify-between mb-1">
+                        {isIn ? "Amount Received" : "Amount Paid"} (₹) *
+                        {totalDue > 0.01 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPayAmount(r2(Math.max(0, totalDue - payDiscount)));
+                            }}
+                            className="text-[11px] font-semibold text-blue-600 hover:underline"
+                          >
+                            Full {fmtMoney(r2(Math.max(0, totalDue - payDiscount)))}
+                          </button>
+                        )}
+                      </span>
+                      <NumInput
+                        value={payAmount}
+                        onValue={setPayAmount}
+                        // The visible label wraps a "Full ₹x" shortcut too, so
+                        // spell the accessible name out rather than letting it
+                        // read as "Amount Received Full ₹20,500".
+                        aria-label={isIn ? "Amount received" : "Amount paid"}
+                        placeholder="0.00"
+                        className={`w-full h-11 px-3 border-2 rounded-md text-right font-bold text-lg outline-none focus:border-primary bg-white tabular-nums ${isIn ? "text-emerald-700" : "text-rose-700"}`}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-[12px] font-semibold text-gray-600 flex items-center justify-between mb-1">
+                        Discount / Write-off (₹)
+                        {/* The everyday case: take a round figure and knock off
+                            the odd rupees so the bill actually closes, instead
+                            of leaving a few rupees open on it forever. */}
+                        {r2(totalDue - payAmount - payDiscount) > 0.01 && payAmount > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setPayDiscount(r2(totalDue - payAmount))}
+                            className="text-[11px] font-semibold text-amber-700 hover:underline"
+                          >
+                            Settle rest {fmtMoney(r2(totalDue - payAmount))}
+                          </button>
+                        )}
+                      </span>
+                      <NumInput
+                        value={payDiscount}
+                        onValue={setPayDiscount}
+                        aria-label="Discount or write-off"
+                        placeholder="0.00"
+                        className="w-full h-11 px-3 border-2 rounded-md text-right font-bold text-lg outline-none focus:border-primary bg-white text-amber-700 tabular-nums"
+                      />
+                    </label>
+                  </div>
+
+                  {applyRows.length > 0 && (
+                    <div className="bg-white/70 rounded-md border border-gray-200 overflow-hidden">
+                      <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide px-3 pt-2">
+                        Settles oldest {isIn ? "invoice" : "bill"} first
+                      </p>
+                      <div className="max-h-40 overflow-y-auto divide-y divide-gray-100 mt-1">
+                        {applyRows.map((row) => {
+                          const settled = r2(row.apply + row.discount);
+                          const closes = settled > 0 && r2(row.due - settled) < 0.01;
+                          return (
+                            <div
+                              key={row.invoice.id}
+                              className="flex items-center gap-2 px-3 py-1.5 text-xs"
+                            >
+                              <span className="font-mono font-semibold text-blue-600 shrink-0">
+                                {row.invoice.number}
+                              </span>
+                              <span className="text-gray-400 shrink-0 hidden sm:inline">
+                                {fmtDate(row.invoice.date)}
+                              </span>
+                              <span className="text-gray-500 tabular-nums shrink-0">
+                                {fmtMoney(row.due)}
+                              </span>
+                              <span className="flex-1 text-right tabular-nums">
+                                {settled <= 0 ? (
+                                  <span className="text-gray-400">untouched</span>
+                                ) : (
+                                  <>
+                                    <span className={isIn ? "text-emerald-700" : "text-rose-700"}>
+                                      {fmtMoney(row.apply)}
+                                    </span>
+                                    {row.discount > 0 && (
+                                      <span className="text-amber-700">
+                                        {" + "}
+                                        {fmtMoney(row.discount)} off
+                                      </span>
+                                    )}
+                                  </>
+                                )}
+                              </span>
+                              <span
+                                className={`shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                                  closes
+                                    ? "bg-emerald-100 text-emerald-700"
+                                    : settled > 0
+                                      ? "bg-amber-100 text-amber-700"
+                                      : "bg-gray-100 text-gray-400"
+                                }`}
+                              >
+                                {closes ? "closed" : settled > 0 ? "partial" : "open"}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="text-gray-600">
+                      {advanceLeft > 0.01 && (
+                        <span className="font-semibold text-blue-700">
+                          {fmtMoney(advanceLeft)} kept as advance
+                        </span>
+                      )}
+                      {unusedDiscount > 0.01 && (
+                        <span className="font-semibold text-amber-700">
+                          {advanceLeft > 0.01 ? " · " : ""}
+                          {fmtMoney(unusedDiscount)} discount unused — nothing left to write off
+                        </span>
+                      )}
+                    </span>
+                    {applyRows.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setAllocMode("manual")}
+                        className="font-semibold text-blue-600 hover:underline"
+                      >
+                        Adjust {isIn ? "invoice" : "bill"} by {isIn ? "invoice" : "bill"} →
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {applyRows.length === 0 && (
+                <div className="flex items-center gap-2 text-xs text-gray-500 bg-white/60 rounded-md px-3 py-2 mt-3">
                   <AlertCircle className="h-4 w-4 text-gray-400" />
                   {unlinkedBalance > 0.01
                     ? `No open ${isIn ? "invoices" : "bills"}, but this party carries a balance of ${fmtMoney(unlinkedBalance)} (e.g. opening balance) — payment will be recorded as an advance against it`
                     : `No outstanding ${isIn ? "invoices" : "bills"} — this will be recorded as an advance payment`}
                 </div>
-              ) : (
+              )}
+              {allocMode === "manual" && applyRows.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
                     {applyRows.length} Open {isIn ? "Invoice" : "Bill"}
@@ -1139,9 +1337,20 @@ function ReceivePaymentDialog({
                 </div>
               )}
 
+              {allocMode === "manual" && applyRows.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setAllocMode("auto")}
+                  className="mt-2 text-xs font-semibold text-blue-600 hover:underline"
+                >
+                  ← Back to quick entry
+                </button>
+              )}
+
               {/* Manual amount — shown whenever nothing is applied to an invoice
-                  yet, whether because there are none or none are checked */}
-              {totalApplied === 0 && (
+                  yet, whether because there are none or none are checked. Quick
+                  entry has its own amount box, so this is bill-by-bill only. */}
+              {allocMode === "manual" && totalApplied === 0 && (
                 <div className="mt-3">
                   <label className="text-[12px] font-semibold text-gray-600 block mb-1">
                     {applyRows.length > 0 ? "Or record as advance (₹)" : "Amount (₹) *"}

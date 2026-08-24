@@ -7,6 +7,7 @@ import { usePagination } from "@/hooks/usePagination";
 import { useAutoFocusOnDesktop } from "@/hooks/use-mobile";
 import { PayeeRepo, ExpenseRepo, CompanyRepo } from "@/repositories";
 import { useRepoData } from "@/hooks/useRepoData";
+import { useStickyState } from "@/hooks/useStickySearch";
 import type { Payee } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -33,7 +34,7 @@ function PayeesPage() {
   const editAllowed = isOwner || canEdit("purchaseExpenses");
   const deleteAllowed = isOwner || canDelete("purchaseExpenses");
   const [rows, setRows] = useState<Payee[]>([]);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useStickyState("payees.search", "");
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<Payee | null>(null);
 

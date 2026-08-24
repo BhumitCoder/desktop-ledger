@@ -149,6 +149,9 @@ export function InvoiceForm({ mode, existing }: Props) {
   // "qty-<lineId>") so the amount can be typed immediately — not to the next
   // blank search row. Pressing Enter in Qty is what advances to the next row.
   const focusQtyId = useRef<string | null>(null);
+  /** Line whose item picker the Qty box asked to reopen (Backspace on an
+   *  empty Qty = "wrong item, let me choose again"). */
+  const [reopenPickerFor, setReopenPickerFor] = useState<string | null>(null);
   useEffect(() => {
     if (focusQtyId.current) {
       const el = document.getElementById(`qty-${focusQtyId.current}`) as HTMLInputElement | null;
@@ -1294,6 +1297,8 @@ export function InvoiceForm({ mode, existing }: Props) {
                         isSale={isSale}
                         gstOn={gstOn}
                         onChange={(it) => changeLineItem(l.id, it)}
+                        openNow={reopenPickerFor === l.id}
+                        onOpened={() => setReopenPickerFor(null)}
                       />
                     </td>
                     <td className="py-1.5 px-1">
@@ -1305,6 +1310,18 @@ export function InvoiceForm({ mode, existing }: Props) {
                           if (e.key === "Enter") {
                             e.preventDefault();
                             focusFirstPendingRow();
+                          } else if (
+                            (e.key === "Backspace" || e.key === "Delete") &&
+                            e.currentTarget.value === ""
+                          ) {
+                            // Backspace on an already-empty Qty means "I did
+                            // not want this item" — the same step-back a
+                            // browser address bar or a chip input gives you.
+                            // Focus lands here the moment an item is picked,
+                            // so a wrong pick is now two keystrokes to undo
+                            // instead of a hunt for the right thing to click.
+                            e.preventDefault();
+                            setReopenPickerFor(l.id);
                           }
                         }}
                         className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
@@ -1938,12 +1955,17 @@ function ItemNameCell({
   isSale,
   gstOn,
   onChange,
+  openNow,
+  onOpened,
 }: {
   name: string;
   items: Item[];
   isSale: boolean;
   gstOn: boolean;
   onChange: (it: Item) => string;
+  /** Reopen the picker from outside — see the Qty box's Backspace. */
+  openNow?: boolean;
+  onOpened?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [q, setQ] = useState("");
@@ -1973,6 +1995,17 @@ function ItemNameCell({
     setIdx(0);
     setEditing(true);
   };
+
+  // Picking the wrong item is the most common slip on this screen, and until
+  // now the only way back was to notice the name is a button and click it.
+  // The Qty box hands the line back here on Backspace; this is the other end
+  // of that.
+  useEffect(() => {
+    if (!openNow) return;
+    startEdit();
+    onOpened?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openNow]);
 
   // Same all-words matching and rendering cap as the main item search bar —
   // this picker was capped at 8 too, so swapping a line's item could only
@@ -2013,11 +2046,17 @@ function ItemNameCell({
       <div
         role="button"
         tabIndex={0}
-        title="Click to change item"
         onClick={startEdit}
         onKeyDown={(e) => {
-          if (e.key === "Enter") startEdit();
+          // Backspace/Delete read as "undo this choice" on a field that
+          // already holds one; Enter and Space are what any focusable
+          // control is expected to answer to.
+          if (e.key === "Enter" || e.key === " " || e.key === "Backspace" || e.key === "Delete") {
+            e.preventDefault();
+            startEdit();
+          }
         }}
+        title="Click, or press Backspace, to change item"
         className="font-medium cursor-pointer hover:underline hover:text-primary"
       >
         {name}

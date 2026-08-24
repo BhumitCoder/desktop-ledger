@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useGoBack } from "@/hooks/useGoBack";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PayeeRepo, ExpenseRepo, BankRepo, CompanyRepo } from "@/repositories";
 import { fmtMoney, fmtDate } from "@/lib/format";
@@ -26,6 +27,7 @@ function PayeeLedgerPage() {
   const _repoV = useRepoData();
   const { id } = Route.useParams();
   const navigate = useNavigate();
+  const goBack = useGoBack("/payees");
   const [payee, setPayee] = useState<Payee | null | undefined>(undefined);
   const [dateFrom, setDateFrom] = useState(() => dateCache?.dateFrom ?? "");
   const [dateTo, setDateTo] = useState(() => dateCache?.dateTo ?? "");
@@ -147,7 +149,7 @@ function PayeeLedgerPage() {
       <div className="no-print bg-white border-b px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2.5 min-w-0">
           <button
-            onClick={() => navigate({ to: "/payees" })}
+            onClick={goBack}
             className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 flex items-center justify-center text-gray-600 transition shadow-sm"
             aria-label="Go back"
             title="Back to Payees"

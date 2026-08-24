@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useGoBack } from "@/hooks/useGoBack";
 import { useEffect, useMemo, useState } from "react";
 import {
   ItemRepo,
@@ -47,6 +48,7 @@ function ItemDetailPage() {
   const _repoV = useRepoData();
   const { id } = Route.useParams();
   const navigate = useNavigate();
+  const goBack = useGoBack("/items");
   const { isOwner, canEdit } = usePermissions();
   const editAllowed = isOwner || canEdit("masterData");
   const [item, setItem] = useState<Item | null | undefined>(undefined);
@@ -159,7 +161,7 @@ function ItemDetailPage() {
       <div className="bg-white border-b px-5 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <button
-            onClick={() => navigate({ to: "/items" })}
+            onClick={goBack}
             className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 flex items-center justify-center text-gray-600 transition shadow-sm"
             aria-label="Go back"
             title="Back to Items"

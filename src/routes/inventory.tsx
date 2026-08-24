@@ -14,6 +14,7 @@ import {
   StockAdjustmentRepo,
 } from "@/repositories";
 import { useRepoData } from "@/hooks/useRepoData";
+import { useStickyState } from "@/hooks/useStickySearch";
 import type { Item } from "@/types";
 import { fmtMoney } from "@/lib/format";
 import { Boxes, Package, Search } from "lucide-react";
@@ -25,7 +26,7 @@ function InventoryPage() {
   const searchRef = useRef<HTMLInputElement>(null);
   useAutoFocusOnDesktop(searchRef);
   const [rows, setRows] = useState<Item[]>([]);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useStickyState("inventory.search", "");
   const refresh = () => setRows(ItemRepo.all());
   useEffect(() => {
     refresh();

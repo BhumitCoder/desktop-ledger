@@ -97,6 +97,39 @@ export interface PartyBalance {
  * convention: positive opening = the party owes us (counts on the customer
  * side only), negative = we owe them (counts on the supplier side only).
  * Omit `side` (statement page) to use the signed value as-is. */
+/**
+ * Spread one payment across open bills, oldest first.
+ *
+ * This is what "₹20,000 off the account" has to mean: the money clears the
+ * bills that have been waiting longest, and only what is left over becomes an
+ * advance. Anything else — newest first, or spread evenly — leaves old bills
+ * open forever and makes an ageing report meaningless.
+ *
+ * Cash goes on a bill first, then the discount closes whatever that bill is
+ * still short. Doing it per bill in the same pass is what makes the
+ * shopkeeper's usual case work in one step: a 20,500 bill, 20,000 taken and
+ * 500 written off closes exactly, with no arithmetic done by hand.
+ *
+ * `dues` MUST already be in oldest-first order — the caller owns that, since
+ * only it knows the bill dates.
+ */
+export function spreadFifo(
+  dues: number[],
+  cash: number,
+  discount: number,
+): { apply: number; discount: number }[] {
+  let cashLeft = Math.max(0, r2(cash));
+  let discLeft = Math.max(0, r2(discount));
+  return dues.map((rawDue) => {
+    const due = Math.max(0, r2(rawDue));
+    const apply = Math.min(cashLeft, due);
+    cashLeft = r2(cashLeft - apply);
+    const disc = Math.min(discLeft, r2(due - apply));
+    discLeft = r2(discLeft - disc);
+    return { apply: r2(apply), discount: r2(disc) };
+  });
+}
+
 export function partyBalances(
   invoices: Invoice[],
   returns: Return[],
@@ -577,7 +610,25 @@ export function buildPartyStatement(
 ): { rows: PartyStatementRow[]; fullBalance: number } {
   type Entry = Omit<PartyStatementRow, "balance">;
   const entries: Entry[] = [];
-  const invoiceNumbers = new Set([...data.sales, ...data.purchases].map((i) => i.number));
+
+  /* Money that reached a bill through a PAYMENT record, as opposed to cash
+   * handed over at the counter when the bill was written.
+   *
+   * The two have to be told apart because they happen on different DAYS. A
+   * bill's `paid` holds both, so crediting all of it against the bill's own
+   * date put a payment taken three weeks later on the date of the sale — and
+   * a payment that had been fully applied to bills produced no row of its own
+   * at all, while one that happened to be an advance did. The same act of
+   * taking money therefore appeared in two entirely different places in the
+   * ledger depending on how it was applied, which is the "sometimes up,
+   * sometimes at the bottom" the client reported.
+   *
+   * Splitting it costs nothing in accuracy: the bill keeps only what it took
+   * on the day, each payment appears on the day it happened, and the closing
+   * balance is identical either way — which the audit suite pins. */
+  const viaPayments = paidViaPayments(data.payments);
+  const directlyPaid = (inv: Invoice) =>
+    Math.max(0, r2((inv.paid || 0) - (viaPayments.get(inv.id) ?? 0)));
 
   const itemsOf = (lineItems: { name: string; qty: number; price: number; amount: number }[]) =>
     lineItems.map((l) => ({ name: l.name, qty: l.qty, price: l.price, amount: l.amount }));
@@ -588,7 +639,7 @@ export function buildPartyStatement(
   };
 
   for (const s of data.sales.filter((x) => x.partyId === party.id)) {
-    const paid = s.paid || 0;
+    const paid = directlyPaid(s);
     const charges: StatementCharge[] = [];
     if (s.shippingCharge) charges.push({ label: "Shipping Charge", amount: s.shippingCharge });
     if (s.discount) charges.push({ label: "Discount", amount: -s.discount });
@@ -622,7 +673,7 @@ export function buildPartyStatement(
     });
   }
   for (const p of data.purchases.filter((x) => x.partyId === party.id)) {
-    const paid = p.paid || 0;
+    const paid = directlyPaid(p);
     const charges: StatementCharge[] = [];
     if (p.discount) charges.push({ label: "Discount", amount: -p.discount });
     entries.push({
@@ -655,17 +706,33 @@ export function buildPartyStatement(
     });
   }
   for (const pay of data.payments.filter((x) => x.partyId === party.id)) {
-    const advance = advanceAmount(pay, invoiceNumbers);
-    if (advance <= 0.01) continue; // fully applied to invoices — already reflected there
-    entries.push({
-      date: pay.date,
-      created: pay.createdAt,
-      type: pay.type === "in" ? "Payment Received" : "Payment Made",
-      ref: pay.ref || "Advance",
-      total: advance,
-      receivedOrPaid: advance,
-      txnBalance: 0,
-    });
+    const against = pay.allocations?.map((a) => a.number).join(", ") || pay.ref || "Advance";
+    if (pay.amount > 0.001) {
+      entries.push({
+        date: pay.date,
+        created: pay.createdAt,
+        type: pay.type === "in" ? "Payment Received" : "Payment Made",
+        ref: against,
+        total: pay.amount,
+        receivedOrPaid: pay.amount,
+        txnBalance: 0,
+      });
+    }
+    // A settlement discount closes a bill without the money ever arriving, so
+    // it is its own line — folding it into the payment would report cash that
+    // was never taken, and leaving it out would leave the bill looking open.
+    const written = r2((pay.allocations ?? []).reduce((t, a) => t + (a.discount ?? 0), 0));
+    if (written > 0.001) {
+      entries.push({
+        date: pay.date,
+        created: pay.createdAt,
+        type: pay.type === "in" ? "Discount Given" : "Discount Received",
+        ref: against,
+        total: written,
+        receivedOrPaid: written,
+        txnBalance: 0,
+      });
+    }
   }
 
   entries.sort(
@@ -681,7 +748,9 @@ export function buildPartyStatement(
     if (e.docKind === "purchase") return -(e.total - e.receivedOrPaid);
     if (e.docKind === "sale-return") return -e.total;
     if (e.docKind === "purchase-return") return e.total;
-    return e.type === "Payment Received" ? -e.total : e.total; // standalone advance
+    // Every payment and write-off is now its own dated row (see above), so
+    // this arm carries all of them, not just a standalone advance.
+    return e.type === "Payment Received" || e.type === "Discount Given" ? -e.total : e.total;
   };
 
   const fullBalance = r2(entries.reduce((s, e) => s + netOf(e), party.openingBalance || 0));

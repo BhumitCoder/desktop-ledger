@@ -14,6 +14,7 @@ import {
   PaymentRepo,
 } from "@/repositories";
 import { useRepoData } from "@/hooks/useRepoData";
+import { useStickyState } from "@/hooks/useStickySearch";
 import type { Party } from "@/types";
 import { newBatch, commitBatch, genId } from "@/repositories/base";
 import { downloadCsv } from "@/lib/csv";
@@ -176,7 +177,7 @@ function PartiesPage() {
   const { isOwner, canEdit } = usePermissions();
   const editAllowed = isOwner || canEdit("masterData");
   const [rows, setRows] = useState<Party[]>([]);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useStickyState("parties.search", "");
   const [view, setView] = useState<"active" | "archived">("active");
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<Party | null>(null);

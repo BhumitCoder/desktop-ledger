@@ -19,6 +19,7 @@ import {
   totalSettlementDiscount,
   netPartyPositions,
   buildPartyStatement,
+  spreadFifo,
 } from "@/lib/ledger";
 import type {
   StockAdjustment,
@@ -1137,6 +1138,241 @@ console.log(`\n═════════════════════�
   assert(
     withStringQty.length === 1 && withStringQty[0].correct === 15,
     `T18: a string qty adds as 5, not "105" — got ${withStringQty[0]?.correct}`,
+  );
+}
+
+/* ═══ TEST 20: one amount, spread oldest bill first ═══════════════════
+   The counter takes a round figure off a customer's whole account; they do
+   not think in invoices. spreadFifo turns that into allocations, and the
+   rules it has to hold to are: oldest first (so an ageing report means
+   something), cash before discount ON THE SAME BILL (so the everyday
+   "20,000 and knock off the 500" closes it in one step), never settle more
+   than a bill owes, and leave the remainder for the caller to record as an
+   advance rather than losing it. */
+{
+  const sum = (a: { apply: number; discount: number }[], k: "apply" | "discount") =>
+    Math.round(a.reduce((s, x) => s + x[k], 0) * 100) / 100;
+
+  // The client's own example, as a single bill.
+  const one = spreadFifo([20500], 20000, 500);
+  assert(
+    one[0].apply === 20000 && one[0].discount === 500,
+    "T20: 20,000 + 500 off closes a 20,500 bill",
+  );
+
+  // Oldest first: the first bill closes before the second sees a rupee.
+  const two = spreadFifo([10000, 10500], 15000, 0);
+  assert(
+    two[0].apply === 10000 && two[1].apply === 5000,
+    `T20: the oldest bill is settled first — got ${JSON.stringify(two)}`,
+  );
+
+  // The discount follows the cash onto the bill the cash left short.
+  const withDisc = spreadFifo([10000, 10500], 20000, 500);
+  assert(
+    withDisc[0].apply === 10000 &&
+      withDisc[0].discount === 0 &&
+      withDisc[1].apply === 10000 &&
+      withDisc[1].discount === 500,
+    `T20: the write-off closes the bill the cash fell short on — got ${JSON.stringify(withDisc)}`,
+  );
+
+  // Never over-settle: paying more than is owed leaves the surplus behind
+  // for the caller to record as an advance.
+  const over = spreadFifo([1000, 500], 5000, 0);
+  assert(
+    sum(over, "apply") === 1500,
+    `T20: a bill is never over-settled — got ${sum(over, "apply")}`,
+  );
+  assert(
+    over.every((r) => r.apply >= 0 && r.discount >= 0),
+    "T20: no negative allocation",
+  );
+
+  // A discount bigger than the debt is not silently applied either.
+  const bigDisc = spreadFifo([300], 0, 1000);
+  assert(
+    bigDisc[0].discount === 300,
+    `T20: the write-off is capped at the due — got ${bigDisc[0].discount}`,
+  );
+
+  // Nothing to pay, nothing allocated.
+  assert(
+    spreadFifo([1000], 0, 0).every((r) => r.apply === 0 && r.discount === 0),
+    "T20: zero pays nothing",
+  );
+  assert(spreadFifo([], 500, 0).length === 0, "T20: no bills, nothing to spread");
+
+  // Negative or junk input must not create money.
+  assert(spreadFifo([1000], -50, 0)[0].apply === 0, "T20: a negative amount pays nothing");
+  assert(spreadFifo([-1000], 500, 0)[0].apply === 0, "T20: a negative due absorbs nothing");
+
+  // Paise: three bills settled by a total that divides unevenly must still
+  // add up to exactly what was handed over, with no drift.
+  const paise = spreadFifo([33.33, 33.33, 33.34], 100, 0);
+  assert(
+    sum(paise, "apply") === 100,
+    `T20: paise add back to the amount taken — got ${sum(paise, "apply")}`,
+  );
+
+  // Randomised: the invariants above must hold for any shape of account.
+  let seed = 4242;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  for (let i = 0; i < 2000; i++) {
+    const dues = Array.from(
+      { length: 1 + Math.floor(rnd() * 6) },
+      () => Math.round(rnd() * 500000) / 100,
+    );
+    const cash = Math.round(rnd() * 600000) / 100;
+    const disc = Math.round(rnd() * 20000) / 100;
+    const out = spreadFifo(dues, cash, disc);
+    const owed = Math.round(dues.reduce((s, d) => s + d, 0) * 100) / 100;
+    assert(sum(out, "apply") <= cash + 0.005, "T20: never allocates more cash than was taken");
+    assert(sum(out, "discount") <= disc + 0.005, "T20: never writes off more than allowed");
+    assert(
+      Math.round((sum(out, "apply") + sum(out, "discount")) * 100) / 100 <= owed + 0.005,
+      "T20: never settles more than the account owes",
+    );
+    out.forEach((r, j) =>
+      assert(
+        Math.round((r.apply + r.discount) * 100) / 100 <= dues[j] + 0.005,
+        "T20: never settles more than the bill owes",
+      ),
+    );
+    // FIFO: a bill can only be partly settled if every bill before it is closed.
+    for (let j = 1; j < out.length; j++) {
+      const prevSettled = Math.round((out[j - 1].apply + out[j - 1].discount) * 100) / 100;
+      if (out[j].apply + out[j].discount > 0.005) {
+        assert(
+          prevSettled >= dues[j - 1] - 0.005,
+          "T20: no bill is skipped over an open older one",
+        );
+      }
+    }
+  }
+}
+
+/* ═══ TEST 21: a payment belongs on the day it happened ═══════════════
+   The statement used to credit a bill's whole `paid` against the BILL's date,
+   and then drop the payment row entirely whenever it had been fully applied.
+   So money taken three weeks after a sale appeared on the sale's line, while
+   an unapplied advance got a line of its own — the same act of taking money
+   showing up in two different places depending on how it was allocated. That
+   is the "sometimes up, sometimes at the bottom" the client reported.
+
+   The split must be presentation only: the closing balance has to come out
+   identical, which is what makes this safe to change on live books. */
+{
+  const party = { id: "LP", name: "Ledger Party", openingBalance: 0 };
+  const bill = {
+    id: "LB1",
+    number: "INV-L1",
+    date: "2026-03-01",
+    partyId: "LP",
+    partyName: "Ledger Party",
+    lineItems: [],
+    subtotal: 20500,
+    discount: 0,
+    shippingCharge: 0,
+    taxAmount: 0,
+    total: 20500,
+    // 20,000 cash + a 500 write-off, both applied by the payment below.
+    paid: 20500,
+    paymentMode: "credit",
+    createdAt: "2026-03-01T00:00:00Z",
+  } as unknown as Invoice;
+  const pay = {
+    id: "LPAY",
+    date: "2026-03-21",
+    partyId: "LP",
+    partyName: "Ledger Party",
+    type: "in",
+    amount: 20000,
+    mode: "cash",
+    allocations: [{ invoiceId: "LB1", number: "INV-L1", amount: 20000, discount: 500 }],
+    createdAt: "2026-03-21T00:00:00Z",
+  } as unknown as Payment;
+
+  const { rows, fullBalance } = buildPartyStatement(party, {
+    sales: [bill],
+    purchases: [],
+    saleReturns: [],
+    purchaseReturns: [],
+    payments: [pay],
+  });
+
+  const saleRow = rows.find((r) => r.ref === "INV-L1" && r.type === "Sale");
+  assert(!!saleRow, "T21: the sale is on the statement");
+  assert(
+    saleRow?.receivedOrPaid === 0,
+    `T21: the bill's own line shows only what was taken THAT DAY — got ${saleRow?.receivedOrPaid}`,
+  );
+
+  const payRow = rows.find((r) => r.type === "Payment Received");
+  assert(!!payRow, "T21: a fully-applied payment still gets its own row");
+  assert(
+    payRow?.date === "2026-03-21" && payRow?.total === 20000,
+    `T21: the payment sits on ITS date for the cash actually taken — got ${payRow?.date} / ${payRow?.total}`,
+  );
+  assert(
+    payRow?.ref === "INV-L1",
+    `T21: and says which bill it settled — got ${JSON.stringify(payRow?.ref)}`,
+  );
+
+  const discRow = rows.find((r) => r.type === "Discount Given");
+  assert(!!discRow, "T21: the write-off is its own line, not silent");
+  assert(
+    discRow?.date === "2026-03-21" && discRow?.total === 500,
+    `T21: the write-off is dated with the payment — got ${discRow?.date} / ${discRow?.total}`,
+  );
+
+  // The whole point: presentation changed, arithmetic did not.
+  assert(fullBalance === 0, `T21: the bill is fully settled — closing ${fullBalance}`);
+  const [netPos] = netPartyPositions([party], {
+    sales: [bill],
+    purchases: [],
+    saleReturns: [],
+    purchaseReturns: [],
+    payments: [pay],
+  });
+  assert(
+    Math.abs(netPos.net - fullBalance) < 0.01,
+    `T21: the statement still agrees with the dashboard — ${netPos.net} vs ${fullBalance}`,
+  );
+
+  // Cash taken AT the counter still belongs on the bill's own date: it really
+  // did happen then, and there is no payment record to carry it.
+  const counterBill = { ...bill, id: "LB2", number: "INV-L2", paid: 400, total: 1000 } as Invoice;
+  const counter = buildPartyStatement(party, {
+    sales: [counterBill],
+    purchases: [],
+    saleReturns: [],
+    purchaseReturns: [],
+    payments: [],
+  });
+  const counterRow = counter.rows.find((r) => r.ref === "INV-L2");
+  assert(
+    counterRow?.receivedOrPaid === 400,
+    `T21: money taken at billing stays on the bill's line — got ${counterRow?.receivedOrPaid}`,
+  );
+  assert(counter.fullBalance === 600, `T21: leaving 600 owed — got ${counter.fullBalance}`);
+
+  // An advance that settles nothing keeps behaving as it always did.
+  const advance = { ...pay, id: "LADV", amount: 300, allocations: undefined } as Payment;
+  const withAdvance = buildPartyStatement(party, {
+    sales: [],
+    purchases: [],
+    saleReturns: [],
+    purchaseReturns: [],
+    payments: [advance],
+  });
+  assert(
+    withAdvance.fullBalance === -300,
+    `T21: an unapplied advance still credits the party — got ${withAdvance.fullBalance}`,
+  );
+  assert(
+    withAdvance.rows.filter((r) => r.type === "Payment Received").length === 1,
+    "T21: and appears exactly once",
   );
 }
 

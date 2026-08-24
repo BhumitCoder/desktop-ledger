@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useGoBack } from "@/hooks/useGoBack";
 import { useEffect, useRef, useState } from "react";
 import { PurchaseReturnRepo, CompanyRepo } from "@/repositories";
 import type { Return, Company } from "@/types";
@@ -18,6 +19,7 @@ function PurchaseReturnDetailPage() {
   const _repoV = useRepoData();
   const { id } = Route.useParams();
   const navigate = useNavigate();
+  const goBack = useGoBack("/purchase-return");
   const [ret, setRet] = useState<Return | null>(null);
   const [co, setCo] = useState<Company | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
@@ -63,7 +65,7 @@ function PurchaseReturnDetailPage() {
       <div className="no-print bg-white border-b px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3 min-w-0">
           <button
-            onClick={() => navigate({ to: "/purchase-return" })}
+            onClick={goBack}
             className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 flex items-center justify-center text-gray-600 transition shadow-sm"
             aria-label="Go back"
             title="Back to Purchase Returns"

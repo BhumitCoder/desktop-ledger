@@ -51,6 +51,7 @@ export interface Results {
 }
 
 const R: Results = { passed: 0, failed: 0, fails: [] };
+const r2 = (n: number) => Math.round(n * 100) / 100;
 function assert(cond: boolean, msg: string) {
   if (cond) R.passed++;
   else {
@@ -65,7 +66,10 @@ function has(text: string, needle: string, label: string) {
 
 /** Type into a controlled React input the way a person does — React listens
  * for the native `input` event, and setting `.value` alone never fires it. */
-function setInput(el: HTMLInputElement, value: string) {
+function setInput(el: HTMLInputElement | null | undefined, value: string) {
+  // A missing control used to surface as "Illegal invocation" from deep in
+  // the value setter, which says nothing about which control was missing.
+  if (!el) throw new Error(`setInput: the control to type "${value}" into is not on screen`);
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
   setter.call(el, value);
   el.dispatchEvent(new Event("input", { bubbles: true }));
@@ -301,11 +305,15 @@ let host: HTMLDivElement | null = null;
 let root: Root | null = null;
 
 /** Mount one URL for real (effects included) and return its visible text. */
-async function renderRoute(path: string): Promise<string> {
+async function renderRoute(path: string | string[]): Promise<string> {
+  // An ARRAY is the route you arrived through — the last entry is the page
+  // being tested and the ones before it are real history, which is the only
+  // way to exercise a back button for what it is.
+  const entries = Array.isArray(path) ? path : [path];
   const router = createRouter({
     routeTree,
     context: { queryClient: new QueryClient() },
-    history: createMemoryHistory({ initialEntries: [path] }),
+    history: createMemoryHistory({ initialEntries: entries }),
   });
   await router.load();
 
@@ -333,7 +341,26 @@ async function readMounted(): Promise<string> {
   return host?.textContent ?? "";
 }
 
+/**
+ * Keep whatever passed when a step throws.
+ *
+ * A missing control aborts the rest of the run, and the harness used to
+ * replace the entire result with the exception — so a single broken selector
+ * reported "0 passed" and hid both the assertions that had already run AND
+ * the ones that explain why. The count is now honest and the error is just
+ * one more failure line.
+ */
 export async function run(): Promise<Results> {
+  try {
+    return await runAll();
+  } catch (e) {
+    R.failed++;
+    R.fails.push(`aborted: ${(e as Error)?.stack ?? String(e)}`);
+    return R;
+  }
+}
+
+async function runAll(): Promise<Results> {
   const rootOptions = (routeTree as unknown as { options: Record<string, unknown> }).options;
   // Swap the root component for a bare Outlet: the real one is the auth gate,
   // which needs a live Firebase session this test deliberately cannot have.
@@ -837,6 +864,151 @@ export async function run(): Promise<Results> {
     gridHost.remove();
   }
 
+  /* ── Quick entry: one amount, settled oldest bill first ───────────────
+     The counter takes a round figure off a customer's whole account. This
+     drives the real dialog — pick the party, type the amount, type the
+     write-off — and checks that the money lands on the right bills in the
+     right order and that the bills actually close. spreadFifo's arithmetic is
+     pinned in the audit suite; what is pinned HERE is the wiring, which is
+     what silently breaks. */
+  {
+    PartyRepo.add({
+      id: "QP",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "Quick Entry Customer",
+      type: "customer",
+      openingBalance: 0,
+    } as never);
+    // Two open bills, deliberately seeded newest-first so a save that just
+    // walks the list in repo order would settle the WRONG one.
+    for (const [id, number, date, total] of [
+      ["QB2", "INV-QB2", "2026-03-02", 10500],
+      ["QB1", "INV-QB1", "2026-03-01", 10000],
+    ] as const) {
+      SalesRepo.add({
+        id,
+        createdAt: "2026-01-01T00:00:00Z",
+        number,
+        date,
+        partyId: "QP",
+        partyName: "Quick Entry Customer",
+        lineItems: [],
+        subtotal: total,
+        discount: 0,
+        shippingCharge: 0,
+        taxAmount: 0,
+        total,
+        paid: 0,
+        paymentMode: "credit",
+        gstEnabled: false,
+      } as never);
+    }
+
+    await renderRoute("/payments");
+    const receive = findButton(/Receive Payment/);
+    assert(
+      !!receive,
+      `quick entry: found the Receive Payment button — buttons: ${JSON.stringify(
+        Array.from(document.querySelectorAll("button"))
+          .map((b) => (b.textContent ?? "").trim())
+          .filter(Boolean)
+          .slice(0, 12),
+      )}`,
+    );
+    if (!receive) throw new Error("quick entry: no Receive button, cannot continue");
+    await act(async () => {
+      receive.click();
+    });
+    await settleMs(120);
+
+    const partyBox = document.querySelector(
+      'input[placeholder="Type to search party…"]',
+    ) as HTMLInputElement | null;
+    assert(
+      !!partyBox,
+      `quick entry: found the party box — inputs on screen: ${JSON.stringify(
+        Array.from(document.querySelectorAll("input")).map((i) => i.placeholder || i.type),
+      )}`,
+    );
+    if (!partyBox) throw new Error("quick entry: no party box, cannot continue");
+    await act(async () => {
+      setInput(partyBox, "Quick Entry");
+    });
+    await settleMs(80);
+    // The DEEPEST div with this text, not the first: when a search narrows to
+    // one result, the dropdown container's textContent equals the option's
+    // too, and it comes first in document order. Clicking the container does
+    // nothing, because React events bubble up, not down.
+    const option = Array.from(document.querySelectorAll("div"))
+      .filter((d) => d.textContent === "Quick Entry Customer")
+      .pop();
+    assert(!!option, "quick entry: the party is suggested");
+    if (!option) throw new Error("quick entry: party not suggested, cannot continue");
+    await act(async () => {
+      option.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    });
+    await settleMs(120);
+
+    const panel = document.body.textContent ?? "";
+    assert(
+      panel.includes(fmtMoney(20500)),
+      "quick entry: the whole outstanding is shown, not a bill at a time",
+    );
+    assert(
+      panel.includes("Settles oldest invoice first"),
+      "quick entry: the allocation preview is on screen",
+    );
+
+    // 20,000 taken and 500 written off must close BOTH bills exactly.
+    const amountBox = document.querySelector(
+      'input[aria-label="Amount received"]',
+    ) as HTMLInputElement | null;
+    assert(!!amountBox, "quick entry: found the amount box");
+    await act(async () => {
+      setInput(amountBox, "20000");
+    });
+    await settleMs(80);
+    const discountBox = document.querySelector(
+      'input[aria-label="Discount or write-off"]',
+    ) as HTMLInputElement | null;
+    assert(!!discountBox, "quick entry: found the discount box");
+    await act(async () => {
+      setInput(discountBox, "500");
+    });
+    await settleMs(80);
+
+    const preview = document.body.textContent ?? "";
+    assert(
+      preview.includes("closed") && !preview.includes("untouched"),
+      "quick entry: 20,000 + 500 off closes both bills in the preview",
+    );
+
+    const confirm = findButton(/Confirm Receipt/);
+    assert(!!confirm, "quick entry: found Confirm Receipt");
+    await act(async () => {
+      confirm!.click();
+    });
+    await settleMs(250);
+
+    assert(
+      SalesRepo.get("QB1")?.paid === 10000,
+      `quick entry: the OLDEST bill is settled first — QB1 paid ${SalesRepo.get("QB1")?.paid} (want 10000)`,
+    );
+    assert(
+      SalesRepo.get("QB2")?.paid === 10500,
+      `quick entry: the newer bill takes the rest plus the write-off — QB2 paid ${SalesRepo.get("QB2")?.paid} (want 10500)`,
+    );
+    const rec = PaymentRepo.all().find((p) => p.partyId === "QP");
+    assert(
+      rec?.amount === 20000,
+      `quick entry: the payment records the CASH taken, not the settled total — got ${rec?.amount}`,
+    );
+    assert(
+      r2((rec?.allocations ?? []).reduce((s, a) => s + (a.discount ?? 0), 0)) === 500,
+      `quick entry: the write-off is recorded as a discount — got ${JSON.stringify(rec?.allocations)}`,
+    );
+  }
+
   /* ── A rejected commit must be reported as one ───────────────────────
      Every write updates the in-memory cache the moment it is staged, so the
      screens show the new numbers before the cloud has agreed to them. When the
@@ -852,10 +1024,14 @@ export async function run(): Promise<Results> {
     } as unknown as Parameters<typeof commitBatch>[0];
 
     assert((await commitBatch(ok, "t19")) === true, "T19: a clean commit reports success");
-    assert(
-      (await commitBatch(rejected, "t19")) === false,
-      "T19: a rejected commit reports failure",
-    );
+    // The rejection is the point of the test, and commitBatch logs it — this
+    // muffles the expected noise so the harness's "no console errors" rule
+    // still means something for everything else.
+    const realError = console.error;
+    console.error = () => {};
+    const rejectedResult = await commitBatch(rejected, "t19");
+    console.error = realError;
+    assert(rejectedResult === false, "T19: a rejected commit reports failure");
     assert((await commitBatch(null, "t19")) === true, "T19: the SSR no-op is not a failure");
   }
 
@@ -1118,6 +1294,185 @@ export async function run(): Promise<Results> {
       `bulk rename: the audit row carries the NEW name — got ${JSON.stringify(renameAdj.map((a) => a.itemName))}`,
     );
 
+    r.unmount();
+    h.remove();
+  }
+
+  /* ── A search survives opening a result and coming back ───────────────
+     "I searched, opened one, pressed back, and it had forgotten everything."
+     The list's search was component state, so it died with the unmount. */
+  {
+    const list = await renderRoute("/items");
+    const box = document.querySelector('input[placeholder*="Search"]') as HTMLInputElement | null;
+    assert(!!box, `sticky search: found the items search box — page has ${list.length} chars`);
+    if (box) {
+      await act(async () => {
+        setInput(box, "Bulk Save BU1");
+      });
+      await settleMs(80);
+      // Leave and come back the way the client does: open a result, return.
+      await renderRoute("/items/BU1");
+      const backAgain = await renderRoute("/items");
+      const box2 = document.querySelector(
+        'input[placeholder*="Search"]',
+      ) as HTMLInputElement | null;
+      assert(
+        box2?.value === "Bulk Save BU1",
+        `sticky search: the search is still there on return — got ${JSON.stringify(box2?.value)}`,
+      );
+      assert(
+        backAgain.includes("Bulk Save BU1"),
+        "sticky search: and the list is still filtered by it",
+      );
+      // Clearing it must actually clear it — remembered state, not stuck state.
+      await act(async () => {
+        setInput(box2, "");
+      });
+      await settleMs(60);
+      await renderRoute("/items/BU1");
+      await renderRoute("/items");
+      const box3 = document.querySelector(
+        'input[placeholder*="Search"]',
+      ) as HTMLInputElement | null;
+      assert(box3?.value === "", "sticky search: clearing it sticks too");
+    }
+  }
+
+  /* ── Back is ONE step, by key as well as by button ────────────────────
+     The detail pages used to navigate FORWARD to their list, which pushes a
+     new history entry — so the browser's own Back button then returned to
+     the detail page and the user was stuck in a loop. */
+  {
+    // Arrive at the item from the PARTIES page, so "back" has somewhere real
+    // to go and we can prove it goes THERE — not to the items list, which is
+    // what the old forward-navigation did regardless of where you came from.
+    const detail = await renderRoute(["/parties", "/items/BU1"]);
+    assert(detail.includes("Bulk Save BU1"), "back: the item detail page rendered");
+
+    const backBtn = Array.from(document.querySelectorAll("button")).find(
+      (b) => b.getAttribute("aria-label") === "Go back",
+    );
+    assert(!!backBtn, "back: the detail page has a back button");
+
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    const afterEsc = await readMounted();
+    assert(!afterEsc.includes("Bulk Save BU1"), "back: Escape leaves the detail page");
+    assert(
+      afterEsc.includes("customers / suppliers"),
+      `back: Escape returns to where we CAME FROM (parties), not the items list — landed on ${JSON.stringify(afterEsc.slice(0, 120))}`,
+    );
+
+    // Backspace is the other habit, and must behave identically.
+    const detail2 = await renderRoute(["/parties", "/items/BU1"]);
+    assert(detail2.includes("Bulk Save BU1"), "back: mounted the detail page again");
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true }));
+    });
+    const afterBksp = await readMounted();
+    assert(!afterBksp.includes("Bulk Save BU1"), "back: Backspace goes back too");
+
+    // Typing must be untouchable: Backspace in a text box deletes a
+    // character, it does not leave the page.
+    const detail3 = await renderRoute(["/parties", "/items/BU1"]);
+    const anyInput = document.querySelector("input") as HTMLInputElement | null;
+    if (anyInput) {
+      await act(async () => {
+        anyInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true }));
+      });
+      const afterTyping = await readMounted();
+      assert(
+        afterTyping.includes("Bulk Save BU1"),
+        "back: Backspace while typing does NOT navigate",
+      );
+    } else {
+      assert(detail3.length > 0, "back: (no input on the detail page to test typing with)");
+    }
+
+    // A key the shortcut must not claim.
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true }));
+    });
+    const afterOrdinary = await readMounted();
+    assert(afterOrdinary.includes("Bulk Save BU1"), "back: an ordinary key does nothing");
+  }
+
+  /* ── Category suggests what already exists, and still takes a new one ──
+     Three spellings of one shelf ("Charger", "charger", "Chargers") is what a
+     free-text box produces, and it makes the category filter meaningless. */
+  {
+    ItemRepo.add({
+      id: "CAT1",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "Category Probe Item",
+      unit: "pcs",
+      gstRate: 18,
+      purchasePrice: 10,
+      salePrice: 20,
+      stock: 1,
+      openingStock: 1,
+      category: "Chargers",
+    } as never);
+
+    const h = document.createElement("div");
+    document.body.appendChild(h);
+    const r = createRoot(h);
+    await act(async () => {
+      r.render(<BulkUpdateItemsDialog open onOpenChange={() => {}} onSaved={() => {}} />);
+    });
+    await settleMs(80);
+    const infoTab = Array.from(document.querySelectorAll('[role="radio"]')).find((b) =>
+      (b.textContent ?? "").trim().startsWith("Item Information"),
+    ) as HTMLButtonElement;
+    await act(async () => {
+      infoTab.click();
+    });
+    await settleMs(60);
+    const search = document.querySelector('input[placeholder="Search items…"]') as HTMLInputElement;
+    await act(async () => {
+      setInput(search, "Category Probe Item");
+    });
+    await settleMs(80);
+
+    const catCell = document.querySelector(
+      'input[aria-label="category for Category Probe Item"]',
+    ) as HTMLInputElement | null;
+    assert(!!catCell, "category: the grid cell is a picker");
+    if (catCell) {
+      await act(async () => {
+        catCell.focus();
+      });
+      await settleMs(60);
+      const listbox = document.querySelector('[role="listbox"]');
+      assert(!!listbox, "category: focusing opens the list of existing categories");
+      assert(
+        (listbox?.textContent ?? "").includes("Chargers"),
+        `category: an existing category is offered — saw ${JSON.stringify(listbox?.textContent)}`,
+      );
+
+      // A value nobody has used yet is offered as an explicit "add", so a new
+      // shelf is possible without the box quietly inviting duplicates.
+      await act(async () => {
+        setInput(catCell, "Screen Guard");
+      });
+      await settleMs(60);
+      const addRow = document.querySelector('[role="listbox"]')?.textContent ?? "";
+      assert(
+        addRow.includes("Add") && addRow.includes("Screen Guard"),
+        `category: a brand new value can be added — saw ${JSON.stringify(addRow)}`,
+      );
+
+      // Typing something that ALREADY exists must not offer to add it again.
+      await act(async () => {
+        setInput(catCell, "Chargers");
+      });
+      await settleMs(60);
+      assert(
+        !(document.querySelector('[role="listbox"]')?.textContent ?? "").includes("Add"),
+        "category: an existing value is not offered as a new one",
+      );
+    }
     r.unmount();
     h.remove();
   }

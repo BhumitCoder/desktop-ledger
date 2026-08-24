@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { NumInput } from "@/components/NumInput";
+import { ComboInput } from "@/components/ComboInput";
 import { Search, Loader2, Filter } from "lucide-react";
 import { toast } from "sonner";
 import { ItemRepo, StockAdjustmentRepo } from "@/repositories";
@@ -71,6 +72,9 @@ export function BulkUpdateItemsDialog({
     return all.filter((i) => set.has(i.id));
   }, [all, itemIds]);
   const items = scoped;
+  // Suggest from the WHOLE catalogue, not the filtered view — searching for
+  // one item must not shrink the list of shelves it can be put on.
+  const knownCategories = useMemo(() => all.map((i) => i.category ?? "").filter(Boolean), [all]);
   const [mode, setMode] = useState<Mode>("pricing");
   const [draft, setDraft] = useState<Draft>({});
   const [q, setQ] = useState("");
@@ -299,6 +303,20 @@ export function BulkUpdateItemsDialog({
       className={`${cellCls(isDirty(it, field))} ${align} tabular-nums`}
     />
   );
+  /** Category gets the same searchable picker the item form has — this grid
+   *  is where a whole catalogue gets re-shelved, so it is the likeliest place
+   *  to invent a third spelling of a category that already exists. */
+  const comboCell = (it: Item, field: keyof Item, options: string[], placeholder = "") => (
+    <ComboInput
+      value={String(valueOf(it, field) ?? "")}
+      onValue={(v) => setField(it, field, v as Item[keyof Item])}
+      options={options}
+      placeholder={placeholder}
+      ariaLabel={`${String(field)} for ${it.name}`}
+      className={cellCls(isDirty(it, field))}
+    />
+  );
+
   const textCell = (it: Item, field: keyof Item, placeholder = "") => (
     <input
       value={String(valueOf(it, field) ?? "")}
@@ -323,7 +341,11 @@ export function BulkUpdateItemsDialog({
       { label: "Min Stock", width: "w-28", cell: (it) => numCell(it, "minStock") },
     ],
     info: [
-      { label: "Category", width: "w-40", cell: (it) => textCell(it, "category", "—") },
+      {
+        label: "Category",
+        width: "w-40",
+        cell: (it) => comboCell(it, "category", knownCategories, "Search or add…"),
+      },
       { label: "Unit", width: "w-24", cell: (it) => textCell(it, "unit", "pcs") },
       { label: "SKU", width: "w-32", cell: (it) => textCell(it, "sku", "—") },
       { label: "HSN", width: "w-28", cell: (it) => textCell(it, "hsn", "—") },

@@ -1,6 +1,7 @@
 import { type ReactNode } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { ChevronLeft } from "lucide-react";
+import { useBackShortcuts } from "@/hooks/useGoBack";
 
 /**
  * Standard page header — same bar every list/detail page in the app uses,
@@ -37,6 +38,10 @@ export function PageHeader({
   mobileAction?: ReactNode;
 }) {
   const router = useRouter();
+  // Only pages that SHOW a back chevron answer to the back keys — the keys
+  // and the button are the same action, so a page without one must not
+  // secretly have the other.
+  useBackShortcuts(showBack, () => router.history.back());
   return (
     <div className="no-print bg-white border-b px-3 py-2.5 sm:px-5 sm:py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
       <div className="flex items-center justify-between sm:justify-start gap-2 sm:gap-3 min-w-0">
@@ -46,6 +51,7 @@ export function PageHeader({
               type="button"
               onClick={() => router.history.back()}
               aria-label="Go back"
+              title="Back (Esc or Backspace)"
               className="shrink-0 h-8 w-8 -ml-1 rounded-md border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-100 active:bg-gray-100 transition"
             >
               <ChevronLeft className="h-4.5 w-4.5" />

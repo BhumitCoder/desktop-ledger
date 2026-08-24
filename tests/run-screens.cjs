@@ -75,7 +75,7 @@ async function main() {
     path.join(OUT_DIR, "entry.tsx"),
     `import { run } from "${path.resolve(__dirname, "screens.test.tsx").replace(/\\/g, "/")}";
 run().then((r) => { (window as any).__RESULT__ = r; })
-     .catch((e) => { (window as any).__RESULT__ = { passed: 0, failed: 1, fails: ["harness: " + (e && e.message || e)] }; });
+     .catch((e) => { (window as any).__RESULT__ = { passed: 0, failed: 1, fails: ["harness: " + ((e && e.stack) || (e && e.message) || e)] }; });
 `,
     "utf8",
   );

@@ -1,4 +1,5 @@
-import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useGoBack } from "@/hooks/useGoBack";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   PartyRepo,
@@ -69,7 +70,7 @@ function PartyStatementPage() {
   const _repoV = useRepoData();
   const { id } = Route.useParams();
   const navigate = useNavigate();
-  const router = useRouter();
+  const goBack = useGoBack("/parties");
   const { isOwner, canEdit } = usePermissions();
   const editAllowed = isOwner || canEdit("masterData");
   const [party, setParty] = useState<Party | null | undefined>(undefined);
@@ -304,7 +305,7 @@ function PartyStatementPage() {
                 browser chrome — the client reported this page in particular. */}
             <button
               type="button"
-              onClick={() => router.history.back()}
+              onClick={goBack}
               aria-label="Go back"
               className="shrink-0 h-8 w-8 -ml-1 rounded-md border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-100 active:bg-gray-100 transition"
             >
