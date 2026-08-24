@@ -32,6 +32,7 @@ import {
   TeamUserRepo,
 } from "@/repositories";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useAppEscape } from "@/hooks/useGoBack";
 import type { ModuleKey } from "@/types";
 import { LoginPage } from "./login";
 
@@ -217,6 +218,9 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  // One Escape rule for the whole app — see useAppEscape for the order of
+  // who gets the key.
+  useAppEscape();
   // Self-heal chunk import failures that happen during navigation (outside the
   // error boundary) — e.g. a deploy landed while the tab was open.
   useEffect(() => {

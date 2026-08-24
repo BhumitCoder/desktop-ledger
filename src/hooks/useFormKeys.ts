@@ -91,16 +91,39 @@ export function stepBackOnBackspace(
  * with unsaved work now asks. What Escape means is the same everywhere in the
  * app — close the innermost thing that is open, and only then leave the page.
  */
+let escapeClaims = 0;
+
+/** Is a form currently answering Escape itself?
+ *
+ * The app-wide handler goes back a page on Escape; a form on screen has a
+ * better answer (leave THIS form, asking first if there is work on it). Both
+ * are window listeners, and the app-wide one is registered first, so it would
+ * otherwise win the race and go back before the form ever saw the key. An
+ * explicit claim decides it by intent rather than by mount order. */
+export function isEscapeClaimed() {
+  return escapeClaims > 0;
+}
+
 export function useEscapeToLeave(leave: () => void, isDirty: () => boolean) {
+  useEffect(() => {
+    escapeClaims++;
+    return () => {
+      escapeClaims--;
+    };
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
       // A dialog owns Escape while it is open — taking it here would leave
       // the page with the sheet still standing on top of the next one.
       if (document.querySelector('[role="dialog"],[role="alertdialog"]')) return;
-      if (isDirty() && !confirm("Leave without saving? Anything typed here will be lost.")) return;
-
+      // Claim the key BEFORE asking. Answering "no, stay" is still this form
+      // handling Escape; leaving it unclaimed let the app-wide handler pick
+      // the same keystroke up afterwards and go back anyway — declining the
+      // prompt and losing the bill regardless.
       e.preventDefault();
+      if (isDirty() && !confirm("Leave without saving? Anything typed here will be lost.")) return;
       leave();
     };
     window.addEventListener("keydown", onKey);

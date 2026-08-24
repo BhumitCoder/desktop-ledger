@@ -1,5 +1,6 @@
 import { useCallback, useEffect } from "react";
 import { useNavigate, useRouter } from "@tanstack/react-router";
+import { isEscapeClaimed } from "@/hooks/useFormKeys";
 
 /**
  * One step back — the way a back button is supposed to behave.
@@ -58,10 +59,11 @@ export function isTyping(el: EventTarget | null): boolean {
  * Go back one step from a detail page — by key, not just by the chevron.
  *
  * The client works on a MacBook and on Windows, so this answers what a person
- * reaches for on either: Escape and Backspace (the habit from every document
- * viewer), plus each platform's own browser-back chord — Alt+← on Windows,
- * Cmd+← on macOS. All of them do exactly ONE step, the same as the chevron;
- * none of them jump to the home page.
+ * reaches for on either: Backspace (the habit from every document viewer),
+ * plus each platform's own browser-back chord — Alt+← on Windows, Cmd+← on
+ * macOS. Both do exactly ONE step, the same as the chevron; neither jumps to
+ * the home page. Escape does the same thing but is owned app-wide, so that it
+ * also works on the pages that have no back chevron.
  *
  * It stays out of the way of everything that owns a key first: any typing, and
  * any open dialog — Escape there must close the dialog, and taking the key
@@ -74,7 +76,11 @@ export function useBackShortcuts(enabled: boolean, back: () => void) {
       if (e.defaultPrevented || isTyping(e.target)) return;
       if (document.querySelector('[role="dialog"],[role="alertdialog"]')) return;
       const arrowBack = e.key === "ArrowLeft" && (e.altKey || e.metaKey);
-      const plainBack = (e.key === "Escape" || e.key === "Backspace") && !e.metaKey && !e.ctrlKey;
+      // Escape is handled once, app-wide (see useAppEscape) so that it means
+      // the same thing on a list as on a detail page. Backspace stays here:
+      // it is also the step-back key INSIDE a row, so it only doubles as
+      // "leave the page" where a back button already exists.
+      const plainBack = e.key === "Backspace" && !e.metaKey && !e.ctrlKey;
       if (!arrowBack && !plainBack) return;
       e.preventDefault();
       back();
@@ -82,4 +88,43 @@ export function useBackShortcuts(enabled: boolean, back: () => void) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [enabled, back]);
+}
+
+/**
+ * Escape closes the screen you are on — anywhere in the app.
+ *
+ * It used to work only where a back chevron happened to be rendered, so the
+ * same key did something on a bill and nothing at all on the Items list. One
+ * key should mean one thing, so this is mounted once at the root and covers
+ * every page.
+ *
+ * The order of who gets it is the whole design, innermost first:
+ *
+ *   1. A dropdown that is open — it calls preventDefault, and this checks.
+ *   2. An open dialog — Radix closes it; taking the key here would leave the
+ *      page with the sheet still standing on top of the next one.
+ *   3. A form that claims Escape (see useEscapeToLeave) — "leave THIS form,
+ *      asking first if there is work on it" beats "go back a page".
+ *   4. Otherwise: back one step.
+ *
+ * When there is nothing behind the page — a fresh tab, a bookmark, the print
+ * window's escape hatch — Escape does nothing at all. It never tries to close
+ * the browser tab: a page cannot close a tab it did not open, and quietly
+ * shutting the app on a keystroke is not something to attempt on a till.
+ */
+export function useAppEscape() {
+  const router = useRouter();
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (isTyping(e.target)) return;
+      if (document.querySelector('[role="dialog"],[role="alertdialog"]')) return;
+      if (isEscapeClaimed()) return;
+      if (!router.history.canGoBack()) return;
+      e.preventDefault();
+      router.history.back();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [router]);
 }

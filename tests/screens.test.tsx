@@ -31,6 +31,7 @@ import { PrintableReturn } from "@/components/PrintableReturn";
 import { fmtMoney, ymd } from "@/lib/format";
 import { planStockRepair } from "@/lib/dataRepair";
 import { useEscapeToLeave } from "@/hooks/useFormKeys";
+import { useAppEscape } from "@/hooks/useGoBack";
 import { buildPartyStatement, cashFlows } from "@/lib/ledger";
 import { commitBatch } from "@/repositories/base";
 import {
@@ -370,7 +371,14 @@ async function runAll(): Promise<Results> {
   const rootOptions = (routeTree as unknown as { options: Record<string, unknown> }).options;
   // Swap the root component for a bare Outlet: the real one is the auth gate,
   // which needs a live Firebase session this test deliberately cannot have.
-  rootOptions.component = () => <Outlet />;
+  // The real root is the auth gate, which needs a live Firebase session this
+  // test deliberately cannot have — but it also mounts the app-wide key
+  // handling, so the stand-in has to keep THAT or every keyboard test here
+  // would be exercising a page the shop never runs.
+  rootOptions.component = function TestRoot() {
+    useAppEscape();
+    return <Outlet />;
+  };
   // And drop the document shell — it renders <html><body>, which cannot be
   // mounted inside a container div.
   rootOptions.shellComponent = ({ children }: { children: ReactNode }) => <>{children}</>;
@@ -1832,7 +1840,10 @@ async function runAll(): Promise<Results> {
      Escape was wired straight to "navigate away", so closing the item picker
      with it ALSO threw the whole bill away. */
   {
-    await renderRoute("/sales/new");
+    // Arrive THROUGH the sales list, so there is somewhere to go back to.
+    // With a single-entry history the app-wide Escape bails on its own and
+    // this could never tell whether the form actually claimed the key.
+    await renderRoute(["/sales", "/sales/new"]);
 
     // Put something on the bill so leaving would cost work.
     const addRow2 = document.querySelector(
@@ -1881,6 +1892,34 @@ async function runAll(): Promise<Results> {
           !!document.querySelector("tbody tr"),
           "escape: and does NOT throw the bill away behind it",
         );
+      }
+    }
+    /* On a form, Escape belongs to the FORM, not to the app-wide "go back".
+       Both are window listeners and the app-wide one is registered first, so
+       without an explicit claim it would win the race and leave the page
+       before the form could ask about the unsaved bill. */
+    {
+      let asked = 0;
+      const realConfirm = window.confirm;
+      window.confirm = () => {
+        asked++;
+        return false; // "no, stay here"
+      };
+      try {
+        await act(async () => {
+          window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        });
+        await settleMs(80);
+        assert(
+          asked === 1,
+          `escape on a form: the form asks about the unsaved bill — asked ${asked} times`,
+        );
+        assert(
+          !!document.querySelector('input[placeholder="Type item name to add…"]'),
+          "escape on a form: declining keeps us on the BILL (not the list, which also has rows)",
+        );
+      } finally {
+        window.confirm = realConfirm;
       }
     }
   }
@@ -1953,6 +1992,62 @@ async function runAll(): Promise<Results> {
 
     r.unmount();
     h.remove();
+  }
+
+  /* ── Escape closes the screen on EVERY page, not just detail pages ────
+     It used to be wired to the back chevron, so the same key did something on
+     a bill and nothing at all on the Items list. One key, one meaning. */
+  {
+    // A list page — no back chevron anywhere on it, by the client's own
+    // instruction, yet Escape must still step back.
+    const list = await renderRoute(["/parties", "/items"]);
+    assert(list.includes("Items"), "escape anywhere: the items list mounted");
+    assert(
+      !Array.from(document.querySelectorAll("button")).some(
+        (b) => b.getAttribute("aria-label") === "Go back",
+      ),
+      "escape anywhere: the list has no back button (main pages must not grow one)",
+    );
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    const after = await readMounted();
+    assert(
+      after.includes("customers / suppliers"),
+      `escape anywhere: Escape still goes back from a list — landed on ${JSON.stringify(
+        after.slice(0, 90),
+      )}`,
+    );
+
+    // Nothing behind the page: Escape must do nothing rather than try to
+    // close the tab, which a page cannot do and should not attempt on a till.
+    const alone = await renderRoute("/items");
+    assert(alone.includes("Items"), "escape anywhere: mounted with no history behind it");
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    const stillThere = await readMounted();
+    assert(
+      stillThere.includes("Items"),
+      "escape anywhere: with nowhere to go back to, Escape leaves the page alone",
+    );
+
+    // And it stays out of the way while someone is typing.
+    const back2 = await renderRoute(["/parties", "/items"]);
+    assert(back2.includes("Items"), "escape anywhere: mounted again for the typing check");
+    const search = document.querySelector(
+      'input[placeholder*="Search"]',
+    ) as HTMLInputElement | null;
+    if (search) {
+      await act(async () => {
+        search.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      });
+      const typed = await readMounted();
+      assert(
+        typed.includes("Items"),
+        "escape anywhere: Escape in a search box does not leave the page",
+      );
+    }
   }
 
   /* ── Bulk Update with a real-sized catalogue ──────────────────────────
