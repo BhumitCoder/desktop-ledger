@@ -1610,17 +1610,85 @@ async function runAll(): Promise<Results> {
     );
 
     // Scope to THIS dialog: earlier routes stay mounted, and an unrelated
-    // <select> left behind by one of them is what this used to grab.
+    // control left behind by one of them is what this used to grab.
     const dlg = document.querySelector('[role="dialog"]')!;
-    const bankSelect = dlg.querySelector("select") as HTMLSelectElement | null;
-    assert(!!bankSelect, "transfer: found the account picker");
-    if (bankSelect) {
+    const bankBtn = dlg.querySelector('[role="combobox"]') as HTMLButtonElement | null;
+    assert(!!bankBtn, "transfer: found the account picker");
+    if (bankBtn) {
+      // Where the next field sits before the list opens. A dropdown that
+      // takes up space instead of floating would shove it down the dialog —
+      // which is what a static popup does, and looks broken.
+      const amountBefore = (
+        dlg.querySelector('input[aria-label="Transfer amount"]') as HTMLElement | null
+      )?.getBoundingClientRect().top;
       await act(async () => {
-        const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
-        setter.call(bankSelect, "TB1");
-        bankSelect.dispatchEvent(new Event("change", { bubbles: true }));
+        bankBtn.click();
       });
       await settleMs(60);
+      const list = dlg.querySelector('[role="listbox"]');
+      assert(!!list, "transfer: the account list opens as the app's own popup, not the OS one");
+      // Each row carries the balance next to the name — the reason for having
+      // a real popup rather than a native <option>, which cannot lay that out.
+      assert(
+        (list?.textContent ?? "").includes("Transfer Test Bank") &&
+          (list?.textContent ?? "").includes(fmtMoney(5000)),
+        `transfer: the list shows each account with its balance — ${JSON.stringify(
+          list?.textContent?.slice(0, 120),
+        )}`,
+      );
+      // It has to LOOK like part of this dialog, which is the whole point of
+      // replacing the native control: attached to the button, the same width,
+      // and painted opaque so the fields underneath do not show through.
+      if (list) {
+        const b = bankBtn.getBoundingClientRect();
+        const l = list.getBoundingClientRect();
+        assert(
+          Math.abs(l.top - b.bottom) < 12,
+          `transfer: the popup hangs off the button — button bottom ${Math.round(
+            b.bottom,
+          )}, list top ${Math.round(l.top)}`,
+        );
+        assert(
+          Math.abs(l.width - b.width) < 2,
+          `transfer: the popup matches the field's width — ${Math.round(l.width)} vs ${Math.round(
+            b.width,
+          )}`,
+        );
+        const amountAfter = (
+          dlg.querySelector('input[aria-label="Transfer amount"]') as HTMLElement | null
+        )?.getBoundingClientRect().top;
+        assert(
+          amountBefore != null && amountAfter != null && Math.abs(amountAfter - amountBefore) < 1,
+          `transfer: the popup FLOATS over the form instead of pushing it down — Amount moved from ${Math.round(
+            amountBefore ?? -1,
+          )} to ${Math.round(amountAfter ?? -1)}`,
+        );
+        assert(
+          amountAfter != null && l.bottom > amountAfter,
+          "transfer: and actually covers the field beneath it",
+        );
+        const bg = getComputedStyle(list).backgroundColor;
+        assert(
+          bg !== "" && bg !== "transparent" && !bg.includes("rgba(0, 0, 0, 0)"),
+          `transfer: the popup is painted, not see-through — background ${bg}`,
+        );
+      }
+      const option = Array.from(dlg.querySelectorAll('[role="option"]')).find((o) =>
+        (o.textContent ?? "").includes("Transfer Test Bank"),
+      );
+      assert(!!option, "transfer: the seeded account is listed");
+      await act(async () => {
+        option!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      });
+      await settleMs(60);
+      assert(
+        !dlg.querySelector('[role="listbox"]'),
+        "transfer: picking an account closes the list",
+      );
+      assert(
+        (bankBtn.textContent ?? "").includes("Transfer Test Bank"),
+        `transfer: and the button shows the choice — ${JSON.stringify(bankBtn.textContent)}`,
+      );
     }
 
     const amountBox = dlg.querySelector(

@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/Field";
 import { NumInput } from "@/components/NumInput";
-import { ArrowRight, Banknote, Landmark, Loader2 } from "lucide-react";
+import { ArrowRight, Banknote, Check, ChevronDown, Landmark, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   BankRepo,
@@ -76,6 +76,9 @@ export function CashBankTransferDialog({
   const [date, setDate] = useState(today());
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [bankOpen, setBankOpen] = useState(false);
+  const [bankIdx, setBankIdx] = useState(0);
+  const pickerRef = useRef<HTMLDivElement>(null);
 
   const cashInHand = useRepoMemo(() =>
     cashFlows(
@@ -95,12 +98,47 @@ export function CashBankTransferDialog({
     setDate(today());
     setNotes("");
     setSaving(false);
+    setBankOpen(false);
     // `banks` is intentionally not a dependency: reopening the dialog should
     // reset the form, a background sync should not wipe what is half-typed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialBankId]);
 
   const bank = useMemo(() => banks.find((b) => b.id === bankId), [banks, bankId]);
+
+  // Close on a click anywhere else, and drive the list from the keyboard.
+  // Escape is swallowed rather than bubbling: it closes the LIST here, and
+  // must not take the dialog with it.
+  useEffect(() => {
+    if (!bankOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!pickerRef.current?.contains(e.target as Node)) setBankOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        setBankOpen(false);
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setBankIdx((i) => Math.min(banks.length - 1, i + 1));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setBankIdx((i) => Math.max(0, i - 1));
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const picked = banks[bankIdx];
+        if (picked) setBankId(picked.id);
+        setBankOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }, [bankOpen, banks, bankIdx]);
   const toBank = direction === "toBank";
   const bankBalance = bank?.balance ?? 0;
 
@@ -224,23 +262,91 @@ export function CashBankTransferDialog({
             />
           </div>
 
-          <label className="flex flex-col gap-1 text-[12px]">
+          {/* A native <select> renders the operating system's own popup —
+              a plain list in the OS blue, ignoring every border radius, font
+              and colour the rest of this dialog uses. This is the app's own
+              popup instead: same rounded card, same accent highlight, and
+              room to show each account's balance beside its name, which a
+              native option row cannot lay out. */}
+          <div className="flex flex-col gap-1 text-[12px] relative" ref={pickerRef}>
             <span className="text-muted-foreground font-medium">Bank Account *</span>
-            <select
-              value={bankId}
-              onChange={(e) => setBankId(e.target.value)}
-              className="h-8 px-2 border rounded bg-background outline-none focus:border-primary focus:ring-1 focus:ring-primary text-sm"
+            <button
+              type="button"
+              role="combobox"
+              aria-expanded={bankOpen}
+              aria-label="Bank account"
+              disabled={!banks.length}
+              onClick={() => setBankOpen((v) => !v)}
+              onKeyDown={(e) => {
+                if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setBankOpen(true);
+                  setBankIdx(
+                    Math.max(
+                      0,
+                      banks.findIndex((b) => b.id === bankId),
+                    ),
+                  );
+                }
+              }}
+              className={`h-9 px-2.5 border rounded-md bg-background text-left text-sm flex items-center justify-between gap-2 outline-none transition disabled:opacity-60 ${
+                bankOpen ? "border-primary ring-1 ring-primary" : "border-input hover:bg-accent/40"
+              }`}
             >
-              {banks.length === 0 && <option value="">No bank accounts yet</option>}
-              {banks.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {`${b.name}${b.accountNumber ? ` — ${b.accountNumber}` : ""} (${fmtMoney(
-                    b.balance,
-                  )})`}
-                </option>
-              ))}
-            </select>
-          </label>
+              <span className="truncate font-medium">
+                {bank ? bank.name : "No bank accounts yet"}
+              </span>
+              <span className="flex items-center gap-1.5 shrink-0">
+                {bank && (
+                  <span className="tabular-nums text-muted-foreground">
+                    {fmtMoney(bank.balance)}
+                  </span>
+                )}
+                <ChevronDown
+                  className={`h-3.5 w-3.5 text-muted-foreground transition ${bankOpen ? "rotate-180" : ""}`}
+                />
+              </span>
+            </button>
+            {bankOpen && banks.length > 0 && (
+              <div
+                role="listbox"
+                aria-label="Bank accounts"
+                className="absolute z-30 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-elevated max-h-56 overflow-auto py-1"
+              >
+                {banks.map((b, i) => (
+                  <div
+                    key={b.id}
+                    role="option"
+                    aria-selected={b.id === bankId}
+                    onMouseEnter={() => setBankIdx(i)}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setBankId(b.id);
+                      setBankOpen(false);
+                    }}
+                    className={`px-2.5 py-1.5 cursor-pointer flex items-center justify-between gap-3 ${
+                      i === bankIdx ? "bg-accent" : ""
+                    }`}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-[13px] font-medium">{b.name}</span>
+                      {b.accountNumber && (
+                        <span className="block truncate text-[11px] text-muted-foreground font-mono">
+                          {b.accountNumber}
+                        </span>
+                      )}
+                    </span>
+                    <span className="shrink-0 flex items-center gap-1.5">
+                      <span className="text-[12px] tabular-nums text-muted-foreground">
+                        {fmtMoney(b.balance)}
+                      </span>
+                      {b.id === bankId && <Check className="h-3.5 w-3.5 text-primary" />}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <label className="flex flex-col gap-1 text-[12px]">
