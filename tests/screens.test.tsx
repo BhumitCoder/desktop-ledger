@@ -1636,6 +1636,41 @@ async function runAll(): Promise<Results> {
     const dlg = document.querySelector('[role="dialog"]')!;
     assert((dlg.textContent ?? "").includes("Transfer Money"), "transfer: the dialog rendered");
 
+    // The two ends and the swap between them are one row, so they have to
+    // line up. The balance used to hang UNDER each field as loose text, which
+    // left the columns different heights and pushed the swap button out of
+    // line with the fields it sits between.
+    {
+      const fromBtn = dlg.querySelector(
+        '[role="combobox"][aria-label="From account"]',
+      ) as HTMLElement;
+      const toBtn = dlg.querySelector('[role="combobox"][aria-label="To account"]') as HTMLElement;
+      const swapBtn = dlg.querySelector('[aria-label="Swap accounts"]') as HTMLElement;
+      assert(!!fromBtn && !!toBtn && !!swapBtn, "transfer: found both fields and the swap button");
+      if (fromBtn && toBtn && swapBtn) {
+        const f = fromBtn.getBoundingClientRect();
+        const t = toBtn.getBoundingClientRect();
+        const w = swapBtn.getBoundingClientRect();
+        assert(
+          Math.abs(f.top - t.top) < 1 && Math.abs(f.height - t.height) < 1,
+          `transfer: the two account fields line up — From ${Math.round(f.top)}/${Math.round(
+            f.height,
+          )}, To ${Math.round(t.top)}/${Math.round(t.height)}`,
+        );
+        assert(
+          Math.abs(f.top - w.top) < 1 && Math.abs(f.height - w.height) < 1,
+          `transfer: and the swap button lines up with them — swap ${Math.round(
+            w.top,
+          )}/${Math.round(w.height)} vs field ${Math.round(f.top)}/${Math.round(f.height)}`,
+        );
+        // The balance reads inside the field it belongs to, not beside it.
+        assert(
+          (fromBtn.textContent ?? "").includes("₹"),
+          `transfer: each field shows its own balance — ${JSON.stringify(fromBtn.textContent)}`,
+        );
+      }
+    }
+
     /** Choose an account on one side of the transfer. */
     const pick = async (side: "From" | "To", accountName: string) => {
       const btn = dlg.querySelector(
@@ -2291,36 +2326,63 @@ async function runAll(): Promise<Results> {
     const KEY = "bz.pageSize.items";
     window.localStorage.removeItem(KEY);
 
+    /** The rows-per-page control, which is the app's own dropdown rather than
+     *  a native <select> — the OS popup ignored every colour and radius on
+     *  the page, and this bar sits at the bottom where it opened over the
+     *  content in its own grey and blue. */
+    const perPage = () =>
+      document.querySelector(
+        '[role="combobox"][aria-label="Rows per page"]',
+      ) as HTMLButtonElement | null;
+
     const list = await renderRoute("/items");
     assert(list.includes("Items"), "page size: the items list mounted");
-    const select = Array.from(document.querySelectorAll("select")).find((s) =>
-      Array.from(s.options).some((o) => o.value === "500"),
-    ) as HTMLSelectElement | undefined;
-    assert(!!select, "page size: the per-page control offers 500");
-    assert(select?.value === "500", `page size: and starts there — got ${select?.value}`);
+    assert(
+      !document.querySelector("select"),
+      "page size: the per-page control is not a native select",
+    );
+    assert(!!perPage(), "page size: found the per-page control");
+    assert(
+      (perPage()?.textContent ?? "").includes("500"),
+      `page size: and starts at 500 — reads ${JSON.stringify(perPage()?.textContent)}`,
+    );
 
-    // Change it, and it is written down.
-    if (select) {
-      await act(async () => {
-        const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
-        setter.call(select, "25");
-        select.dispatchEvent(new Event("change", { bubbles: true }));
-      });
-      await settleMs(60);
-      assert(
-        window.localStorage.getItem(KEY) === "25",
-        `page size: the choice is saved — stored ${JSON.stringify(window.localStorage.getItem(KEY))}`,
-      );
-    }
+    // Open it: the choices reach past the default in both directions.
+    await act(async () => {
+      perPage()?.click();
+    });
+    await settleMs(60);
+    const menu = document.querySelector('[role="listbox"][aria-label="Rows per page"]');
+    assert(!!menu, "page size: the list opens as the app's own popup");
+    const labels = Array.from(menu?.querySelectorAll('[role="option"]') ?? []).map((o) =>
+      (o.textContent ?? "").trim(),
+    );
+    assert(
+      labels.includes("25") && labels.includes("1000"),
+      `page size: the choices span 25 to 1000 — got ${JSON.stringify(labels)}`,
+    );
+
+    // Pick one, and it is written down.
+    const twentyFive = Array.from(menu?.querySelectorAll('[role="option"]') ?? []).find(
+      (o) => (o.textContent ?? "").trim() === "25",
+    );
+    await act(async () => {
+      twentyFive?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    });
+    await settleMs(60);
+    assert(
+      window.localStorage.getItem(KEY) === "25",
+      `page size: the choice is saved — stored ${JSON.stringify(window.localStorage.getItem(KEY))}`,
+    );
 
     // Leave, come back: still 25. This is a preference, not a detail of one
     // visit, so it has to survive a reload — hence localStorage, not memory.
     await renderRoute("/parties");
     await renderRoute("/items");
-    const again = Array.from(document.querySelectorAll("select")).find((s) =>
-      Array.from(s.options).some((o) => o.value === "500"),
-    ) as HTMLSelectElement | undefined;
-    assert(again?.value === "25", `page size: and is still there on return — got ${again?.value}`);
+    assert(
+      (perPage()?.textContent ?? "").includes("25"),
+      `page size: and is still there on return — reads ${JSON.stringify(perPage()?.textContent)}`,
+    );
 
     // Per screen, not one global setting: Parties keeps its own.
     window.localStorage.removeItem(KEY);

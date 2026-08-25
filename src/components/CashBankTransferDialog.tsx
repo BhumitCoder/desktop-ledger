@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/Field";
 import { NumInput } from "@/components/NumInput";
-import { ArrowRight, Banknote, Check, ChevronDown, Landmark, Loader2 } from "lucide-react";
+import { ArrowLeftRight, Banknote, Check, ChevronDown, Landmark, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   BankRepo,
@@ -208,10 +208,10 @@ export function CashBankTransferDialog({
               type="button"
               onClick={swap}
               aria-label="Swap accounts"
-              title="Swap"
-              className="h-9 w-9 shrink-0 mb-[1px] rounded-md border border-input flex items-center justify-center text-muted-foreground hover:bg-accent transition"
+              title="Swap the two ends"
+              className="h-[52px] w-9 shrink-0 rounded-md border border-input bg-muted/40 flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition"
             >
-              <ArrowRight className="h-4 w-4" />
+              <ArrowLeftRight className="h-4 w-4" />
             </button>
             <AccountPicker
               label="To"
@@ -254,16 +254,24 @@ export function CashBankTransferDialog({
           />
 
           {amount > 0 && from && to && !sameAccount && (
-            <p className="text-[12px] text-gray-600 bg-gray-50 border rounded-md px-3 py-2">
-              After this: {from.name}{" "}
-              <span className="font-semibold tabular-nums">
-                {fmtMoney(r2(from.balance - amount))}
+            <div className="text-[12px] bg-muted/50 border rounded-md px-3 py-2 flex items-center justify-between gap-3">
+              <span className="text-muted-foreground">After this transfer</span>
+              <span className="flex items-center gap-2 min-w-0">
+                <span className="truncate">
+                  {from.name}{" "}
+                  <span className="font-semibold tabular-nums text-rose-700">
+                    {fmtMoney(r2(from.balance - amount))}
+                  </span>
+                </span>
+                <ArrowLeftRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+                <span className="truncate">
+                  {to.name}{" "}
+                  <span className="font-semibold tabular-nums text-emerald-700">
+                    {fmtMoney(r2(to.balance + amount))}
+                  </span>
+                </span>
               </span>
-              , {to.name}{" "}
-              <span className="font-semibold tabular-nums">
-                {fmtMoney(r2(to.balance + amount))}
-              </span>
-            </p>
+            </div>
           )}
 
           <div className="flex justify-end gap-2 pt-1">
@@ -368,23 +376,29 @@ function AccountPicker({
             );
           }
         }}
-        className={`h-9 px-2.5 border rounded-md bg-background text-left outline-none transition ${
+        className={`h-[52px] px-2.5 border rounded-md bg-background text-left outline-none transition ${
           open ? "border-primary ring-1 ring-primary" : "border-input hover:bg-accent/40"
         }`}
       >
-        <span className="flex items-center gap-1.5 min-w-0">
-          <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <span className="truncate font-medium flex-1 text-sm">{chosen?.name ?? "Choose…"}</span>
+        {/* The balance lives INSIDE the field. As loose text underneath it
+            left the two columns different heights, pushed the swap button
+            out of line with the fields it sits between, and read as a stray
+            caption rather than as this account's money. */}
+        <span className="flex items-center gap-2 min-w-0">
+          <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[13px] font-semibold leading-tight">
+              {chosen?.name ?? "Choose…"}
+            </span>
+            <span className="block text-[11px] text-muted-foreground tabular-nums leading-tight">
+              {chosen ? fmtMoney(chosen.balance) : "—"}
+            </span>
+          </span>
           <ChevronDown
             className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition ${open ? "rotate-180" : ""}`}
           />
         </span>
       </button>
-      {chosen && (
-        <span className="text-[11px] text-muted-foreground tabular-nums">
-          {fmtMoney(chosen.balance)}
-        </span>
-      )}
       {open && (
         <div
           role="listbox"

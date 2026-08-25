@@ -1,4 +1,5 @@
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { SelectMenu } from "@/components/SelectMenu";
 
 // Reaches past the 500 default in both directions: a shopkeeper who wants
 // the whole catalogue on one page can have it, and one who works on a
@@ -78,17 +79,17 @@ export function PaginationBar({
           </span>
           <label className="flex items-center gap-1.5 text-[12px] text-gray-500">
             Per page
-            <select
+            {/* Not a native <select>: this bar sits at the bottom of the
+                screen, so the OS popup opened over the page in its own grey
+                and blue. SelectMenu matches the app and flips upward when
+                there is no room below. */}
+            <SelectMenu
               value={pageSize}
-              onChange={(e) => onPageSize(parseInt(e.target.value, 10))}
-              className="h-7 px-1.5 border border-gray-200 rounded-md bg-white text-[12px] text-gray-700 outline-none focus:border-primary"
-            >
-              {PAGE_SIZES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+              options={PAGE_SIZES.map((n) => ({ value: n, label: String(n) }))}
+              onChange={onPageSize}
+              ariaLabel="Rows per page"
+              className="h-7 px-2 text-[12px] text-gray-700"
+            />
           </label>
         </div>
 
