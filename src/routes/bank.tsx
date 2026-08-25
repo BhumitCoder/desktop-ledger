@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
 import { usePagination } from "@/hooks/usePagination";
+import { usePeriodLock } from "@/hooks/usePeriodLock";
 import {
   BankRepo,
   SalesRepo,
@@ -298,6 +299,7 @@ function BankTxnDialog({
   onSaved: () => void;
 }) {
   const [bankId, setBankId] = useState("");
+  const { canPost } = usePeriodLock();
   const [type, setType] = useState<"deposit" | "withdraw">("deposit");
   const [amount, setAmount] = useState(0);
   const [date, setDate] = useState(today());
@@ -330,6 +332,7 @@ function BankTxnDialog({
       toast.error("Select a bank account");
       return;
     }
+    if (!canPost(date)) return;
     if (n <= 0) {
       toast.error("Enter amount");
       return;

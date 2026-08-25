@@ -36,6 +36,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { DataTable, type Column } from "@/components/DataTable";
 import { usePagination } from "@/hooks/usePagination";
+import { usePeriodLock } from "@/hooks/usePeriodLock";
 import { NumInput } from "@/components/NumInput";
 import { ModePills } from "@/components/ModePills";
 import { fmtMode } from "@/lib/paymentMode";
@@ -92,6 +93,7 @@ function PaymentsPage() {
   const [formType, setFormType] = useState<"in" | "out">("in");
   const [editing, setEditing] = useState<Payment | null>(null);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const { canPost } = usePeriodLock();
 
   const refresh = () => setRows(PaymentRepo.all().sort((a, b) => b.date.localeCompare(a.date)));
   const _repoV = useRepoData();
@@ -128,6 +130,7 @@ function PaymentsPage() {
       toast.error("You don't have permission to delete payments");
       return;
     }
+    if (!canPost(r.date)) return;
     if (!confirm("Delete this payment record? Amounts applied to invoices/bills will be reversed."))
       return;
     // Bail if another device already deleted this payment — the invoice-paid
@@ -570,6 +573,7 @@ function ReceivePaymentDialog({
   const [manualAmount, setManualAmount] = useState(0);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const { canPost } = usePeriodLock();
 
   /* Quick entry vs bill-by-bill.
    *
@@ -824,6 +828,7 @@ function ReceivePaymentDialog({
       toast.error("Enter a payment date");
       return;
     }
+    if (!canPost(date, editing?.date)) return;
     const amount = effectiveAmount;
     if ((!amount || amount <= 0) && totalDiscount <= 0) {
       toast.error("Enter or select an amount to pay");

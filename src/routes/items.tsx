@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
 import { usePagination } from "@/hooks/usePagination";
+import { usePeriodLock } from "@/hooks/usePeriodLock";
 import { useAutoFocusOnDesktop } from "@/hooks/use-mobile";
 import {
   ItemRepo,
@@ -416,6 +417,7 @@ export function StockAdjustDialog({
   onSaved: () => void;
 }) {
   const [type, setType] = useState<"add" | "reduce">("add");
+  const { canPost } = usePeriodLock();
   const [qty, setQty] = useState(0);
   const [date, setDate] = useState(today());
   const [reason, setReason] = useState("");
@@ -446,6 +448,7 @@ export function StockAdjustDialog({
       toast.error("Enter quantity to adjust");
       return;
     }
+    if (!canPost(date)) return;
     savingRef.current = true;
     setSaving(true);
     // Stock change + its audit record commit together as one atomic batch —

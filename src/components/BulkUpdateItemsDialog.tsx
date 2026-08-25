@@ -9,6 +9,7 @@ import { ItemRepo, StockAdjustmentRepo } from "@/repositories";
 import { newBatch, commitBatch } from "@/repositories/base";
 import { useRepoMemo } from "@/hooks/useRepoData";
 import { useWindowedRows } from "@/hooks/useWindowedRows";
+import { usePeriodLock } from "@/hooks/usePeriodLock";
 import { matchesQuery, byRelevance } from "@/lib/search";
 import { today } from "@/lib/format";
 import type { Item } from "@/types";
@@ -81,6 +82,7 @@ export function BulkUpdateItemsDialog({
   const [changedOnly, setChangedOnly] = useState(false);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const { canPost } = usePeriodLock();
 
   useEffect(() => {
     if (open) {
@@ -200,6 +202,9 @@ export function BulkUpdateItemsDialog({
       toast.info("Nothing changed yet");
       return;
     }
+    // These land as StockAdjustments dated today, which feed the stock a
+    // filed return was computed from — same lock as every other movement.
+    if (!canPost(today())) return;
     const bad = nameProblem();
     if (bad) {
       toast.error(`Repeat items cannot be added — ${bad}`);

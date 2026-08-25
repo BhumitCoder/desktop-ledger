@@ -68,7 +68,57 @@ const stubs = {
   },
 };
 
+/**
+ * PERIOD-LOCK COVERAGE — a source check, not a behaviour test.
+ *
+ * A partial lock is worse than none, because it looks complete: the owner
+ * closes July, and one screen quietly keeps writing into it. Behaviour tests
+ * can only cover the screens somebody thought to test, and the failure mode
+ * here is forgetting a screen — so this asserts the shape of the code instead.
+ *
+ * Any module that writes a DATED business document must also ask the lock.
+ * Add a new write path without a guard and this fails by name, on the next
+ * run, before it reaches anyone's books.
+ */
+function checkPeriodLockCoverage() {
+  const roots = ["src/components", "src/routes"];
+  // Writes that create or move money/stock with a date on them. Reads,
+  // and repair tools that only re-derive stored totals, are not writes.
+  const WRITES =
+    /(Sales|Purchase|SaleReturn|PurchaseReturn|Payment|Expense|BankTxn|CashAdjustment|StockAdjustment)Repo[.](add|addBatched|update|updateBatched|remove|removeBatched)[^A-Za-z]/;
+  const EXEMPT = new Set([
+    // Rebuilds stored totals to match documents already there; it never
+    // creates, changes or dates a document, and must stay able to correct a
+    // closed period's arithmetic.
+    "src/routes/settings.tsx",
+  ]);
+  const offenders = [];
+  for (const root of roots) {
+    const dir = path.resolve(__dirname, "..", root);
+    if (!fs.existsSync(dir)) continue;
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith(".tsx") && !name.endsWith(".ts")) continue;
+      const rel = `${root}/${name}`;
+      if (EXEMPT.has(rel)) continue;
+      const src = fs.readFileSync(path.join(dir, name), "utf8");
+      // The CALL, not the name. Looking for the substring "canPost" passed a
+      // file where every reference had been renamed to canPostX — the check
+      // has to see the guard being invoked.
+      if (WRITES.test(src) && !/\bcanPost\s*\(/.test(src)) offenders.push(rel);
+    }
+  }
+  if (offenders.length) {
+    console.log("\n  PERIOD LOCK: these write dated documents but never ask the lock:");
+    offenders.forEach((f) => console.log("    x " + f));
+    console.log("  A partial lock is worse than none — it looks complete.\n");
+    return false;
+  }
+  console.log("  Period lock: every dated write path asks the lock.");
+  return true;
+}
+
 async function main() {
+  const lockOk = checkPeriodLockCoverage();
   fs.mkdirSync(OUT_DIR, { recursive: true });
 
   fs.writeFileSync(
@@ -214,7 +264,7 @@ run().then((r) => { (window as any).__RESULT__ = r; })
     console.log("  ✅ ALL SCREENS RENDER REAL DATA");
   }
   console.log("══════════════════════════════════════\n");
-  process.exit(result.failed || pageErrors.length ? 1 : 0);
+  process.exit(result.failed || pageErrors.length || !lockOk ? 1 : 0);
 }
 
 main().catch((e) => {

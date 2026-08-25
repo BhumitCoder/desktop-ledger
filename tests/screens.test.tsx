@@ -2928,6 +2928,116 @@ async function runAll(): Promise<Results> {
     );
   }
 
+  /* ── A closed period actually refuses, on a real screen ───────────────
+     lib/periodLock is unit-tested, but a rule that is never asked is not a
+     lock. This drives the Cash screen with the books closed and checks that
+     nothing lands — and that the same screen still works either side of the
+     boundary, because a lock that blocks everything is just an outage. */
+  {
+    const LOCKED_DAY = "2026-06-15";
+    const OPEN_DAY = "2026-09-20";
+    const company = CompanyRepo.get();
+    CompanyRepo.save({ ...company, booksLockedUpto: "2026-06-30" });
+    try {
+      await renderRoute("/cash");
+      const before = CashAdjustmentRepo.all().length;
+
+      /** Fill in and submit the Adjust Cash form. */
+      const enter = async (day: string, amount: string) => {
+        const openBtn = findButton(/Adjust Cash/);
+        assert(!!openBtn, "lock: found the Adjust Cash button");
+        await act(async () => {
+          openBtn?.click();
+        });
+        await settleMs(120);
+        const dlg = currentDialog();
+        const dateBox = dlg.querySelector('input[type="date"]') as HTMLInputElement | null;
+        const amountBox = Array.from(dlg.querySelectorAll("input")).find(
+          (i) => i.getAttribute("inputmode") === "decimal",
+        ) as HTMLInputElement | undefined;
+        assert(!!dateBox && !!amountBox, "lock: found the date and amount boxes");
+        await act(async () => {
+          setInput(amountBox, amount);
+        });
+        await act(async () => {
+          setInput(dateBox, day);
+        });
+        await settleMs(60);
+        const submit = Array.from(dlg.querySelectorAll("button")).find((b) =>
+          /Add Entry|Save Changes/.test((b.textContent ?? "").trim()),
+        ) as HTMLButtonElement | undefined;
+        assert(!!submit, `lock: found the submit button — ${submit?.textContent}`);
+        await act(async () => {
+          submit?.click();
+        });
+        await settleMs(180);
+      };
+
+      // Inside the closed period: refused, and nothing written.
+      await enter(LOCKED_DAY, "500");
+      assert(
+        CashAdjustmentRepo.all().length === before,
+        `lock: an entry dated inside a closed period is not written — ${CashAdjustmentRepo.all().length - before} appeared`,
+      );
+
+      // Outside it: the same screen still works. A lock that blocks
+      // everything is an outage, not a lock.
+      await renderRoute("/cash");
+      await enter(OPEN_DAY, "500");
+      assert(
+        CashAdjustmentRepo.all().length === before + 1,
+        `lock: an entry dated outside it still saves — ${CashAdjustmentRepo.all().length - before}`,
+      );
+      const saved = CashAdjustmentRepo.all().find((a) => a.date === OPEN_DAY);
+      assert(!!saved, "lock: and it is the one that was entered");
+      // Phase 0b's other half, seen through a real screen rather than a unit:
+      assert(
+        /^CV-\d{4}$/.test(saved?.voucherNo ?? ""),
+        `lock: a cash entry gets a voucher reference — ${saved?.voucherNo}`,
+      );
+
+      /* Deleting inside a closed period is refused too. A delete changes a
+         filed month's totals exactly as much as an edit does. */
+      CashAdjustmentRepo.add({
+        id: "LOCKED-CA",
+        createdAt: "2026-01-01T00:00:00Z",
+        date: LOCKED_DAY,
+        type: "add",
+        amount: 99,
+        reason: "Inside the closed period",
+      } as never);
+      await renderRoute("/cash");
+      const lockedRow = Array.from(
+        document.querySelector(".data-table table")?.querySelectorAll("tbody tr") ?? [],
+      ).find((tr) => (tr.textContent ?? "").includes("Inside the closed period"));
+      assert(!!lockedRow, "lock: the entry inside the closed period is listed");
+      const realConfirm = window.confirm;
+      let asked = 0;
+      window.confirm = () => {
+        asked++;
+        return true;
+      };
+      try {
+        await act(async () => {
+          (lockedRow?.querySelector('[title="Delete entry"]') as HTMLElement)?.click();
+        });
+        await settleMs(180);
+      } finally {
+        window.confirm = realConfirm;
+      }
+      assert(
+        !!CashAdjustmentRepo.get("LOCKED-CA"),
+        "lock: deleting inside a closed period leaves the entry alone",
+      );
+      assert(
+        asked === 0,
+        "lock: and refuses before asking — a prompt you cannot act on is worse than none",
+      );
+    } finally {
+      CompanyRepo.save({ ...company, booksLockedUpto: undefined });
+    }
+  }
+
   /* ── Bulk Update with a real-sized catalogue ──────────────────────────
      The client's shop has ~1,400 items and the screen froze on open,
      because every row mounted at once and each carries several live

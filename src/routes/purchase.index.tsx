@@ -26,6 +26,7 @@ import {
 import { toast } from "sonner";
 import { PaginationBar } from "@/components/Pagination";
 import { usePagination } from "@/hooks/usePagination";
+import { usePeriodLock } from "@/hooks/usePeriodLock";
 import { DataTable } from "@/components/DataTable";
 import { fmtMode } from "@/lib/paymentMode";
 import { PageHeader } from "@/components/PageHeader";
@@ -93,6 +94,7 @@ function PurchasePage() {
     });
   }, [rows, dateFrom, dateTo, partyId, status, search]);
 
+  const { canPost } = usePeriodLock();
   const pg = usePagination(filtered, "purchase");
   const totalAmount = filtered.reduce((a, r) => a + r.total, 0);
   const totalPaid = filtered.reduce((a, r) => a + r.paid, 0);
@@ -134,6 +136,7 @@ function PurchasePage() {
       toast.error("You don't have permission to delete purchases");
       return;
     }
+    if (!canPost(r.date)) return;
     // A purchase return debits stock and the supplier's balance against THIS
     // bill. Deleting the bill underneath it would orphan the return — the
     // debit survives with no matching purchase, throwing off the supplier

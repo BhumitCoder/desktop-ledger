@@ -27,6 +27,7 @@ import {
 import { toast } from "sonner";
 import { PaginationBar } from "@/components/Pagination";
 import { usePagination } from "@/hooks/usePagination";
+import { usePeriodLock } from "@/hooks/usePeriodLock";
 import { DataTable } from "@/components/DataTable";
 import { fmtMode } from "@/lib/paymentMode";
 import { PageHeader } from "@/components/PageHeader";
@@ -94,6 +95,7 @@ function SalesPage() {
     });
   }, [rows, dateFrom, dateTo, partyId, status, search]);
 
+  const { canPost } = usePeriodLock();
   const pg = usePagination(filtered, "sales");
   const totalAmount = filtered.reduce((a, r) => a + r.total, 0);
   const totalPaid = filtered.reduce((a, r) => a + r.paid, 0);
@@ -135,6 +137,7 @@ function SalesPage() {
       toast.error("You don't have permission to delete sales");
       return;
     }
+    if (!canPost(r.date)) return;
     // A sale return credits stock and the customer's balance against THIS
     // invoice. Deleting the invoice underneath it would leave the return as
     // an orphan — the credit survives with no matching sale, so the customer

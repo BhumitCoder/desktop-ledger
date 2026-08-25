@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { DataTable, type Column } from "@/components/DataTable";
 import { usePagination } from "@/hooks/usePagination";
+import { usePeriodLock } from "@/hooks/usePeriodLock";
 import { ExpenseRepo, BankRepo, PayeeRepo, CompanyRepo } from "@/repositories";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 import { newBatch, commitBatch, genId } from "@/repositories/base";
@@ -32,6 +33,7 @@ function ExpensesPage() {
   const editAllowed = isOwner || canEdit("purchaseExpenses");
   const deleteAllowed = isOwner || canDelete("purchaseExpenses");
   const [rows, setRows] = useState<Expense[]>([]);
+  const { canPost } = usePeriodLock();
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<Expense | null>(null);
   const refresh = () => setRows(ExpenseRepo.all());
@@ -47,6 +49,7 @@ function ExpensesPage() {
       toast.error("You don't have permission to delete expenses");
       return;
     }
+    if (!canPost(r.date)) return;
     const bankName =
       r.paymentMode === "bank" && r.bankId ? (BankRepo.get(r.bankId)?.name ?? null) : null;
     const msg = [
@@ -282,6 +285,7 @@ function ExpenseDialog({
   onSaved: () => void;
 }) {
   const firstRef = useRef<HTMLButtonElement>(null);
+  const { canPost } = usePeriodLock();
   const [f, setF] = useState<Partial<Expense>>({});
   const [saving, setSaving] = useState(false);
   // Synchronous double-submit guard — prevents a same-tick double Enter from
@@ -360,6 +364,7 @@ function ExpenseDialog({
       toast.error("Category required");
       return;
     }
+    if (!canPost(f.date, expense?.date)) return;
     if (!f.amount || f.amount <= 0) {
       toast.error("Amount must be positive");
       return;

@@ -47,6 +47,7 @@ import { ModePills } from "@/components/ModePills";
 import { QuickAddPartyDialog, type QuickAddPartyDetails } from "@/components/QuickAddPartyDialog";
 import { genId, newBatch, commitBatch } from "@/repositories/base";
 import { stepBackOnBackspace, useEscapeToLeave } from "@/hooks/useFormKeys";
+import { usePeriodLock } from "@/hooks/usePeriodLock";
 import { stockShortfalls } from "@/lib/stock";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 
@@ -153,6 +154,7 @@ export function InvoiceForm({ mode, existing }: Props) {
   /** Line whose item picker the Qty box asked to reopen (Backspace on an
    *  empty Qty = "wrong item, let me choose again"). */
   const [reopenPickerFor, setReopenPickerFor] = useState<string | null>(null);
+  const { canPost } = usePeriodLock();
   useEffect(() => {
     if (focusQtyId.current) {
       const el = document.getElementById(`qty-${focusQtyId.current}`) as HTMLInputElement | null;
@@ -801,6 +803,9 @@ export function InvoiceForm({ mode, existing }: Props) {
 
   const save = (andPrint = false) => {
     if (savingRef.current) return; // double-click / Ctrl+S repeat protection
+    // Both dates: an edit that moves a bill out of a closed month changes that
+    // month's filed totals as surely as one posted into it.
+    if (!canPost(inv.date, existing?.date)) return;
 
     // ── Validations ─────────────────────────────────────────────
     if (!inv.lineItems.length) {

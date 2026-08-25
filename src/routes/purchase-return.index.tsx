@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { DataTable } from "@/components/DataTable";
 import { PageHeader } from "@/components/PageHeader";
 import { usePagination } from "@/hooks/usePagination";
+import { usePeriodLock } from "@/hooks/usePeriodLock";
 import { usePermissions } from "@/hooks/usePermissions";
 
 export const Route = createFileRoute("/purchase-return/")({ component: PurchaseReturnPage });
@@ -25,6 +26,7 @@ function PurchaseReturnPage() {
   const _repoV = useRepoData();
   useEffect(refresh, [_repoV]);
 
+  const { canPost } = usePeriodLock();
   const pg = usePagination(rows, "purchase-return");
 
   const totalDebit = rows.reduce((s, r) => s + r.total, 0);
@@ -34,6 +36,7 @@ function PurchaseReturnPage() {
       toast.error("You don't have permission to delete purchase returns");
       return;
     }
+    if (!canPost(r.date)) return;
     if (!confirm(`Delete return ${r.number}? Returned quantities will be added back to stock.`))
       return;
     // Bail if another device already deleted it — the stock reversal is a

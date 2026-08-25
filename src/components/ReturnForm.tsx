@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { Trash2, UserPlus, Save, X, CornerDownLeft, CornerUpLeft, Loader2 } from "lucide-react";
 import { genId, newBatch, commitBatch } from "@/repositories/base";
 import { stepBackOnBackspace, useEscapeToLeave } from "@/hooks/useFormKeys";
+import { usePeriodLock } from "@/hooks/usePeriodLock";
 import { stockShortfalls } from "@/lib/stock";
 import { NumInput } from "@/components/NumInput";
 import { QuickAddPartyDialog, type QuickAddPartyDetails } from "@/components/QuickAddPartyDialog";
@@ -94,6 +95,7 @@ export function ReturnForm({ mode }: Props) {
   const [partyIdx, setPartyIdx] = useState(0);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const { canPost } = usePeriodLock();
   // A party typed at the counter that doesn't exist yet is no longer
   // silently created with just a bare name — this opens a quick-add dialog
   // asking for phone/opening balance/GSTIN before it's actually created.
@@ -299,6 +301,9 @@ export function ReturnForm({ mode }: Props) {
 
   const save = () => {
     if (savingRef.current) return; // double-click protection
+    // One date only: a return is created, never edited, so there is no
+    // previous date it could be moved away from.
+    if (!canPost(ret.date)) return;
     const noteNo = (ret.number ?? "").trim();
     if (!noteNo) {
       toast.error(`${isSaleReturn ? "Credit" : "Debit"} note number is required`);
