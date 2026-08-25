@@ -40,6 +40,13 @@ import { planStockRepair } from "@/lib/dataRepair";
 import { transferLegsFor } from "@/lib/transferLegs";
 import { AuditLogRepo, nextVoucherNo } from "@/repositories";
 import { isLocked, blockedDate, lockMessage } from "@/lib/periodLock";
+import {
+  CASH_PURPOSES,
+  CHOOSABLE_PURPOSES,
+  purposeSpec,
+  purposeLabel,
+  totalsByPurpose,
+} from "@/lib/cashPurpose";
 
 let passed = 0,
   failed = 0;
@@ -1642,6 +1649,82 @@ console.log(`\n═════════════════════�
     "T25: entries from before references existed are skipped, not treated as zero",
   );
   assert(nextVoucherNo("TR-", []) === "TR-0001", "T25: each series numbers independently");
+}
+
+/* ═══ TEST 26: cash that says why it moved ════════════════════════════
+   "CASH ADD TILL TODAY FROM VYAPAR ₹29,000" is real money in the drawer with
+   nothing saying whether the shop earned it, the owner put it in, or it was
+   carried over from the old system — so the P&L absorbs it as profit and that
+   month is wrong by ₹29,000 with nothing on screen to say so. Every
+   accounting system answers this the same way: the movement has a second
+   side, and the second side is an account. */
+{
+  // The choosable set must not offer the one the app writes for itself: a
+  // transfer's other side is a real account, and claiming "transfer" from the
+  // adjust screen would be a lie about where the money went.
+  assert(
+    CHOOSABLE_PURPOSES.every((p) => p.key !== "transfer"),
+    "T26: 'transfer' is never offered as a reason to pick",
+  );
+  assert(CHOOSABLE_PURPOSES.length >= 4, "T26: there are real choices to make");
+  assert(
+    CASH_PURPOSES.every((p) => !!p.account),
+    "T26: every reason names the account it will post to — the mapping cannot drift",
+  );
+
+  // Direction follows the reason where only one direction makes sense, so the
+  // shopkeeper is not asked the same question twice.
+  assert(
+    purposeSpec("owner-out")?.direction === "reduce",
+    "T26: the owner taking money out is cash OUT",
+  );
+  assert(
+    purposeSpec("owner-in")?.direction === "add",
+    "T26: the owner putting money in is cash IN",
+  );
+  assert(purposeSpec("opening")?.direction === "add", "T26: an opening balance is cash IN");
+  assert(!purposeSpec("short-over")?.direction, "T26: a counting difference can go either way");
+  assert(!purposeSpec("other")?.direction, "T26: and so can anything else");
+
+  // An entry from before this was asked says so, rather than being guessed at.
+  assert(purposeLabel(undefined) === "Uncategorised", "T26: an older entry reads as uncategorised");
+  assert(purposeLabel("nonsense-key") === "Uncategorised", "T26: and so does an unknown value");
+  assert(purposeLabel("owner-out") === "Owner took out", "T26: a known one reads in plain words");
+
+  /* The summary: signed, so the figures read the way the drawer moved, and
+     the uncategorised total is kept SEPARATE rather than folded into
+     "something else" — how much is unaccounted for is the number that
+     matters most on this screen. */
+  const totals = totalsByPurpose([
+    { purpose: "owner-in", type: "add", amount: 5000 },
+    { purpose: "owner-out", type: "reduce", amount: 2000 },
+    { purpose: "owner-out", type: "reduce", amount: 500 },
+    { purpose: undefined, type: "add", amount: 29000 },
+  ]);
+  const by = (k: string) => totals.find((t) => t.key === k);
+  assert(by("owner-in")?.net === 5000, `T26: money in is positive — ${by("owner-in")?.net}`);
+  assert(
+    by("owner-out")?.net === -2500,
+    `T26: money out is negative and adds up — ${by("owner-out")?.net}`,
+  );
+  assert(by("owner-out")?.count === 2, "T26: and counts the entries behind it");
+  assert(
+    by("uncategorised")?.net === 29000,
+    `T26: unexplained cash is its own line — ${by("uncategorised")?.net}`,
+  );
+  assert(
+    !by("other"),
+    "T26: unexplained cash is NOT quietly counted as 'something else' — that would hide it",
+  );
+  assert(totals[0].key === "uncategorised", "T26: and the biggest movement leads");
+  assert(totalsByPurpose([]).length === 0, "T26: nothing in, nothing out");
+
+  // Paise survive the summing.
+  const paise = totalsByPurpose([
+    { purpose: "short-over", type: "add", amount: 0.05 },
+    { purpose: "short-over", type: "reduce", amount: 0.02 },
+  ]);
+  assert(paise[0].net === 0.03, `T26: paise add up exactly — ${paise[0].net}`);
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);

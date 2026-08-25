@@ -219,6 +219,9 @@ export function CashBankTransferDialog({
         date,
         type: "reduce",
         amount: n,
+        // Written by the app, never offered in the picker: a transfer's other
+        // side is a real account, so it is the one purpose nobody has to state.
+        purpose: "transfer",
         reason: note,
         transferId,
         voucherNo,
@@ -241,6 +244,7 @@ export function CashBankTransferDialog({
         date,
         type: "add",
         amount: n,
+        purpose: "transfer",
         reason: note,
         transferId,
         voucherNo,

@@ -265,6 +265,8 @@ export interface FlowEntry {
    * editing the sale. This says which record owns the row so each one can be
    * offered the action that is actually safe for it. */
   source?: { kind: "sale" | "purchase" | "expense" | "payment" | "adjustment"; id: string };
+  /** For a manual cash entry: why it moved. See lib/cashPurpose.ts. */
+  purpose?: string;
 }
 
 /** Money movement for one payment mode (cash, bank, …). Amounts settled
@@ -364,6 +366,7 @@ export function cashFlows(
       in: a.type === "add" ? a.amount : 0,
       out: a.type === "reduce" ? a.amount : 0,
       source: { kind: "adjustment", id: a.id },
+      purpose: a.purpose,
     });
   }
   list.sort((a, b) => b.date.localeCompare(a.date));

@@ -160,6 +160,11 @@ export interface StockAdjustment {
 /** Manual cash-in-hand correction (counter counting, owner drawings…) */
 export interface CashAdjustment {
   id: ID;
+  /** Why the cash moved, when no bill or payment explains it — the second
+   * side of the entry. See lib/cashPurpose.ts. Absent on entries made before
+   * this was asked for; those read as "Uncategorised" rather than being
+   * guessed at, because a wrong reason is worse than a missing one. */
+  purpose?: CashPurpose;
   /** Voucher reference, e.g. CV-0007. Absent on entries made before these
    *  were issued. */
   voucherNo?: string;
@@ -249,6 +254,9 @@ export type PrintFormat = "a4" | "a4-2up" | "thermal80" | "thermal58";
  * later need to account for. Every stored type carries these; they are
  * optional only because records written before this existed do not have them.
  */
+import type { CashPurpose } from "@/lib/cashPurpose";
+export type { CashPurpose };
+
 export interface Audited {
   createdAt: string;
   /** Email of the signed-in user. Absent for records written before this

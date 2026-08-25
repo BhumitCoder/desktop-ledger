@@ -140,13 +140,47 @@ these.
 - **Risk** low. Numbering must be gap-free per financial year — allocate inside
   the same batch as the document, not before it.
 
-### 4.4 Reason categories on cash adjustments
+### 4.4 Reason categories on cash adjustments — **DONE (Phase 1)**
 - **Add** `CashAdjustment.accountId` (Owner Capital, Owner Drawing, Cash
   Short/Over, Opening Balance Equity, …) via the existing `ComboInput`.
 - **Touches** `src/routes/cash.tsx`; the P&L and balance sheet then stop
   absorbing unexplained cash.
 - **Risk** low. Existing entries have no account — they post to Opening Balance
   Equity and are flagged for review rather than guessed at.
+
+**What was actually built, and why it differs.** A typed `CashAdjustment.purpose`
+picker (`src/lib/cashPurpose.ts`) rather than a free `accountId` over a
+`ComboInput`, because **the chart of accounts does not exist until Phase 2** — a
+combo over accounts that are not there yet would either be empty or invent its
+own names, and those names would then have to be reconciled with the real chart
+later. Each purpose instead carries the account it will post to (`spec.account`:
+Owner's Capital, Owner's Drawings, Cash Short/Over, Opening Balance Equity), so
+Phase 2 maps six known keys to six real accounts and the two cannot drift apart
+in the meantime.
+
+Three things the plan did not say, which the build settled:
+- The purpose is asked **before** the amount and **sets the direction** where
+  only one direction is possible. "Owner took out" already says which way the
+  money went; asking again is asking twice, and lets the two answers contradict
+  each other. "Counting difference" and "Something else" leave it open.
+- Stating one is **required** on new entries. A picker that can be skipped
+  produces exactly the entry this phase exists to stop.
+- `transfer` is written by the app and never offered in the picker — a
+  transfer's other side is a real account, so it is the one purpose nobody has
+  to state. A leg is recognised by `transferLegsFor` even when the field was
+  never stamped, so the older pairs read "Transfer" rather than "Uncategorised".
+
+Existing entries keep no purpose and are flagged **amber "Uncategorised"** on
+the row (with a hover saying what to do) and totalled on their own line in the
+new by-reason summary, which is what makes stating a reason worth something
+before there is a ledger to post it to: the shop can see how much of the
+month's cash movement nobody can explain. The shop's real ₹29,000 "CASH ADD
+TILL TODAY FROM VYAPAR" is the entry this was built for.
+
+Proven by 13 mutations — the guard removed, the direction link cut, the field
+saved but not stored, a transfer leg written untagged, the amber flag painted
+like the rest, a reason pre-picked, and the transfer fallback removed — each
+caught by a named assertion.
 
 ### 4.5 Append-only corrections
 - **Add** "Reverse this entry" on anything outside today; edit stays for same-day.
@@ -230,19 +264,19 @@ these.
 
 Dependency-driven, cheapest-safest first:
 
-| # | Phase | Depends on |
-|---|---|---|
-| 0 | Audit trail · Period lock · Voucher numbers | — |
-| 1 | Reason categories on cash | 0 |
-| 2 | Posting ledger + reconciliation report + Trial Balance | 0 |
-| 3 | Balance Sheet · P&L from ledger · Year close | 2 reconciled |
-| 4 | Append-only corrections | 2 |
-| 5 | Unit conversion | — |
-| 6 | Serial / IMEI | 5 |
-| 7 | Document workflow | — |
-| 8 | Multi-location | 5, 7 |
-| 9 | Cost centres · budgets · TDS/TCS | 2 |
-| 10 | e-Invoicing | client credentials |
+| # | Phase | Depends on | State |
+|---|---|---|---|
+| 0 | Audit trail · Period lock · Voucher numbers | — | **done** |
+| 1 | Reason categories on cash | 0 | **done** |
+| 2 | Posting ledger + reconciliation report + Trial Balance | 0 | |
+| 3 | Balance Sheet · P&L from ledger · Year close | 2 reconciled | |
+| 4 | Append-only corrections | 2 | |
+| 5 | Unit conversion | — | |
+| 6 | Serial / IMEI | 5 | |
+| 7 | Document workflow | — | |
+| 8 | Multi-location | 5, 7 | |
+| 9 | Cost centres · budgets · TDS/TCS | 2 | |
+| 10 | e-Invoicing | client credentials | |
 
 ## 6. Standing rules for this programme
 

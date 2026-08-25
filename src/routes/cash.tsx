@@ -18,6 +18,28 @@ import { newBatch, commitBatch } from "@/repositories/base";
 import { useRepoData } from "@/hooks/useRepoData";
 import { cashFlows, type FlowEntry } from "@/lib/ledger";
 import { transferLegsFor } from "@/lib/transferLegs";
+
+/**
+ * Why a cash row moved, as far as the data can say.
+ *
+ * The stamped purpose when there is one; otherwise "transfer" if this entry
+ * is one leg of a recognised pair. Only a genuinely unexplained entry comes
+ * back undefined — which is what the amber flag is for.
+ */
+function rowPurpose(e: FlowEntry): string | undefined {
+  if (e.purpose) return e.purpose;
+  if (e.source?.kind !== "adjustment") return undefined;
+  const adj = CashAdjustmentRepo.get(e.source.id);
+  if (adj && transferLegsFor(adj, BankTxnRepo.all()).length > 0) return "transfer";
+  return undefined;
+}
+import {
+  CHOOSABLE_PURPOSES,
+  purposeSpec,
+  purposeLabel,
+  totalsByPurpose,
+  type CashPurpose,
+} from "@/lib/cashPurpose";
 import { fmtMoney, fmtDate, today, fmtDateShort } from "@/lib/format";
 import { DataTable } from "@/components/DataTable";
 import { usePagination } from "@/hooks/usePagination";
@@ -138,6 +160,22 @@ function CashPage() {
   // range AND search) — `balance` above stays all-time by design.
   const totalIn = filtered.reduce((s, e) => s + e.in, 0);
   const totalOut = filtered.reduce((s, e) => s + e.out, 0);
+
+  // Manual entries only: a sale's reason is its bill, and lumping those in
+  // would drown the figures this is for.
+  const purposeTotals = useMemo(
+    () =>
+      totalsByPurpose(
+        filtered
+          .filter((e) => e.source?.kind === "adjustment")
+          .map((e) => ({
+            purpose: rowPurpose(e),
+            type: e.in > 0 ? ("add" as const) : ("reduce" as const),
+            amount: e.in > 0 ? e.in : e.out,
+          })),
+      ),
+    [filtered],
+  );
 
   const pg = usePagination(filtered, "cash");
 
@@ -309,6 +347,45 @@ function CashPage() {
         )}
       </div>
 
+      {/* Where the manual cash went, by reason. The rows below say what
+          happened; this says what it adds up to — and how much of it is still
+          unaccounted for, which is the number that matters most. */}
+      {purposeTotals.length > 0 && (
+        <div
+          role="group"
+          aria-label="Cash movement by reason"
+          className="hidden md:flex px-6 pt-4 gap-2 flex-wrap"
+        >
+          {purposeTotals.map((t) => (
+            <div
+              key={t.key}
+              className={`rounded-lg border px-3 py-2 ${
+                t.key === "uncategorised"
+                  ? "border-amber-200 bg-amber-50"
+                  : "border-gray-200 bg-white"
+              }`}
+            >
+              <p
+                className={`text-[10px] font-semibold uppercase tracking-wide ${
+                  t.key === "uncategorised" ? "text-amber-700" : "text-gray-500"
+                }`}
+              >
+                {t.label}
+                <span className="ml-1.5 font-normal tabular-nums opacity-70">({t.count})</span>
+              </p>
+              <p
+                className={`text-[15px] font-bold tabular-nums ${
+                  t.net > 0 ? "text-emerald-700" : t.net < 0 ? "text-rose-700" : "text-gray-700"
+                }`}
+              >
+                {t.net > 0 ? "+" : ""}
+                {fmtMoney(t.net)}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="hidden md:flex flex-1 min-h-0 p-6">
         <DataTable
           storageKey="cash"
@@ -324,6 +401,31 @@ function CashPage() {
               label: "Type",
               render: (e) => e.type,
               sortValue: (e) => e.type,
+            },
+            {
+              key: "purpose",
+              label: "Reason",
+              width: "150px",
+              render: (e) =>
+                e.source?.kind === "adjustment" ? (
+                  <span
+                    className={
+                      rowPurpose(e)
+                        ? "text-[11px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600"
+                        : "text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200"
+                    }
+                    title={
+                      rowPurpose(e)
+                        ? undefined
+                        : "Made before the app asked why — edit it to say, or the P&L is guessing"
+                    }
+                  >
+                    {purposeLabel(rowPurpose(e))}
+                  </span>
+                ) : (
+                  <span className="text-gray-300">—</span>
+                ),
+              sortValue: (e) => purposeLabel(rowPurpose(e)),
             },
             {
               key: "ref",
@@ -495,6 +597,8 @@ function CashAdjustDialog({
   const [amount, setAmount] = useState(0);
   const [date, setDate] = useState(today());
   const [reason, setReason] = useState("");
+  const [purpose, setPurpose] = useState<CashPurpose | "">("");
+  const chosenPurpose = purposeSpec(purpose || undefined);
   const [saving, setSaving] = useState(false);
   const { canPost } = usePeriodLock();
 
@@ -512,6 +616,9 @@ function CashAdjustDialog({
     setAmount(editing?.amount ?? 0);
     setDate(editing?.date ?? today());
     setReason(editing?.reason ?? "");
+    // No default: an unstated reason is the thing this exists to stop, and a
+    // pre-picked one would be a guess wearing the shopkeeper's answer.
+    setPurpose(editing?.purpose ?? "");
     setSaving(false);
   }, [isOpen, editing]);
 
@@ -530,6 +637,10 @@ function CashAdjustDialog({
       toast.error("Enter amount to adjust");
       return;
     }
+    if (!purpose) {
+      toast.error("Say why the cash moved — that is what makes the books add up");
+      return;
+    }
     // Both dates: where the entry is now, and where it is being moved to.
     // Checking only one would let an entry be dragged into or out of a closed
     // month, which changes that month's totals either way.
@@ -540,6 +651,7 @@ function CashAdjustDialog({
         date,
         type,
         amount: n,
+        purpose,
         reason: reason.trim() || undefined,
       });
       toast.success(`Cash entry updated: ${fmtMoney(n)}`);
@@ -549,6 +661,7 @@ function CashAdjustDialog({
         date,
         type,
         amount: n,
+        purpose,
         reason: reason.trim() || undefined,
       });
       toast.success(`Cash ${type === "add" ? "added" : "reduced"}: ${fmtMoney(n)}`);
@@ -564,13 +677,57 @@ function CashAdjustDialog({
           <DialogTitle>{editing ? "Edit Cash Entry" : "Add Cash Entry"}</DialogTitle>
         </DialogHeader>
         <form onSubmit={save} className="space-y-3.5">
-          {/* "Cash In" and "Cash Out" — the words the table's own columns use.
-              This was two big buttons reading "+ Add Cash" / "− Reduce Cash",
-              which look like actions about to happen: fine on a blank form,
-              meaningless sitting on an entry that was made days ago, where
-              the only question is which way it already went. A labelled
-              two-state control answers that question instead of appearing to
-              offer two things to do. */}
+          {/* WHY the cash moved, asked before how much.
+              This screen used to ask only for a direction and a free-text
+              reason, which is how ₹29,000 of cash arrived with the note "CASH
+              ADD TILL TODAY FROM VYAPAR" and no account behind it — real money
+              in the drawer that the P&L then quietly absorbed as profit.
+              Every accounting system answers this the same way: the movement
+              has a second side, and the second side is an account.
+
+              Asked FIRST, and it sets the direction, because "owner took out"
+              already says which way the money went. Asking again would be the
+              same question twice. */}
+          <label className="block">
+            <span className="text-[12px] font-medium text-muted-foreground block mb-1">
+              Why did the cash move? *
+            </span>
+            <div
+              role="radiogroup"
+              aria-label="Reason for the cash movement"
+              className="grid grid-cols-1 sm:grid-cols-2 gap-1.5"
+            >
+              {CHOOSABLE_PURPOSES.map((p) => (
+                <button
+                  key={p.key}
+                  type="button"
+                  role="radio"
+                  aria-checked={purpose === p.key}
+                  title={p.hint}
+                  onClick={() => {
+                    setPurpose(p.key);
+                    // The purpose decides the direction where only one makes
+                    // sense; the two-way ones leave whatever is set alone.
+                    if (p.direction) setType(p.direction);
+                  }}
+                  className={`h-9 px-3 rounded-md border text-[13px] font-semibold text-left transition ${
+                    purpose === p.key
+                      ? "border-primary bg-primary-soft text-primary"
+                      : "border-input bg-background text-muted-foreground hover:bg-accent"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            {chosenPurpose && (
+              <p className="text-[11px] text-gray-400 mt-1.5">{chosenPurpose.hint}</p>
+            )}
+          </label>
+
+          {/* Direction stays visible, because the two-way purposes need it and
+              because seeing which way the money went is worth a glance even
+              when the purpose already decided it. */}
           <label className="block">
             <span className="text-[12px] font-medium text-muted-foreground block mb-1">
               Direction
@@ -591,13 +748,19 @@ function CashAdjustDialog({
                   type="button"
                   role="radio"
                   aria-checked={type === key}
+                  disabled={!!chosenPurpose?.direction}
+                  title={
+                    chosenPurpose?.direction
+                      ? `"${chosenPurpose.label}" is always ${chosenPurpose.direction === "add" ? "cash in" : "cash out"}`
+                      : undefined
+                  }
                   onClick={() => setType(key)}
-                  className={`h-9 text-[13px] font-semibold transition ${
+                  className={`h-9 text-[13px] font-semibold transition disabled:cursor-not-allowed ${
                     type === key
                       ? key === "add"
                         ? "bg-emerald-600 text-white"
                         : "bg-rose-600 text-white"
-                      : "bg-background text-muted-foreground hover:bg-accent"
+                      : "bg-background text-muted-foreground hover:bg-accent disabled:opacity-40"
                   }`}
                 >
                   {label}

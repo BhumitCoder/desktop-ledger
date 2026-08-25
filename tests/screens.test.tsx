@@ -2928,6 +2928,240 @@ async function runAll(): Promise<Results> {
     );
   }
 
+  /* ── Cash that says WHY it moved ──────────────────────────────────────
+     "CASH ADD TILL TODAY FROM VYAPAR ₹29,000" is real money in the drawer
+     with nothing saying whether the shop earned it, the owner put it in, or
+     it was carried over — so the P&L absorbs it as profit and that month is
+     wrong by ₹29,000 with nothing on screen to say so. The form now asks for
+     the second side of the movement, the way every accounting system does. */
+  {
+    // An entry from before the app asked, kept as the shop's real one reads.
+    CashAdjustmentRepo.add({
+      id: "OLDCASH",
+      createdAt: "2026-01-01T00:00:00Z",
+      date: D2,
+      type: "add",
+      amount: 29000,
+      reason: "CASH ADD TILL TODAY FROM VYAPAR",
+    } as never);
+
+    await renderRoute("/cash");
+    const openBtn = findButton(/Adjust Cash/);
+    assert(!!openBtn, "cash reason: found the Adjust Cash button");
+    await act(async () => {
+      openBtn?.click();
+    });
+    await settleMs(120);
+    const dlg = currentDialog();
+
+    const group = dlg.querySelector(
+      '[role="radiogroup"][aria-label="Reason for the cash movement"]',
+    );
+    assert(!!group, "cash reason: the form asks why the cash moved");
+    const choices = Array.from(
+      group?.querySelectorAll('[role="radio"]') ?? [],
+    ) as HTMLButtonElement[];
+    const labels = choices.map((b) => (b.textContent ?? "").trim());
+    assert(
+      labels.includes("Owner took out") &&
+        labels.includes("Owner put in") &&
+        labels.includes("Opening balance") &&
+        labels.includes("Counting difference"),
+      `cash reason: the reasons a shop actually has are offered — ${labels}`,
+    );
+    assert(
+      !labels.includes("Transfer"),
+      "cash reason: 'Transfer' is not offered here — the app writes that side itself",
+    );
+    assert(
+      choices.every((b) => b.getAttribute("aria-checked") === "false"),
+      "cash reason: nothing is pre-picked — a guessed reason is worse than a missing one",
+    );
+
+    const pickReason = async (label: string) => {
+      const btn = choices.find((b) => (b.textContent ?? "").trim() === label);
+      assert(!!btn, `cash reason: found the "${label}" choice`);
+      await act(async () => {
+        btn?.click();
+      });
+      await settleMs(60);
+    };
+    const dirBtn = (label: string) =>
+      Array.from(
+        dlg.querySelectorAll('[role="radiogroup"][aria-label="Direction"] [role="radio"]'),
+      ).find((b) => (b.textContent ?? "").trim() === label) as HTMLButtonElement | undefined;
+    const amountBox = Array.from(dlg.querySelectorAll("input")).find(
+      (i) => i.getAttribute("inputmode") === "decimal",
+    ) as HTMLInputElement | undefined;
+    const reasonBox = Array.from(dlg.querySelectorAll("input")).find((i) =>
+      (i.getAttribute("placeholder") ?? "").startsWith("Opening cash"),
+    ) as HTMLInputElement | undefined;
+    const submit = () =>
+      Array.from(dlg.querySelectorAll("button")).find((b) =>
+        /Add Entry|Save Changes/.test((b.textContent ?? "").trim()),
+      ) as HTMLButtonElement | undefined;
+    assert(!!amountBox && !!reasonBox && !!submit(), "cash reason: found amount, note and submit");
+
+    /* An amount with no reason is exactly the entry this exists to stop, so
+       it must not save — and the form must stay open holding the typed
+       figure rather than closing and losing it. */
+    const before = CashAdjustmentRepo.all().length;
+    await act(async () => {
+      setInput(amountBox, "4000");
+    });
+    await settleMs(60);
+    await act(async () => {
+      submit()?.click();
+    });
+    await settleMs(180);
+    assert(
+      CashAdjustmentRepo.all().length === before,
+      `cash reason: cash with no stated reason is refused — ${CashAdjustmentRepo.all().length - before} appeared`,
+    );
+    assert(
+      document.body.contains(dlg) && (dlg.textContent ?? "").includes("Why did the cash move"),
+      "cash reason: and the form is still open with the amount typed, not thrown away",
+    );
+
+    /* The reason sets the direction, because "owner took out" already says
+       which way the money went. Asking twice is asking the same question
+       twice — and lets the two answers contradict each other. */
+    await pickReason("Owner took out");
+    assert(
+      dirBtn("Cash Out")?.getAttribute("aria-checked") === "true",
+      "cash reason: 'Owner took out' is cash OUT without being asked again",
+    );
+    assert(dirBtn("Cash In")?.disabled === true, "cash reason: and it cannot be contradicted");
+    await pickReason("Owner put in");
+    assert(
+      dirBtn("Cash In")?.getAttribute("aria-checked") === "true",
+      "cash reason: 'Owner put in' flips it the other way",
+    );
+    /* A counting difference genuinely goes either way, so that one leaves the
+       direction to the person counting. */
+    await pickReason("Counting difference");
+    assert(
+      dirBtn("Cash In")?.disabled === false && dirBtn("Cash Out")?.disabled === false,
+      "cash reason: a counting difference can still go either way",
+    );
+
+    await pickReason("Owner took out");
+    await act(async () => {
+      setInput(reasonBox, "Owner personal use");
+    });
+    await settleMs(60);
+    await act(async () => {
+      submit()?.click();
+    });
+    await settleMs(220);
+    const saved = CashAdjustmentRepo.all().find((a) => a.reason === "Owner personal use");
+    assert(!!saved, "cash reason: with a reason stated, it saves");
+    assert(
+      saved?.purpose === "owner-out",
+      `cash reason: and the reason is STORED, not just shown — ${JSON.stringify(saved?.purpose)}`,
+    );
+    assert(
+      saved?.type === "reduce" && saved?.amount === 4000,
+      `cash reason: as cash out of 4000 — ${saved?.type} ${saved?.amount}`,
+    );
+
+    /* Both legs of a transfer are tagged by the app. Nobody should have to
+       state the reason for a movement whose other side is a real account. */
+    const legs = CashAdjustmentRepo.all().filter((a) => !!a.transferId);
+    assert(legs.length > 0, "cash reason: there are transfer legs to check");
+    assert(
+      legs.every((a) => a.purpose === "transfer"),
+      `cash reason: transfer legs are tagged by the app — ${JSON.stringify(
+        legs.map((a) => a.purpose),
+      )}`,
+    );
+
+    /* On the page: the reason is on the row, and an entry from before this
+       existed says so rather than being guessed at. */
+    await renderRoute("/cash");
+    const tbl = document.querySelector(".data-table table");
+    const headerNames = Array.from(tbl?.querySelectorAll("thead th") ?? []).map((th) =>
+      (th.textContent ?? "").trim(),
+    );
+    assert(
+      headerNames.includes("Reason"),
+      `cash reason: the table has a Reason column — ${headerNames}`,
+    );
+    const rowWith = (text: string) =>
+      Array.from(tbl?.querySelectorAll("tbody tr") ?? []).find((tr) =>
+        (tr.textContent ?? "").includes(text),
+      );
+    const newRow = rowWith("Owner personal use");
+    const oldRow = rowWith("CASH ADD TILL TODAY FROM VYAPAR");
+    assert(!!newRow && !!oldRow, "cash reason: both rows are on the page");
+    assert(
+      (newRow?.textContent ?? "").includes("Owner took out"),
+      `cash reason: the stated reason reads on its row — ${JSON.stringify(newRow?.textContent)}`,
+    );
+    assert(
+      (oldRow?.textContent ?? "").includes("Uncategorised"),
+      `cash reason: the older entry is marked uncategorised, not guessed — ${JSON.stringify(
+        oldRow?.textContent,
+      )}`,
+    );
+    /* And it LOOKS different, because "nobody knows where ₹29,000 came from"
+       is something to chase, not a neutral fact. Identical chips would make
+       that row read as filed-and-fine. */
+    const chipIn = (row: Element | undefined, text: string) =>
+      Array.from(row?.querySelectorAll("span") ?? []).find(
+        (s) => (s.textContent ?? "").trim() === text,
+      ) as HTMLElement | undefined;
+    const okChip = chipIn(newRow, "Owner took out");
+    const badChip = chipIn(oldRow, "Uncategorised");
+    assert(!!okChip && !!badChip, "cash reason: found both chips");
+    if (okChip && badChip) {
+      const ok = getComputedStyle(okChip);
+      const bad = getComputedStyle(badChip);
+      assert(
+        ok.backgroundColor !== bad.backgroundColor,
+        `cash reason: an unexplained entry is flagged, not painted like the rest — both ${bad.backgroundColor}`,
+      );
+      assert(
+        parseFloat(bad.borderTopWidth) > 0,
+        `cash reason: and it carries a border to say so — ${bad.borderTopWidth}`,
+      );
+      assert(
+        (badChip.getAttribute("title") ?? "").length > 10,
+        "cash reason: hovering it explains what to do about it",
+      );
+    }
+
+    /* The summary is what makes stating a reason worth something today,
+       before there is a ledger to post it to: how much of the month's cash
+       movement was the owner's own money — and how much nobody can explain. */
+    const strip = document.querySelector('[aria-label="Cash movement by reason"]');
+    assert(!!strip, "cash reason: the page totals the movements by reason");
+    const stripText = (strip?.textContent ?? "").replace(/\s+/g, " ");
+    const unexplained = /Uncategorised\((\d+)\)([+-])₹([\d,]+)/.exec(stripText);
+    assert(
+      !!unexplained,
+      `cash reason: unexplained cash is called out on its own line — ${JSON.stringify(stripText)}`,
+    );
+    assert(
+      unexplained?.[2] === "+" && Number((unexplained?.[3] ?? "0").replace(/,/g, "")) >= 29000,
+      `cash reason: with its figure, signed as money in — ${JSON.stringify(unexplained?.[0])}`,
+    );
+    assert(
+      stripText.includes("Owner took out") && stripText.includes("4,000"),
+      `cash reason: and the stated ones are totalled too — ${JSON.stringify(stripText)}`,
+    );
+    /* Signed, so the figures read the way the drawer moved. Unsigned, the
+       owner's ₹4,000 withdrawal would show exactly like a ₹4,000 deposit. */
+    assert(
+      /[-−]₹?\s?4,000/.test(stripText),
+      `cash reason: cash out reads as a fall, not a rise — ${JSON.stringify(stripText)}`,
+    );
+    assert(
+      stripText.includes("+"),
+      `cash reason: and cash in reads as a rise — ${JSON.stringify(stripText)}`,
+    );
+  }
+
   /* ── A closed period actually refuses, on a real screen ───────────────
      lib/periodLock is unit-tested, but a rule that is never asked is not a
      lock. This drives the Cash screen with the books closed and checks that
@@ -2956,6 +3190,19 @@ async function runAll(): Promise<Results> {
           (i) => i.getAttribute("inputmode") === "decimal",
         ) as HTMLInputElement | undefined;
         assert(!!dateBox && !!amountBox, "lock: found the date and amount boxes");
+        // The form refuses cash with no stated reason (see the block above),
+        // so say one — this test is about dates, not about that.
+        const why = Array.from(
+          dlg.querySelectorAll(
+            '[role="radiogroup"][aria-label="Reason for the cash movement"] [role="radio"]',
+          ),
+        ).find((b) => (b.textContent ?? "").trim() === "Owner put in") as
+          | HTMLButtonElement
+          | undefined;
+        assert(!!why, "lock: found a reason to state");
+        await act(async () => {
+          why?.click();
+        });
         await act(async () => {
           setInput(amountBox, amount);
         });
