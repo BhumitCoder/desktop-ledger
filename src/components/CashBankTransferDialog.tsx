@@ -14,7 +14,7 @@ import {
   ExpenseRepo,
   PaymentRepo,
 } from "@/repositories";
-import { newBatch, commitBatch } from "@/repositories/base";
+import { newBatch, commitBatch, genId } from "@/repositories/base";
 import { useRepoMemo } from "@/hooks/useRepoData";
 import { cashFlows } from "@/lib/ledger";
 import { fmtMoney, today } from "@/lib/format";
@@ -148,10 +148,19 @@ export function CashBankTransferDialog({
     const label = `Transfer ${from.name} → ${to.name}`;
     const note = notes.trim() ? `${label} — ${notes.trim()}` : label;
     const batch = newBatch();
+    // One id on both legs, so deleting either takes the other with it rather
+    // than leaving the money half moved.
+    const transferId = genId();
 
     // Out of the FROM account…
     if (from.id === CASH) {
-      CashAdjustmentRepo.addBatched(batch, { date, type: "reduce", amount: n, reason: note });
+      CashAdjustmentRepo.addBatched(batch, {
+        date,
+        type: "reduce",
+        amount: n,
+        reason: note,
+        transferId,
+      });
     } else {
       BankTxnRepo.addBatched(batch, {
         bankId: from.id,
@@ -159,12 +168,19 @@ export function CashBankTransferDialog({
         type: "withdraw",
         amount: n,
         notes: note,
+        transferId,
       });
       BankRepo.adjustFieldBatched(batch, from.id, "balance", -n);
     }
     // …and into the TO account, on the same batch.
     if (to.id === CASH) {
-      CashAdjustmentRepo.addBatched(batch, { date, type: "add", amount: n, reason: note });
+      CashAdjustmentRepo.addBatched(batch, {
+        date,
+        type: "add",
+        amount: n,
+        reason: note,
+        transferId,
+      });
     } else {
       BankTxnRepo.addBatched(batch, {
         bankId: to.id,
@@ -172,6 +188,7 @@ export function CashBankTransferDialog({
         type: "deposit",
         amount: n,
         notes: note,
+        transferId,
       });
       BankRepo.adjustFieldBatched(batch, to.id, "balance", n);
     }

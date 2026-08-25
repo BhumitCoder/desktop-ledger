@@ -256,6 +256,15 @@ export interface FlowEntry {
   ref: string;
   in: number;
   out: number;
+  /** The record behind this row.
+   *
+   * Cash in hand is DERIVED — a bill paid in cash, an expense, a payment, a
+   * manual adjustment. Without knowing which, the Cash page can only show
+   * numbers: it cannot open the bill a row came from, and it certainly
+   * cannot let anyone edit a row, because "editing the cash" of a sale means
+   * editing the sale. This says which record owns the row so each one can be
+   * offered the action that is actually safe for it. */
+  source?: { kind: "sale" | "purchase" | "expense" | "payment" | "adjustment"; id: string };
 }
 
 /** Money movement for one payment mode (cash, bank, …). Amounts settled
@@ -283,6 +292,7 @@ export function modeFlows(
         ref: `${s.number} — ${s.partyName}`,
         in: direct,
         out: 0,
+        source: { kind: "sale", id: s.id },
       });
   }
   for (const s of purchases) {
@@ -296,6 +306,7 @@ export function modeFlows(
         ref: `${s.number} — ${s.partyName}`,
         in: 0,
         out: direct,
+        source: { kind: "purchase", id: s.id },
       });
   }
   for (const e of expenses) {
@@ -306,7 +317,14 @@ export function modeFlows(
     // the stored balances. Mirrors the sales/purchase/payment guards above.
     // A cash expense (no bankId) is NOT on any stored balance, so it stays.
     if (e.bankId) continue;
-    list.push({ date: e.date, type: "Expense", ref: e.category, in: 0, out: e.amount });
+    list.push({
+      date: e.date,
+      type: "Expense",
+      ref: e.category,
+      in: 0,
+      out: e.amount,
+      source: { kind: "expense", id: e.id },
+    });
   }
   for (const p of payments) {
     if (p.mode !== mode) continue;
@@ -320,6 +338,7 @@ export function modeFlows(
       ref: p.partyName,
       in: p.type === "in" ? p.amount : 0,
       out: p.type === "out" ? p.amount : 0,
+      source: { kind: "payment", id: p.id },
     });
   }
   list.sort((a, b) => b.date.localeCompare(a.date));
@@ -344,6 +363,7 @@ export function cashFlows(
       ref: a.reason || "Manual adjustment",
       in: a.type === "add" ? a.amount : 0,
       out: a.type === "reduce" ? a.amount : 0,
+      source: { kind: "adjustment", id: a.id },
     });
   }
   list.sort((a, b) => b.date.localeCompare(a.date));

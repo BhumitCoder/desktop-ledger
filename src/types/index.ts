@@ -164,6 +164,10 @@ export interface CashAdjustment {
   type: "add" | "reduce";
   amount: number;
   reason?: string;
+  /** Set when this row is one leg of a transfer between accounts. Deleting
+   * either leg has to take the other with it, or the money is left half
+   * moved — out of one account and never into the other. */
+  transferId?: ID;
   createdAt: string;
 }
 
@@ -174,6 +178,8 @@ export interface BankTxn {
   type: "deposit" | "withdraw" | "transfer";
   amount: number;
   notes?: string;
+  /** See CashAdjustment.transferId — the same pairing, from the bank side. */
+  transferId?: ID;
   createdAt: string;
 }
 

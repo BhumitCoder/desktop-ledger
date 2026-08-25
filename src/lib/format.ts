@@ -21,6 +21,19 @@ export const fmtDate = (iso: string) => {
     return iso;
   }
 };
+/** dd-mm-yy — for dense tables where "24 Aug 2026" costs a column that the
+ *  Action buttons then get pushed off the edge for. Same order the rest of
+ *  the app writes dates in, just narrower. */
+export const fmtDateShort = (iso: string) => {
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    const p2 = (n: number) => String(n).padStart(2, "0");
+    return `${p2(d.getDate())}-${p2(d.getMonth() + 1)}-${String(d.getFullYear()).slice(2)}`;
+  } catch {
+    return iso;
+  }
+};
 
 /** Local-timezone YYYY-MM-DD (toISOString is UTC and gives yesterday's date
  * before 5:30 AM in India — never use it for business dates). */

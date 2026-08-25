@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { matchesQuery } from "@/lib/search";
 import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
@@ -8,17 +8,31 @@ import {
   ExpenseRepo,
   PaymentRepo,
   CashAdjustmentRepo,
+  BankTxnRepo,
+  BankRepo,
 } from "@/repositories";
+import type { CashAdjustment } from "@/types";
+import { newBatch, commitBatch } from "@/repositories/base";
 import { useRepoData } from "@/hooks/useRepoData";
 import { cashFlows, type FlowEntry } from "@/lib/ledger";
-import { fmtMoney, fmtDate, today } from "@/lib/format";
+import { fmtMoney, fmtDate, today, fmtDateShort } from "@/lib/format";
 import { DataTable } from "@/components/DataTable";
 import { usePagination } from "@/hooks/usePagination";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/Field";
 import { NumField } from "@/components/NumInput";
-import { Banknote, Search, Calendar, X, SlidersHorizontal, ArrowLeftRight } from "lucide-react";
+import {
+  Banknote,
+  Search,
+  Calendar,
+  X,
+  SlidersHorizontal,
+  ArrowLeftRight,
+  Pencil,
+  Trash2,
+  ExternalLink,
+} from "lucide-react";
 import { CashBankTransferDialog } from "@/components/CashBankTransferDialog";
 import { toast } from "sonner";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -31,6 +45,7 @@ function CashPage() {
   const [entries, setEntries] = useState<FlowEntry[]>([]);
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
+  const [editAdj, setEditAdj] = useState<CashAdjustment | null>(null);
   const [q, setQ] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -48,6 +63,54 @@ function CashPage() {
     );
   const _repoV = useRepoData();
   useEffect(refresh, [_repoV]);
+
+  /**
+   * Remove a manual cash entry — and everything that entry is half of.
+   *
+   * A plain adjustment is its own record and simply goes. A TRANSFER leg is
+   * not: it was written together with a bank deposit or withdrawal, and
+   * deleting one side alone would leave the money out of one account and
+   * never into the other. Both legs go on one batch, and the bank balance is
+   * put back by the same amount it was moved.
+   */
+  const deleteRow = (row: FlowEntry) => {
+    const id = row.source?.kind === "adjustment" ? row.source.id : null;
+    if (!id) return;
+    const adj = CashAdjustmentRepo.get(id);
+    if (!adj) return;
+
+    const legs = adj.transferId
+      ? BankTxnRepo.all().filter((t) => t.transferId === adj.transferId)
+      : [];
+    const what = legs.length
+      ? `Delete this transfer? It will be removed from cash AND from ${legs
+          .map((t) => BankRepo.get(t.bankId)?.name ?? "the bank account")
+          .join(", ")}.`
+      : `Delete this cash entry of ${fmtMoney(adj.amount)}?`;
+    if (!confirm(what)) return;
+
+    const batch = newBatch();
+    CashAdjustmentRepo.removeBatched(batch, adj.id);
+    for (const leg of legs) {
+      BankTxnRepo.removeBatched(batch, leg.id);
+      // Put the account back where it was: a deposit added, so removing it
+      // subtracts, and the other way round.
+      BankRepo.adjustFieldBatched(
+        batch,
+        leg.bankId,
+        "balance",
+        leg.type === "deposit" ? -leg.amount : leg.amount,
+      );
+    }
+    commitBatch(batch, "delete cash entry").then((ok) => {
+      if (!ok) {
+        toast.error("Could not delete — reload and check before trying again");
+        return;
+      }
+      toast.success(legs.length ? "Transfer deleted from both accounts" : "Cash entry deleted");
+      refresh();
+    });
+  };
 
   // Balance is the true running cash-in-hand as of now — it doesn't change
   // when a date range is applied, only the period's In/Out totals do.
@@ -248,7 +311,7 @@ function CashPage() {
             {
               key: "date",
               label: "Date",
-              render: (e) => fmtDate(e.date),
+              render: (e) => fmtDateShort(e.date),
               sortValue: (e) => e.date,
             },
             {
@@ -277,9 +340,16 @@ function CashPage() {
               render: (e) => <span className="tabular-nums">{e.out ? fmtMoney(e.out) : "—"}</span>,
               sortValue: (e) => e.out,
             },
+            {
+              key: "action",
+              label: "Action",
+              width: "84px",
+              align: "center",
+              render: (e) => <CashRowActions row={e} onEdit={setEditAdj} onDelete={deleteRow} />,
+            },
           ]}
           rows={filtered}
-          rowKey={(e) => `${e.date}-${e.type}-${e.ref}-${e.in}-${e.out}`}
+          rowKey={(e) => e.source?.id ?? `${e.date}-${e.type}-${e.ref}-${e.in}-${e.out}`}
           emptyMessage={
             entries.length === 0 ? "No cash transactions yet" : "No matches for your search"
           }
@@ -291,6 +361,7 @@ function CashPage() {
               </td>
               <td className="text-right tabular-nums">{fmtMoney(totalIn)}</td>
               <td className="text-right tabular-nums">{fmtMoney(totalOut)}</td>
+              <td />
             </tr>
           }
         />
@@ -301,6 +372,8 @@ function CashPage() {
         onSaved={refresh}
       />
       <CashAdjustDialog
+        editing={editAdj}
+        onEditingChange={setEditAdj}
         open={adjustOpen}
         onOpenChange={setAdjustOpen}
         onSaved={refresh}
@@ -310,16 +383,90 @@ function CashPage() {
   );
 }
 
+/**
+ * What a cash row can actually be asked to do.
+ *
+ * Only a manual adjustment owns itself. Every other line here is the cash
+ * side of a bill, an expense or a payment — the number is real, but it is
+ * that document's number, so the honest action is to open the document
+ * rather than to pretend the cash line can be edited on its own.
+ */
+function CashRowActions({
+  row,
+  onEdit,
+  onDelete,
+}: {
+  row: FlowEntry;
+  onEdit: (a: CashAdjustment) => void;
+  onDelete: (row: FlowEntry) => void;
+}) {
+  const navigate = useNavigate();
+  const src = row.source;
+  if (!src) return <span className="text-gray-300">—</span>;
+
+  if (src.kind === "adjustment") {
+    const adj = CashAdjustmentRepo.get(src.id);
+    // A transfer leg is editable only as a whole, from the transfer itself —
+    // changing one side's amount here would leave the two ends disagreeing.
+    const isTransfer = !!adj?.transferId;
+    return (
+      <span className="inline-flex gap-1" onClick={(e) => e.stopPropagation()}>
+        <button
+          onClick={() => adj && onEdit(adj)}
+          disabled={!adj || isTransfer}
+          title={isTransfer ? "Part of a transfer — delete it and enter it again" : "Edit entry"}
+          className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition disabled:opacity-30 disabled:hover:bg-transparent"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onClick={() => onDelete(row)}
+          title={isTransfer ? "Delete this transfer from both accounts" : "Delete entry"}
+          className="p-1 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-600 transition"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </span>
+    );
+  }
+
+  const to =
+    src.kind === "sale"
+      ? `/sales/${src.id}`
+      : src.kind === "purchase"
+        ? `/purchase/${src.id}`
+        : src.kind === "expense"
+          ? "/expenses"
+          : "/payments";
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        navigate({ to });
+      }}
+      title={`This came from a ${src.kind} — open it to change it`}
+      className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+    >
+      <ExternalLink className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
 function CashAdjustDialog({
   open,
   onOpenChange,
   onSaved,
   currentBalance,
+  editing,
+  onEditingChange,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onSaved: () => void;
   currentBalance: number;
+  /** An existing manual entry being corrected, rather than a new one. */
+  editing?: CashAdjustment | null;
+  onEditingChange?: (v: CashAdjustment | null) => void;
 }) {
   const [type, setType] = useState<"add" | "reduce">("add");
   const [amount, setAmount] = useState(0);
@@ -327,15 +474,22 @@ function CashAdjustDialog({
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Editing is the same form, opened over an existing row.
+  const isOpen = open || !!editing;
+  const close = (v: boolean) => {
+    if (v) return;
+    onEditingChange?.(null);
+    onOpenChange(false);
+  };
+
   useEffect(() => {
-    if (open) {
-      setType("add");
-      setAmount(0);
-      setDate(today());
-      setReason("");
-      setSaving(false);
-    }
-  }, [open]);
+    if (!isOpen) return;
+    setType(editing?.type ?? "add");
+    setAmount(editing?.amount ?? 0);
+    setDate(editing?.date ?? today());
+    setReason(editing?.reason ?? "");
+    setSaving(false);
+  }, [isOpen, editing]);
 
   const n = amount;
 
@@ -347,17 +501,27 @@ function CashAdjustDialog({
       return;
     }
     setSaving(true);
-    CashAdjustmentRepo.add({ date, type, amount: n, reason: reason.trim() || undefined });
-    toast.success(`Cash ${type === "add" ? "added" : "reduced"}: ${fmtMoney(n)}`);
+    if (editing) {
+      CashAdjustmentRepo.update(editing.id, {
+        date,
+        type,
+        amount: n,
+        reason: reason.trim() || undefined,
+      });
+      toast.success(`Cash entry updated: ${fmtMoney(n)}`);
+    } else {
+      CashAdjustmentRepo.add({ date, type, amount: n, reason: reason.trim() || undefined });
+      toast.success(`Cash ${type === "add" ? "added" : "reduced"}: ${fmtMoney(n)}`);
+    }
     onSaved();
-    onOpenChange(false);
+    close(false);
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={isOpen} onOpenChange={close}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Adjust Cash on Hand</DialogTitle>
+          <DialogTitle>{editing ? "Edit Cash Entry" : "Adjust Cash on Hand"}</DialogTitle>
         </DialogHeader>
         <form onSubmit={save} className="space-y-3">
           <p className="text-sm text-muted-foreground">

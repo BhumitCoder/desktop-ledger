@@ -13,7 +13,7 @@ import {
 import { useRepoData } from "@/hooks/useRepoData";
 import { newBatch, commitBatch } from "@/repositories/base";
 import type { Payment, PaymentAllocation, PaymentMode, Invoice, BankAccount, Party } from "@/types";
-import { fmtMoney, fmtDate, today } from "@/lib/format";
+import { fmtMoney, fmtDate, today, fmtDateShort } from "@/lib/format";
 import { netPartyPositions, spreadFifo } from "@/lib/ledger";
 import {
   ArrowDownCircle,
@@ -173,8 +173,10 @@ function PaymentsPage() {
     {
       key: "date",
       label: "Date",
-      width: "100px",
-      render: (r) => <span className="whitespace-nowrap">{fmtDate(r.date)}</span>,
+      width: "82px",
+      // Short form here: this table carries eight columns, and "24 Aug 2026"
+      // spent width the Action buttons were then pushed off the edge for.
+      render: (r) => <span className="whitespace-nowrap">{fmtDateShort(r.date)}</span>,
       sortValue: (r) => r.date,
     },
     {

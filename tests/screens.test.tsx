@@ -2392,6 +2392,173 @@ async function runAll(): Promise<Results> {
     );
   }
 
+  /* ── Cash rows get the action that is safe for them ───────────────────
+     Cash in hand is DERIVED. A manual adjustment is the only row that owns
+     itself; every other line is the cash side of a bill, an expense or a
+     payment, where "editing the cash" would mean editing that document while
+     leaving it saying something else. */
+  {
+    CashAdjustmentRepo.add({
+      id: "CA1",
+      createdAt: "2026-01-01T00:00:00Z",
+      date: D2,
+      type: "add",
+      amount: 700,
+      reason: "Counter float",
+    } as never);
+
+    const page = await renderRoute("/cash");
+    assert(page.includes("Counter float"), "cash rows: the manual entry is listed");
+    // Short dates, so the Action column is not pushed off the right edge.
+    assert(
+      /\d{2}-\d{2}-\d{2}/.test(page),
+      `cash rows: dates are the short dd-mm-yy form — ${JSON.stringify(page.slice(0, 90))}`,
+    );
+
+    const table = document.querySelector(".data-table table") as HTMLTableElement | null;
+    assert(!!table, "cash rows: found the table");
+    const headers = Array.from(table?.querySelectorAll("thead th") ?? []).map((th) =>
+      (th.textContent ?? "").trim(),
+    );
+    assert(headers.includes("Action"), `cash rows: there is an Action column — ${headers}`);
+
+    // The Action column is PINNED, so it stays put however far the rest of a
+    // wide table scrolls sideways.
+    // Measure a BODY cell, not the header. The header row is sticky in its
+    // own right — it stays put while you scroll DOWN — so asking a <th> about
+    // position answers a different question and says nothing about whether
+    // the COLUMN is pinned. This assertion passed a mutation because of it.
+    const lastTd = table?.querySelector("tbody tr td:last-child") as HTMLElement | null;
+    const tdStyle = lastTd && getComputedStyle(lastTd);
+    assert(
+      tdStyle?.position === "sticky" && tdStyle?.right === "0px",
+      `cash rows: the Action column is pinned to the right — position ${tdStyle?.position}, right ${tdStyle?.right}`,
+    );
+
+    // The manual row can be edited and deleted; a derived row cannot.
+    const rowFor = (text: string) =>
+      Array.from(table?.querySelectorAll("tbody tr") ?? []).find((tr) =>
+        (tr.textContent ?? "").includes(text),
+      );
+    const manual = rowFor("Counter float");
+    assert(!!manual, "cash rows: found the manual row");
+    assert(
+      !!manual?.querySelector('[title="Edit entry"]') &&
+        !!manual?.querySelector('[title="Delete entry"]'),
+      "cash rows: a manual entry offers Edit and Delete",
+    );
+
+    const derived = Array.from(table?.querySelectorAll("tbody tr") ?? []).find((tr) =>
+      (tr.textContent ?? "").includes("INV-0001"),
+    );
+    if (derived) {
+      assert(
+        !derived.querySelector('[title="Edit entry"]'),
+        "cash rows: a row that belongs to a bill is NOT editable here",
+      );
+      assert(
+        !!derived.querySelector('[title*="open it to change it"]'),
+        "cash rows: it offers to open the bill instead",
+      );
+    }
+
+    // Deleting the manual entry moves cash-in-hand by exactly its amount.
+    const cashBefore = cashFlows(
+      SalesRepo.all(),
+      PurchaseRepo.all(),
+      ExpenseRepo.all(),
+      PaymentRepo.all(),
+      CashAdjustmentRepo.all(),
+    ).reduce((s, e) => s + e.in - e.out, 0);
+    const realConfirm = window.confirm;
+    window.confirm = () => true;
+    try {
+      await act(async () => {
+        (manual?.querySelector('[title="Delete entry"]') as HTMLElement)?.click();
+      });
+      await settleMs(150);
+    } finally {
+      window.confirm = realConfirm;
+    }
+    assert(!CashAdjustmentRepo.get("CA1"), "cash rows: the entry is gone");
+    const cashAfter = cashFlows(
+      SalesRepo.all(),
+      PurchaseRepo.all(),
+      ExpenseRepo.all(),
+      PaymentRepo.all(),
+      CashAdjustmentRepo.all(),
+    ).reduce((s, e) => s + e.in - e.out, 0);
+    assert(
+      Math.abs(cashAfter - (cashBefore - 700)) < 0.01,
+      `cash rows: and cash in hand drops by its amount — ${cashAfter} (want ${cashBefore - 700})`,
+    );
+  }
+
+  /* ── Deleting one leg of a transfer takes the other with it ───────────
+     Half a transfer is money out of one account and never into the other,
+     which is the single outcome here that quietly costs the shop money. */
+  {
+    BankRepo.add({
+      id: "XB1",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "Transfer Delete Bank",
+      openingBalance: 0,
+      balance: 2000,
+    } as never);
+    const transferId = "TR-TEST-1";
+    CashAdjustmentRepo.add({
+      id: "XCA",
+      createdAt: "2026-01-01T00:00:00Z",
+      date: D2,
+      type: "reduce",
+      amount: 400,
+      reason: "Transfer Cash in Hand → Transfer Delete Bank",
+      transferId,
+    } as never);
+    BankTxnRepo.add({
+      id: "XBT",
+      createdAt: "2026-01-01T00:00:00Z",
+      bankId: "XB1",
+      date: D2,
+      type: "deposit",
+      amount: 400,
+      notes: "Transfer Cash in Hand → Transfer Delete Bank",
+      transferId,
+    } as never);
+    BankRepo.adjustField("XB1", "balance", 400); // as the transfer itself would
+
+    await renderRoute("/cash");
+    const table2 = document.querySelector(".data-table table");
+    const leg = Array.from(table2?.querySelectorAll("tbody tr") ?? []).find((tr) =>
+      (tr.textContent ?? "").includes("Transfer Delete Bank"),
+    );
+    assert(!!leg, "transfer delete: the cash leg is on the Cash page");
+    // A transfer leg cannot be edited on its own — the two ends would disagree.
+    assert(
+      (leg?.querySelector("[title]") as HTMLElement)?.getAttribute("title")?.includes("transfer"),
+      "transfer delete: the row says it is part of a transfer",
+    );
+
+    const realConfirm2 = window.confirm;
+    window.confirm = () => true;
+    try {
+      await act(async () => {
+        (
+          leg?.querySelector('[title="Delete this transfer from both accounts"]') as HTMLElement
+        )?.click();
+      });
+      await settleMs(200);
+    } finally {
+      window.confirm = realConfirm2;
+    }
+    assert(!CashAdjustmentRepo.get("XCA"), "transfer delete: the cash leg is removed");
+    assert(!BankTxnRepo.get("XBT"), "transfer delete: AND the bank leg with it");
+    assert(
+      BankRepo.get("XB1")?.balance === 2000,
+      `transfer delete: the account balance is put back — ${BankRepo.get("XB1")?.balance} (want 2000)`,
+    );
+  }
+
   /* ── Bulk Update with a real-sized catalogue ──────────────────────────
      The client's shop has ~1,400 items and the screen froze on open,
      because every row mounted at once and each carries several live

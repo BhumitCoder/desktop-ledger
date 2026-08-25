@@ -66,6 +66,17 @@ export function DataTable<T>({
   }
 
   const pg = usePagination(sorted, storageKey);
+
+  // These tables are wider than the panel — Payments alone carries eight
+  // columns — so the row's buttons ended up beyond the right edge, reachable
+  // only by scrolling sideways to a column the eye never sees. Pinning the
+  // action column keeps it in view however far the rest scrolls, which is
+  // what every dense table people already use does.
+  const pinLast = /^actions?$/.test(columns[columns.length - 1]?.key ?? "");
+  const pinCls = (i: number) =>
+    pinLast && i === columns.length - 1
+      ? "sticky right-0 z-10 bg-card shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.12)]"
+      : "";
   const paged = pg.paged;
 
   useEffect(() => {
@@ -117,12 +128,12 @@ export function DataTable<T>({
         <table className="w-full min-w-max text-[13px]">
           <thead>
             <tr>
-              {columns.map((c) => (
+              {columns.map((c, ci) => (
                 <th
                   key={c.key}
                   style={{ width: c.width, textAlign: c.align ?? "left" }}
                   onClick={() => c.sortValue && toggleSort(c.key)}
-                  className={cn(c.sortValue && "cursor-pointer select-none")}
+                  className={cn(c.sortValue && "cursor-pointer select-none", pinCls(ci))}
                 >
                   {c.label}
                   {sortKey === c.key && (
@@ -146,8 +157,12 @@ export function DataTable<T>({
                     onDoubleClick={() => onRowActivate?.(row)}
                     className="cursor-pointer"
                   >
-                    {columns.map((c) => (
-                      <td key={c.key} style={{ textAlign: c.align ?? "left" }}>
+                    {columns.map((c, ci) => (
+                      <td
+                        key={c.key}
+                        style={{ textAlign: c.align ?? "left" }}
+                        className={pinCls(ci)}
+                      >
                         {c.render(row)}
                       </td>
                     ))}
