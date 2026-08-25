@@ -14,7 +14,7 @@ import { useRepoData } from "@/hooks/useRepoData";
 import { newBatch, commitBatch } from "@/repositories/base";
 import type { Payment, PaymentAllocation, PaymentMode, Invoice, BankAccount, Party } from "@/types";
 import { fmtMoney, fmtDate, today } from "@/lib/format";
-import { partyBalances, spreadFifo } from "@/lib/ledger";
+import { netPartyPositions, spreadFifo } from "@/lib/ledger";
 import {
   ArrowDownCircle,
   ArrowUpCircle,
@@ -106,7 +106,7 @@ function PaymentsPage() {
     return true;
   });
 
-  const pg = usePagination(filtered);
+  const pg = usePagination(filtered, "payments");
 
   // Footer totals cover the same rows the table shows (tab + search applied)
   const totalIn = filtered.filter((r) => r.type === "in").reduce((s, r) => s + r.amount, 0);
@@ -481,6 +481,7 @@ function PaymentsPage() {
       {/* Table (desktop) */}
       <div className="hidden md:flex flex-1 min-h-0 p-6">
         <DataTable
+          storageKey="payments"
           activateOnClick
           columns={columns}
           rows={filtered}
@@ -714,15 +715,28 @@ function ReceivePaymentDialog({
   // correctly show they owe money.
   const partyTrueBalance = (() => {
     if (!selectedParty) return 0;
-    const repo = isIn ? SalesRepo : PurchaseRepo;
-    const returnRepo = isIn ? SaleReturnRepo : PurchaseReturnRepo;
-    const list = partyBalances(
-      repo.all(),
-      returnRepo.all(),
-      PaymentRepo.all().filter((p) => p.type === (isIn ? "in" : "out")),
-      PartyRepo.all().filter((p) => (isIn ? p.type !== "supplier" : p.type !== "customer")),
-    );
-    return list.find((b) => b.partyId === selectedParty.id)?.balance ?? 0;
+    const party = PartyRepo.get(selectedParty.id);
+    if (!party) return 0;
+    // ONE signed net for the party, not a receivable total and a payable
+    // total worked out separately.
+    //
+    // This screen used to run partyBalances over one side at a time — sales
+    // for a receipt, purchases for a payment — and an opening balance is
+    // counted by both. So a party carrying ₹2,000 showed "OUTSTANDING
+    // RECEIVABLE ₹2,000" on Receive Payment and "OUTSTANDING PAYABLE ₹2,000"
+    // on Make Payment: the same ₹2,000, offered twice, in opposite
+    // directions. The same double-count the Dashboard had, and the same fix.
+    const [position] = netPartyPositions([party], {
+      sales: SalesRepo.all(),
+      purchases: PurchaseRepo.all(),
+      saleReturns: SaleReturnRepo.all(),
+      purchaseReturns: PurchaseReturnRepo.all(),
+      payments: PaymentRepo.all(),
+    });
+    const net = position?.net ?? 0;
+    // Positive = they owe us. Only the side this dialog is actually for has
+    // anything outstanding; the other side is nil, and says so.
+    return Math.max(0, isIn ? net : -net);
   })();
   // Portion of the true balance not already represented by an open invoice
   // row above (e.g. opening balance, or a manual ledger correction).

@@ -71,7 +71,7 @@ function CashPage() {
   const totalIn = filtered.reduce((s, e) => s + e.in, 0);
   const totalOut = filtered.reduce((s, e) => s + e.out, 0);
 
-  const pg = usePagination(filtered);
+  const pg = usePagination(filtered, "cash");
 
   return (
     <div className="flex flex-col h-full bg-[#f5f6fa]">
@@ -143,7 +143,7 @@ function CashPage() {
                   onClick={() => setTransferOpen(true)}
                   className="w-full sm:w-auto"
                 >
-                  <ArrowLeftRight className="h-3.5 w-3.5" /> Cash ↔ Bank
+                  <ArrowLeftRight className="h-3.5 w-3.5" /> Transfer
                 </Button>
                 <Button size="sm" onClick={() => setAdjustOpen(true)} className="w-full sm:w-auto">
                   <Banknote className="h-3.5 w-3.5" /> Adjust Cash
@@ -243,6 +243,7 @@ function CashPage() {
 
       <div className="hidden md:flex flex-1 min-h-0 p-6">
         <DataTable
+          storageKey="cash"
           columns={[
             {
               key: "date",

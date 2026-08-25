@@ -50,7 +50,7 @@ function BankPage() {
   const _repoV = useRepoData();
   useEffect(refresh, [_repoV]);
 
-  const pg = usePagination(rows);
+  const pg = usePagination(rows, "bank");
 
   const columns: Column<BankAccount>[] = [
     {
@@ -151,10 +151,10 @@ function BankPage() {
                 size="sm"
                 variant="outline"
                 onClick={() => setTransferOpen(true)}
-                title="Move money between the counter and an account"
+                title="Move money between cash and an account, or between two accounts"
                 className="w-full sm:w-auto"
               >
-                <ArrowLeftRight className="h-3.5 w-3.5" /> Cash ↔ Bank
+                <ArrowLeftRight className="h-3.5 w-3.5" /> Transfer
               </Button>
             )}
             {editAllowed && (
@@ -239,6 +239,7 @@ function BankPage() {
       {/* Table (desktop) */}
       <div className="hidden md:flex flex-1 min-h-0 p-6">
         <DataTable
+          storageKey="bank"
           columns={columns}
           rows={rows}
           rowKey={(r) => r.id}

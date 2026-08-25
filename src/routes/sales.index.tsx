@@ -94,7 +94,7 @@ function SalesPage() {
     });
   }, [rows, dateFrom, dateTo, partyId, status, search]);
 
-  const pg = usePagination(filtered);
+  const pg = usePagination(filtered, "sales");
   const totalAmount = filtered.reduce((a, r) => a + r.total, 0);
   const totalPaid = filtered.reduce((a, r) => a + r.paid, 0);
   const totalBalance = filtered.reduce((a, r) => a + Math.max(0, r.total - r.paid), 0);
@@ -546,6 +546,7 @@ function SalesPage() {
       {/* Table (desktop) */}
       <div className="hidden md:flex flex-1 min-h-0 p-6">
         <DataTable
+          storageKey="sales"
           activateOnClick
           columns={[
             {

@@ -128,7 +128,7 @@ function ItemDetailPage() {
     return { rows: entries, soldQty, boughtQty, profit };
   }, [item, id, refreshKey]);
 
-  const pg = usePagination(rows);
+  const pg = usePagination(rows, "item-history");
 
   const openRow = (e: HistoryRow) => {
     if (!e.docId || !e.docKind) return;

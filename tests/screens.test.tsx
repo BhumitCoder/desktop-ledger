@@ -26,6 +26,7 @@ import { routeTree } from "@/routeTree.gen";
 import { BulkUpdateItemsDialog } from "@/components/BulkUpdateItemsDialog";
 import { PrintablePartyStatement } from "@/components/PrintablePartyStatement";
 import { CashBankTransferDialog } from "@/components/CashBankTransferDialog";
+import { PartyDialog } from "@/routes/parties";
 import { PrintableInvoice } from "@/components/PrintableInvoice";
 import { PrintableReturn } from "@/components/PrintableReturn";
 import { fmtMoney, ymd } from "@/lib/format";
@@ -94,6 +95,19 @@ function gridRow(name: string): HTMLInputElement[] | null {
     }
   }
   return null;
+}
+
+/** The dialog under test: the LAST one in the document.
+ *
+ * Routes and dialogs mounted by earlier blocks are never torn down, and they
+ * portal into document.body, so a bare document.querySelector('[role="dialog"]')
+ * happily returns something another test opened. Portals append, so the newest
+ * is last. */
+function currentDialog(): Element {
+  const all = document.querySelectorAll('[role="dialog"]');
+  const el = all[all.length - 1];
+  if (!el) throw new Error("currentDialog: no dialog is open");
+  return el;
 }
 
 function findButton(re: RegExp): HTMLButtonElement | undefined {
@@ -1581,25 +1595,35 @@ async function runAll(): Promise<Results> {
     h.remove();
   }
 
-  /* ── Cash ↔ Bank transfer moves both sides, atomically ────────────────
-     Money leaving the drawer without arriving in the bank is the one outcome
-     that would quietly cost the shop money, so both records go on one batch. */
+  /* ── Transfers: cash → bank, bank → cash, bank → bank ─────────────────
+     Modelled on Vyapar, which the client already knows: one FROM and one TO,
+     and the three transfers are the same action with different endpoints.
+     Money leaving one account and never arriving at the other is the single
+     outcome here that silently costs the shop money, so both legs go on one
+     batch — and the bank-to-bank case is the one the first version could not
+     do at all. */
   {
-    BankRepo.add({
-      id: "TB1",
-      createdAt: "2026-01-01T00:00:00Z",
-      name: "Transfer Test Bank",
-      openingBalance: 0,
-      balance: 5000,
-    } as never);
+    for (const [id, name, balance] of [
+      ["TB1", "Transfer Test Bank", 5000],
+      ["TB2", "Second Test Bank", 800],
+    ] as const) {
+      BankRepo.add({
+        id,
+        createdAt: "2026-01-01T00:00:00Z",
+        name,
+        openingBalance: 0,
+        balance,
+      } as never);
+    }
 
-    const cashBefore = cashFlows(
-      SalesRepo.all(),
-      PurchaseRepo.all(),
-      ExpenseRepo.all(),
-      PaymentRepo.all(),
-      CashAdjustmentRepo.all(),
-    ).reduce((s, e) => s + e.in - e.out, 0);
+    const cashNow = () =>
+      cashFlows(
+        SalesRepo.all(),
+        PurchaseRepo.all(),
+        ExpenseRepo.all(),
+        PaymentRepo.all(),
+        CashAdjustmentRepo.all(),
+      ).reduce((s, e) => s + e.in - e.out, 0);
 
     const h = document.createElement("div");
     document.body.appendChild(h);
@@ -1609,146 +1633,136 @@ async function runAll(): Promise<Results> {
     });
     await settleMs(80);
 
-    assert(
-      (document.body.textContent ?? "").includes("Transfer between Cash and Bank"),
-      "transfer: the dialog rendered",
-    );
-    // Cash in hand is shown, so the shopkeeper can see what is being moved.
-    assert(
-      (document.body.textContent ?? "").includes(fmtMoney(cashBefore)),
-      `transfer: it shows cash in hand ${fmtMoney(cashBefore)}`,
-    );
-
-    // Scope to THIS dialog: earlier routes stay mounted, and an unrelated
-    // control left behind by one of them is what this used to grab.
     const dlg = document.querySelector('[role="dialog"]')!;
-    const bankBtn = dlg.querySelector('[role="combobox"]') as HTMLButtonElement | null;
-    assert(!!bankBtn, "transfer: found the account picker");
-    if (bankBtn) {
-      // Where the next field sits before the list opens. A dropdown that
-      // takes up space instead of floating would shove it down the dialog —
-      // which is what a static popup does, and looks broken.
-      const amountBefore = (
-        dlg.querySelector('input[aria-label="Transfer amount"]') as HTMLElement | null
-      )?.getBoundingClientRect().top;
+    assert((dlg.textContent ?? "").includes("Transfer Money"), "transfer: the dialog rendered");
+
+    /** Choose an account on one side of the transfer. */
+    const pick = async (side: "From" | "To", accountName: string) => {
+      const btn = dlg.querySelector(
+        `[role="combobox"][aria-label="${side} account"]`,
+      ) as HTMLButtonElement | null;
+      assert(!!btn, `transfer: found the ${side} picker`);
+      if (!btn) return;
       await act(async () => {
-        bankBtn.click();
+        btn.click();
       });
-      await settleMs(60);
-      const list = dlg.querySelector('[role="listbox"]');
-      assert(!!list, "transfer: the account list opens as the app's own popup, not the OS one");
-      // Each row carries the balance next to the name — the reason for having
-      // a real popup rather than a native <option>, which cannot lay that out.
-      assert(
-        (list?.textContent ?? "").includes("Transfer Test Bank") &&
-          (list?.textContent ?? "").includes(fmtMoney(5000)),
-        `transfer: the list shows each account with its balance — ${JSON.stringify(
-          list?.textContent?.slice(0, 120),
-        )}`,
+      await settleMs(50);
+      const list = dlg.querySelector(`[role="listbox"][aria-label="${side} accounts"]`);
+      assert(!!list, `transfer: the ${side} list opens as the app's own popup`);
+      const option = Array.from(list?.querySelectorAll('[role="option"]') ?? []).find((o) =>
+        (o.textContent ?? "").includes(accountName),
       );
-      // It has to LOOK like part of this dialog, which is the whole point of
-      // replacing the native control: attached to the button, the same width,
-      // and painted opaque so the fields underneath do not show through.
-      if (list) {
-        const b = bankBtn.getBoundingClientRect();
-        const l = list.getBoundingClientRect();
-        assert(
-          Math.abs(l.top - b.bottom) < 12,
-          `transfer: the popup hangs off the button — button bottom ${Math.round(
-            b.bottom,
-          )}, list top ${Math.round(l.top)}`,
-        );
-        assert(
-          Math.abs(l.width - b.width) < 2,
-          `transfer: the popup matches the field's width — ${Math.round(l.width)} vs ${Math.round(
-            b.width,
-          )}`,
-        );
-        const amountAfter = (
-          dlg.querySelector('input[aria-label="Transfer amount"]') as HTMLElement | null
-        )?.getBoundingClientRect().top;
-        assert(
-          amountBefore != null && amountAfter != null && Math.abs(amountAfter - amountBefore) < 1,
-          `transfer: the popup FLOATS over the form instead of pushing it down — Amount moved from ${Math.round(
-            amountBefore ?? -1,
-          )} to ${Math.round(amountAfter ?? -1)}`,
-        );
-        assert(
-          amountAfter != null && l.bottom > amountAfter,
-          "transfer: and actually covers the field beneath it",
-        );
-        const bg = getComputedStyle(list).backgroundColor;
-        assert(
-          bg !== "" && bg !== "transparent" && !bg.includes("rgba(0, 0, 0, 0)"),
-          `transfer: the popup is painted, not see-through — background ${bg}`,
-        );
-      }
-      const option = Array.from(dlg.querySelectorAll('[role="option"]')).find((o) =>
-        (o.textContent ?? "").includes("Transfer Test Bank"),
-      );
-      assert(!!option, "transfer: the seeded account is listed");
+      assert(!!option, `transfer: ${accountName} is offered under ${side}`);
       await act(async () => {
-        option!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        option?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
       });
-      await settleMs(60);
+      await settleMs(50);
       assert(
-        !dlg.querySelector('[role="listbox"]'),
-        "transfer: picking an account closes the list",
+        (btn.textContent ?? "").includes(accountName),
+        `transfer: ${side} now reads ${accountName} — got ${JSON.stringify(btn.textContent)}`,
       );
-      assert(
-        (bankBtn.textContent ?? "").includes("Transfer Test Bank"),
-        `transfer: and the button shows the choice — ${JSON.stringify(bankBtn.textContent)}`,
+    };
+
+    const enterAndSend = async (n: string) => {
+      const box = dlg.querySelector(
+        'input[aria-label="Transfer amount"]',
+      ) as HTMLInputElement | null;
+      assert(!!box, "transfer: found the amount box");
+      await act(async () => {
+        setInput(box, n);
+      });
+      await settleMs(50);
+      const go = Array.from(dlg.querySelectorAll("button")).find(
+        (b) => (b.textContent ?? "").trim() === "Transfer",
       );
-    }
+      assert(!!go, "transfer: found the Transfer button");
+      await act(async () => {
+        go?.click();
+      });
+      await settleMs(200);
+    };
 
-    const amountBox = dlg.querySelector(
-      'input[aria-label="Transfer amount"]',
-    ) as HTMLInputElement | null;
-    assert(!!amountBox, "transfer: found the amount box");
-    await act(async () => {
-      setInput(amountBox, "1500");
-    });
-    await settleMs(60);
-
-    const confirmBtn = Array.from(dlg.querySelectorAll("button")).find(
-      (b) => (b.textContent ?? "").trim() === "Transfer",
-    );
-    assert(!!confirmBtn, "transfer: found the Transfer button");
-    await act(async () => {
-      confirmBtn!.click();
-    });
-    await settleMs(200);
-
+    /* 1. Cash → Bank. Both sides must move, by the same amount. */
+    const cashBefore = cashNow();
+    // TO first, always: the picker refuses the account already chosen on
+    // the other side, so setting From to what is currently To is a no-op.
+    await pick("To", "Transfer Test Bank");
+    await pick("From", "Cash in Hand");
+    await enterAndSend("1500");
     assert(
       BankRepo.get("TB1")?.balance === 6500,
-      `transfer: the bank went UP by the amount — ${BankRepo.get("TB1")?.balance} (want 6500)`,
-    );
-    const cashAfter = cashFlows(
-      SalesRepo.all(),
-      PurchaseRepo.all(),
-      ExpenseRepo.all(),
-      PaymentRepo.all(),
-      CashAdjustmentRepo.all(),
-    ).reduce((s, e) => s + e.in - e.out, 0);
-    assert(
-      Math.abs(cashAfter - (cashBefore - 1500)) < 0.01,
-      `transfer: and cash went DOWN by the same — ${cashAfter} (want ${cashBefore - 1500})`,
-    );
-    // One record on each side, both describing the same movement.
-    const txn = BankTxnRepo.all().filter((t) => t.bankId === "TB1");
-    assert(
-      txn.length === 1 && txn[0].type === "deposit" && txn[0].amount === 1500,
-      `transfer: one bank record — ${JSON.stringify(txn.map((t) => `${t.type}:${t.amount}`))}`,
-    );
-    const adj = CashAdjustmentRepo.all().filter((a) => (a.reason ?? "").includes("Transfer"));
-    assert(
-      adj.length === 1 && adj[0].type === "reduce" && adj[0].amount === 1500,
-      `transfer: one cash record — ${JSON.stringify(adj.map((a) => `${a.type}:${a.amount}`))}`,
+      `transfer: cash→bank raises the account — ${BankRepo.get("TB1")?.balance} (want 6500)`,
     );
     assert(
-      (adj[0]?.reason ?? "").includes("Transfer Test Bank"),
-      `transfer: the cash side names the account — ${JSON.stringify(adj[0]?.reason)}`,
+      Math.abs(cashNow() - (cashBefore - 1500)) < 0.01,
+      `transfer: and lowers the drawer by the same — ${cashNow()} (want ${cashBefore - 1500})`,
     );
+
+    /* 2. Bank → Bank: the case that previously had to be done as a manual
+          withdrawal plus a manual deposit, with nothing tying them together. */
+    const cashUntouched = cashNow();
+    await pick("To", "Second Test Bank");
+    await pick("From", "Transfer Test Bank");
+    await enterAndSend("500");
+    assert(
+      BankRepo.get("TB1")?.balance === 6000 && BankRepo.get("TB2")?.balance === 1300,
+      `transfer: bank→bank moves between the two — TB1 ${BankRepo.get("TB1")?.balance} (want 6000), TB2 ${BankRepo.get("TB2")?.balance} (want 1300)`,
+    );
+    assert(
+      Math.abs(cashNow() - cashUntouched) < 0.01,
+      "transfer: bank→bank leaves the cash drawer alone",
+    );
+    // One record on each account, and the note says where the money went.
+    const legs = BankTxnRepo.all().filter((t) => (t.notes ?? "").includes("Second Test Bank"));
+    assert(
+      legs.length === 2 &&
+        legs.some((t) => t.bankId === "TB1" && t.type === "withdraw") &&
+        legs.some((t) => t.bankId === "TB2" && t.type === "deposit"),
+      `transfer: bank→bank writes both legs — ${JSON.stringify(legs.map((t) => `${t.bankId}:${t.type}:${t.amount}`))}`,
+    );
+
+    /* 3. Bank → Cash, the other direction of the pair. */
+    const cashBefore3 = cashNow();
+    await pick("To", "Cash in Hand");
+    await pick("From", "Second Test Bank");
+    await enterAndSend("300");
+    assert(
+      BankRepo.get("TB2")?.balance === 1000,
+      `transfer: bank→cash lowers the account — ${BankRepo.get("TB2")?.balance} (want 1000)`,
+    );
+    assert(
+      Math.abs(cashNow() - (cashBefore3 + 300)) < 0.01,
+      `transfer: and raises the drawer — ${cashNow()} (want ${cashBefore3 + 300})`,
+    );
+
+    /* 4. The same account on both sides is not a transfer. After step 3 the
+          TO side is Cash, so Cash must be visible but unselectable in the
+          FROM list — offered, so you can see why it is out, rather than
+          silently missing. */
+    const fromBtn = dlg.querySelector(
+      '[role="combobox"][aria-label="From account"]',
+    ) as HTMLButtonElement;
+    await act(async () => {
+      fromBtn.click();
+    });
+    await settleMs(50);
+    const cashOption = Array.from(
+      dlg.querySelectorAll('[role="listbox"][aria-label="From accounts"] [role="option"]') ?? [],
+    ).find((o) => (o.textContent ?? "").includes("Cash in Hand"));
+    assert(!!cashOption, "transfer: the other side's account is still listed");
+    assert(
+      cashOption?.getAttribute("aria-disabled") === "true",
+      "transfer: the account already chosen on the other side cannot be picked",
+    );
+    await act(async () => {
+      cashOption?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    });
+    await settleMs(50);
+    assert(
+      (fromBtn.textContent ?? "").includes("Second Test Bank"),
+      `transfer: and clicking it changes nothing — From reads ${JSON.stringify(fromBtn.textContent)}`,
+    );
+
     r.unmount();
     h.remove();
   }
@@ -2137,6 +2151,183 @@ async function runAll(): Promise<Results> {
     } finally {
       useWorkspace.setState({ tabs: restore.tabs, activeId: restore.activeId });
     }
+  }
+
+  /* ── A party is receivable OR payable, never both ─────────────────────
+     The payment dialogs worked out their outstanding one side at a time —
+     sales for a receipt, purchases for a payment — and an opening balance is
+     counted by both. So a party carrying ₹2,000 was offered as ₹2,000
+     RECEIVABLE on Receive Payment and ₹2,000 PAYABLE on Make Payment: the
+     same money, twice, in opposite directions. */
+  {
+    PartyRepo.add({
+      id: "OB1",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "Opening Only Customer",
+      type: "customer",
+      openingBalance: 2000, // they owe us, and there are no invoices at all
+    } as never);
+
+    const openDialog = async (which: "Receive Payment" | "Make Payment") => {
+      await renderRoute("/payments");
+      const btn = findButton(new RegExp(which));
+      assert(!!btn, `two-sided: found the ${which} button`);
+      await act(async () => {
+        btn?.click();
+      });
+      await settleMs(120);
+      const box = document.querySelector(
+        'input[placeholder="Type to search party…"]',
+      ) as HTMLInputElement | null;
+      assert(!!box, "two-sided: found the party box");
+      if (!box) return "";
+      await act(async () => {
+        setInput(box, "Opening Only");
+      });
+      await settleMs(80);
+      const option = Array.from(document.querySelectorAll("div"))
+        .filter((d) => d.textContent === "Opening Only Customer")
+        .pop();
+      assert(!!option, `two-sided: the party is suggested on ${which}`);
+      await act(async () => {
+        option?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      });
+      await settleMs(120);
+      return currentDialog().textContent ?? "";
+    };
+
+    const received = await openDialog("Receive Payment");
+    assert(
+      received.includes(fmtMoney(2000)),
+      `two-sided: a receivable opening shows on Receive Payment — ${JSON.stringify(received.slice(0, 140))}`,
+    );
+
+    const paid = await openDialog("Make Payment");
+    assert(
+      !paid.includes(fmtMoney(2000)),
+      `two-sided: and NOT as a payable on Make Payment — ${JSON.stringify(paid.slice(0, 160))}`,
+    );
+    assert(
+      paid.includes(fmtMoney(0)),
+      "two-sided: Make Payment shows nothing outstanding for a party who owes US",
+    );
+  }
+
+  /* ── Opening balance: the side is a choice, not the sign of a number ──
+     It used to be read back off the sign, so on a NEW party — amount 0 —
+     picking "payable" stored -0, and -0 < 0 is false: the button lit up
+     green again the instant it was clicked and the choice appeared to do
+     nothing at all. */
+  {
+    const h = document.createElement("div");
+    document.body.appendChild(h);
+    const r = createRoot(h);
+    await act(async () => {
+      r.render(<PartyDialog open onOpenChange={() => {}} party={null} onSaved={() => {}} />);
+    });
+    await settleMs(80);
+    const dlg = currentDialog();
+
+    const sideBtn = (name: string) =>
+      Array.from(
+        dlg.querySelectorAll(
+          '[role="radiogroup"][aria-label="Opening balance side"] [role="radio"]',
+        ),
+      ).find((b) => (b.textContent ?? "").trim() === name) as HTMLButtonElement | undefined;
+
+    assert(!!sideBtn("Receivable"), "opening: the sides are named Receivable…");
+    assert(!!sideBtn("Payable"), "opening: …and Payable, the words used everywhere else");
+    assert(
+      !dlg.textContent?.includes("They owe me") && !dlg.textContent?.includes("I owe them"),
+      "opening: the conversational wording is gone",
+    );
+
+    // The choice must stick with the amount still empty — the case that broke.
+    await act(async () => {
+      sideBtn("Payable")?.click();
+    });
+    await settleMs(50);
+    assert(
+      sideBtn("Payable")?.getAttribute("aria-checked") === "true",
+      "opening: Payable can be chosen BEFORE any amount is typed",
+    );
+    assert(
+      sideBtn("Receivable")?.getAttribute("aria-checked") === "false",
+      "opening: and choosing one clears the other",
+    );
+
+    // Typing now follows the side that was chosen.
+    const amt = dlg.querySelector(
+      'input[aria-label="Opening balance amount"]',
+    ) as HTMLInputElement | null;
+    assert(!!amt, "opening: found the amount box");
+    await act(async () => {
+      setInput(amt, "750");
+    });
+    await settleMs(50);
+    assert(
+      (dlg.textContent ?? "").includes("Payable"),
+      "opening: 750 entered under Payable reads back as payable",
+    );
+
+    // And switching sides re-signs what is already there.
+    await act(async () => {
+      sideBtn("Receivable")?.click();
+    });
+    await settleMs(50);
+    assert(
+      sideBtn("Receivable")?.getAttribute("aria-checked") === "true" &&
+        (amt?.value ?? "") === "750",
+      `opening: switching side keeps the amount — ${JSON.stringify(amt?.value)}`,
+    );
+    r.unmount();
+    h.remove();
+  }
+
+  /* ── Rows per page: 500 by default, changed once, remembered ──────────
+     1,400 items at 50 a page meant paging to find something, or reading a
+     total off one page and believing it was the whole list. */
+  {
+    const KEY = "bz.pageSize.items";
+    window.localStorage.removeItem(KEY);
+
+    const list = await renderRoute("/items");
+    assert(list.includes("Items"), "page size: the items list mounted");
+    const select = Array.from(document.querySelectorAll("select")).find((s) =>
+      Array.from(s.options).some((o) => o.value === "500"),
+    ) as HTMLSelectElement | undefined;
+    assert(!!select, "page size: the per-page control offers 500");
+    assert(select?.value === "500", `page size: and starts there — got ${select?.value}`);
+
+    // Change it, and it is written down.
+    if (select) {
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
+        setter.call(select, "25");
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await settleMs(60);
+      assert(
+        window.localStorage.getItem(KEY) === "25",
+        `page size: the choice is saved — stored ${JSON.stringify(window.localStorage.getItem(KEY))}`,
+      );
+    }
+
+    // Leave, come back: still 25. This is a preference, not a detail of one
+    // visit, so it has to survive a reload — hence localStorage, not memory.
+    await renderRoute("/parties");
+    await renderRoute("/items");
+    const again = Array.from(document.querySelectorAll("select")).find((s) =>
+      Array.from(s.options).some((o) => o.value === "500"),
+    ) as HTMLSelectElement | undefined;
+    assert(again?.value === "25", `page size: and is still there on return — got ${again?.value}`);
+
+    // Per screen, not one global setting: Parties keeps its own.
+    window.localStorage.removeItem(KEY);
+    assert(
+      window.localStorage.getItem("bz.pageSize.parties") !== "25",
+      "page size: changing Items did not change Parties",
+    );
   }
 
   /* ── Bulk Update with a real-sized catalogue ──────────────────────────

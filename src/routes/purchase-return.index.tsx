@@ -25,7 +25,7 @@ function PurchaseReturnPage() {
   const _repoV = useRepoData();
   useEffect(refresh, [_repoV]);
 
-  const pg = usePagination(rows);
+  const pg = usePagination(rows, "purchase-return");
 
   const totalDebit = rows.reduce((s, r) => s + r.total, 0);
 
@@ -130,6 +130,7 @@ function PurchaseReturnPage() {
       {/* Table (desktop) */}
       <div className="hidden md:flex flex-1 min-h-0 p-6">
         <DataTable
+          storageKey="purchase-return"
           activateOnClick
           columns={[
             {

@@ -113,7 +113,7 @@ function ItemsPage() {
     return !s || matchesQuery(s, r.name, r.sku) || r.barcode?.includes(s);
   });
 
-  const pg = usePagination(filtered);
+  const pg = usePagination(filtered, "items");
 
   const columns: Column<Item>[] = [
     {
@@ -355,6 +355,7 @@ function ItemsPage() {
       {/* Table (desktop) */}
       <div className="hidden md:flex flex-1 min-h-0 p-6">
         <DataTable
+          storageKey="items"
           columns={columns}
           rows={filtered}
           rowKey={(r) => r.id}

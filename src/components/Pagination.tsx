@@ -1,6 +1,9 @@
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 
-const PAGE_SIZES = [25, 50, 100];
+// Reaches past the 500 default in both directions: a shopkeeper who wants
+// the whole catalogue on one page can have it, and one who works on a
+// phone can drop to 25. Whatever they pick is remembered per screen.
+const PAGE_SIZES = [25, 50, 100, 250, 500, 1000];
 
 function pageList(page: number, totalPages: number): (number | "…")[] {
   if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);

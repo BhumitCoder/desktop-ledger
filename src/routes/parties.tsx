@@ -212,7 +212,7 @@ function PartiesPage() {
     return matchesQuery(s, r.name, r.phone);
   });
 
-  const pg = usePagination(filtered);
+  const pg = usePagination(filtered, "parties");
 
   // Multi-select for bulk ledger download — same interaction as the Items
   // page, so the two lists behave identically.
@@ -757,6 +757,7 @@ function PartiesPage() {
       {/* Table (desktop) */}
       <div className="hidden md:flex flex-1 min-h-0 p-6">
         <DataTable
+          storageKey="parties"
           columns={columns}
           rows={filtered}
           rowKey={(r) => r.id}
@@ -1031,10 +1032,21 @@ export function PartyDialog({
   const [form, setForm] = useState<Partial<Party>>({});
   const [saving, setSaving] = useState(false);
   const [nameOpen, setNameOpen] = useState(false);
+  /* Which side the opening balance sits on, held as its own answer.
+   *
+   * It used to be read back off the sign of the amount, which meant the
+   * choice could not be made before the amount was: on a new party the
+   * amount is 0, "Payable" stored -0, and -0 < 0 is FALSE — so the button
+   * lit up green again the moment it was clicked and the direction appeared
+   * to do nothing at all. The stored field stays signed, because that is
+   * what every balance calculation reads; only the form keeps the two
+   * apart. */
+  const [openingDir, setOpeningDir] = useState<"receivable" | "payable">("receivable");
 
   useEffect(() => {
     if (open) {
       setForm(party ?? { type: "both", openingBalance: 0 });
+      setOpeningDir((party?.openingBalance ?? 0) < 0 ? "payable" : "receivable");
       setSaving(false);
       setNameOpen(false);
       setTimeout(() => firstRef.current?.focus(), 50);
@@ -1157,47 +1169,57 @@ export function PartyDialog({
               Opening Balance
             </label>
             <div className="flex flex-col sm:flex-row gap-2">
-              <div className="inline-flex rounded-md border border-gray-200 overflow-hidden shrink-0">
+              <div
+                role="radiogroup"
+                aria-label="Opening balance side"
+                className="inline-flex rounded-md border border-gray-200 overflow-hidden shrink-0"
+              >
+                {/* "Receivable" and "Payable", not "They owe me" / "I owe
+                    them". Those read as friendlier English but they are not
+                    the words on any other screen in the app, so the person at
+                    the counter has to translate them against the Dashboard,
+                    the party list and the statement every time. One vocabulary
+                    across the whole app is what makes it learnable. */}
                 {(
                   [
-                    ["receive", "They owe me"],
-                    ["pay", "I owe them"],
+                    ["receivable", "Receivable", "they owe you"],
+                    ["payable", "Payable", "you owe them"],
                   ] as const
-                ).map(([dir, text]) => {
-                  const active = (form.openingBalance ?? 0) < 0 ? "pay" : "receive";
-                  return (
-                    <button
-                      key={dir}
-                      type="button"
-                      onClick={() =>
-                        setForm({
-                          ...form,
-                          openingBalance:
-                            dir === "pay"
-                              ? -Math.abs(form.openingBalance ?? 0)
-                              : Math.abs(form.openingBalance ?? 0),
-                        })
-                      }
-                      className={`h-9 px-3 text-xs font-semibold transition whitespace-nowrap ${
-                        active === dir
-                          ? dir === "pay"
-                            ? "bg-rose-600 text-white"
-                            : "bg-emerald-600 text-white"
-                          : "bg-white text-gray-500 hover:bg-gray-50"
-                      }`}
-                    >
-                      {text}
-                    </button>
-                  );
-                })}
+                ).map(([dir, text, hint]) => (
+                  <button
+                    key={dir}
+                    type="button"
+                    role="radio"
+                    aria-checked={openingDir === dir}
+                    title={`Opening balance is ${text.toLowerCase()} — ${hint}`}
+                    onClick={() => {
+                      setOpeningDir(dir);
+                      const amount = Math.abs(form.openingBalance ?? 0);
+                      setForm({
+                        ...form,
+                        openingBalance: dir === "payable" ? -amount : amount,
+                      });
+                    }}
+                    className={`h-9 px-3 text-xs font-semibold transition whitespace-nowrap ${
+                      openingDir === dir
+                        ? dir === "payable"
+                          ? "bg-rose-600 text-white"
+                          : "bg-emerald-600 text-white"
+                        : "bg-white text-gray-500 hover:bg-gray-50"
+                    }`}
+                  >
+                    {text}
+                  </button>
+                ))}
               </div>
               <div className="flex-1">
                 <NumInput
                   value={Math.abs(form.openingBalance ?? 0)}
+                  aria-label="Opening balance amount"
                   onValue={(n) =>
                     setForm({
                       ...form,
-                      openingBalance: (form.openingBalance ?? 0) < 0 ? -Math.abs(n) : Math.abs(n),
+                      openingBalance: openingDir === "payable" ? -Math.abs(n) : Math.abs(n),
                     })
                   }
                   className="w-full h-9 px-3 border border-gray-200 rounded-md text-base md:text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 text-right tabular-nums"
@@ -1205,11 +1227,11 @@ export function PartyDialog({
               </div>
             </div>
             <p className="text-[11px] text-gray-400 mt-1">
-              {(form.openingBalance ?? 0) === 0
+              {Math.abs(form.openingBalance ?? 0) === 0
                 ? "No opening balance."
-                : (form.openingBalance ?? 0) < 0
-                  ? `Shows as Payable ${fmtMoney(Math.abs(form.openingBalance ?? 0))} — money you owe them.`
-                  : `Shows as Receivable ${fmtMoney(Math.abs(form.openingBalance ?? 0))} — money they owe you.`}
+                : openingDir === "payable"
+                  ? `Payable ${fmtMoney(Math.abs(form.openingBalance ?? 0))} — money you owe them.`
+                  : `Receivable ${fmtMoney(Math.abs(form.openingBalance ?? 0))} — money they owe you.`}
             </p>
           </div>
           <NumField

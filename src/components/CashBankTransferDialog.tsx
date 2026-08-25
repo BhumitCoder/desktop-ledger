@@ -21,42 +21,36 @@ import { fmtMoney, today } from "@/lib/format";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
-/**
- * Move money between the cash drawer and a bank account.
- *
- * The two halves of this already existed — a bank Deposit/Withdraw could tick
- * "from cash on hand" and write the matching cash adjustment — but only from
- * inside one bank account's screen, and only as a checkbox on an action named
- * something else. Nothing on the Cash page offered it at all, so "I put the
- * day's takings into the bank" had no obvious home.
- *
- * It writes the SAME two records that checkbox always did, in one batch:
- * a BankTxn (which moves the account's stored balance) and a CashAdjustment
- * (which moves derived cash-in-hand). Deliberately not a new kind of record —
- * every existing report, the day book and the bank ledger already understand
- * these two, and inventing a third would mean teaching all of them a new
- * shape for money that is already fully described.
- *
- * Both records are staged on one batch, so a transfer can never half-happen:
- * cash leaving the drawer without arriving in the bank is the one outcome
- * that would quietly cost the shop money.
- */
-/** One side of the transfer — the drawer, or the account. Declared out here
- *  on purpose: inside the component it would be a new component type on every
- *  render, so React would tear the tile down and rebuild it on each keystroke
- *  rather than updating the number in place. */
-function Side({ label, value, icon }: { label: string; value: number; icon: ReactNode }) {
-  return (
-    <div className="flex-1 min-w-0 rounded-lg border bg-gray-50/70 px-3 py-2">
-      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-        {icon}
-        <span className="truncate">{label}</span>
-      </div>
-      <div className="text-[15px] font-bold tabular-nums mt-0.5">{fmtMoney(value)}</div>
-    </div>
-  );
+/** The cash drawer is an account like any other here, so one picker can offer
+ *  it alongside the banks and the same form covers every direction. */
+const CASH = "cash";
+
+interface Account {
+  id: string;
+  name: string;
+  balance: number;
+  accountNumber?: string;
 }
 
+/**
+ * Move money between the places the shop keeps it.
+ *
+ * Modelled on what the client already knows from Vyapar: one screen with a
+ * FROM and a TO, and the three transfers that matter — cash to bank, bank to
+ * cash, and bank to bank — are the same action with different endpoints
+ * rather than three features. The first version of this screen only did the
+ * cash-to-bank pair, so moving money between two accounts meant a withdrawal
+ * and a deposit entered by hand, with nothing tying them together.
+ *
+ * Every transfer is ONE batch. A transfer that half-lands — money leaving one
+ * account and never arriving at the other — is the single outcome here that
+ * silently costs the shop money, so the two sides commit together or not at
+ * all.
+ *
+ * It writes only records the rest of the app already understands: a BankTxn
+ * for each bank leg and a CashAdjustment for a cash leg. Every report, the
+ * day book and each account's passbook pick these up with no changes.
+ */
 export function CashBankTransferDialog({
   open,
   onOpenChange,
@@ -66,20 +60,10 @@ export function CashBankTransferDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onSaved: () => void;
-  /** Preselect an account — set when opened from that account's own page. */
+  /** Preselect the FROM account — set when opened from that account's page. */
   initialBankId?: string;
 }) {
   const banks = useRepoMemo(() => BankRepo.all());
-  const [direction, setDirection] = useState<"toBank" | "toCash">("toBank");
-  const [bankId, setBankId] = useState("");
-  const [amount, setAmount] = useState(0);
-  const [date, setDate] = useState(today());
-  const [notes, setNotes] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [bankOpen, setBankOpen] = useState(false);
-  const [bankIdx, setBankIdx] = useState(0);
-  const pickerRef = useRef<HTMLDivElement>(null);
-
   const cashInHand = useRepoMemo(() =>
     cashFlows(
       SalesRepo.all(),
@@ -90,65 +74,58 @@ export function CashBankTransferDialog({
     ).reduce((s, e) => s + e.in - e.out, 0),
   );
 
+  const accounts: Account[] = useMemo(
+    () => [
+      { id: CASH, name: "Cash in Hand", balance: cashInHand },
+      ...banks.map((b) => ({
+        id: b.id,
+        name: b.name,
+        balance: b.balance,
+        accountNumber: b.accountNumber,
+      })),
+    ],
+    [banks, cashInHand],
+  );
+
+  const [fromId, setFromId] = useState<string>(CASH);
+  const [toId, setToId] = useState<string>("");
+  const [amount, setAmount] = useState(0);
+  const [date, setDate] = useState(today());
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+
   useEffect(() => {
     if (!open) return;
-    setDirection("toBank");
-    setBankId(initialBankId ?? banks[0]?.id ?? "");
+    // Opened from an account's own page: that account is what you are moving
+    // money OUT of, which is the common reason to be standing there.
+    setFromId(initialBankId ?? CASH);
+    setToId(initialBankId ? CASH : (banks[0]?.id ?? ""));
     setAmount(0);
     setDate(today());
     setNotes("");
     setSaving(false);
-    setBankOpen(false);
-    // `banks` is intentionally not a dependency: reopening the dialog should
-    // reset the form, a background sync should not wipe what is half-typed.
+    // `banks` deliberately not a dependency: reopening resets the form, a
+    // background sync must not wipe what is half-typed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialBankId]);
 
-  const bank = useMemo(() => banks.find((b) => b.id === bankId), [banks, bankId]);
+  const from = accounts.find((a) => a.id === fromId);
+  const to = accounts.find((a) => a.id === toId);
+  const sameAccount = !!from && !!to && from.id === to.id;
 
-  // Close on a click anywhere else, and drive the list from the keyboard.
-  // Escape is swallowed rather than bubbling: it closes the LIST here, and
-  // must not take the dialog with it.
-  useEffect(() => {
-    if (!bankOpen) return;
-    const onDown = (e: MouseEvent) => {
-      if (!pickerRef.current?.contains(e.target as Node)) setBankOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        setBankOpen(false);
-      } else if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setBankIdx((i) => Math.min(banks.length - 1, i + 1));
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setBankIdx((i) => Math.max(0, i - 1));
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        const picked = banks[bankIdx];
-        if (picked) setBankId(picked.id);
-        setBankOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey, true);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey, true);
-    };
-  }, [bankOpen, banks, bankIdx]);
-  const toBank = direction === "toBank";
-  const bankBalance = bank?.balance ?? 0;
-
-  const cashAfter = r2(cashInHand + (toBank ? -amount : amount));
-  const bankAfter = r2(bankBalance + (toBank ? amount : -amount));
+  const swap = () => {
+    setFromId(toId);
+    setToId(fromId);
+  };
 
   const save = () => {
     if (saving) return;
-    if (!bank) {
-      toast.error("Select a bank account");
+    if (!from || !to) {
+      toast.error("Choose both accounts");
+      return;
+    }
+    if (sameAccount) {
+      toast.error("Choose two different accounts");
       return;
     }
     const n = r2(amount);
@@ -163,46 +140,49 @@ export function CashBankTransferDialog({
     // A warning, not a block: a shop counts its drawer at the end of the day,
     // and refusing the entry would only push the correction somewhere the
     // books cannot see it. Same rule the app already follows for stock.
-    if (toBank && n > cashInHand + 0.005) {
-      toast.warning(
-        `This is more than the ${fmtMoney(cashInHand)} the books show in cash — recorded anyway`,
-      );
-    }
-    if (!toBank && n > bankBalance + 0.005) {
-      toast.warning(
-        `This is more than ${bank.name}'s ${fmtMoney(bankBalance)} balance — recorded anyway`,
-      );
+    if (n > from.balance + 0.005) {
+      toast.warning(`This is more than ${from.name}'s ${fmtMoney(from.balance)} — recorded anyway`);
     }
 
     setSaving(true);
-    const label = toBank ? `Transfer to ${bank.name}` : `Transfer from ${bank.name}`;
+    const label = `Transfer ${from.name} → ${to.name}`;
     const note = notes.trim() ? `${label} — ${notes.trim()}` : label;
     const batch = newBatch();
-    BankTxnRepo.addBatched(batch, {
-      bankId: bank.id,
-      date,
-      type: toBank ? "deposit" : "withdraw",
-      amount: n,
-      notes: note,
-    });
-    BankRepo.adjustFieldBatched(batch, bank.id, "balance", toBank ? n : -n);
-    CashAdjustmentRepo.addBatched(batch, {
-      date,
-      type: toBank ? "reduce" : "add",
-      amount: n,
-      reason: note,
-    });
-    commitBatch(batch, "cash/bank transfer").then((ok) => {
+
+    // Out of the FROM account…
+    if (from.id === CASH) {
+      CashAdjustmentRepo.addBatched(batch, { date, type: "reduce", amount: n, reason: note });
+    } else {
+      BankTxnRepo.addBatched(batch, {
+        bankId: from.id,
+        date,
+        type: "withdraw",
+        amount: n,
+        notes: note,
+      });
+      BankRepo.adjustFieldBatched(batch, from.id, "balance", -n);
+    }
+    // …and into the TO account, on the same batch.
+    if (to.id === CASH) {
+      CashAdjustmentRepo.addBatched(batch, { date, type: "add", amount: n, reason: note });
+    } else {
+      BankTxnRepo.addBatched(batch, {
+        bankId: to.id,
+        date,
+        type: "deposit",
+        amount: n,
+        notes: note,
+      });
+      BankRepo.adjustFieldBatched(batch, to.id, "balance", n);
+    }
+
+    commitBatch(batch, "account transfer").then((ok) => {
       setSaving(false);
       if (!ok) {
         toast.error("The transfer did not reach the cloud — reload and check before repeating it");
         return;
       }
-      toast.success(
-        toBank
-          ? `${fmtMoney(n)} moved from cash to ${bank.name}`
-          : `${fmtMoney(n)} moved from ${bank.name} to cash`,
-      );
+      toast.success(`${fmtMoney(n)} moved from ${from.name} to ${to.name}`);
       onSaved();
       onOpenChange(false);
     });
@@ -212,141 +192,41 @@ export function CashBankTransferDialog({
     <Dialog open={open} onOpenChange={(v) => !saving && onOpenChange(v)}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-base">Transfer between Cash and Bank</DialogTitle>
+          <DialogTitle className="text-base">Transfer Money</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-3.5">
-          {/* Direction reads as the sentence it describes, so there is no
-              guessing which way "deposit" points. */}
-          <div
-            role="radiogroup"
-            aria-label="Transfer direction"
-            className="grid grid-cols-2 rounded-md border border-input overflow-hidden"
-          >
-            {(
-              [
-                ["toBank", "Cash → Bank"],
-                ["toCash", "Bank → Cash"],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                role="radio"
-                aria-checked={direction === key}
-                onClick={() => setDirection(key)}
-                className={`h-9 text-[13px] font-semibold transition ${
-                  direction === key
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-background text-muted-foreground hover:bg-accent"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Side
-              label="Cash in hand"
-              value={cashInHand}
-              icon={<Banknote className="h-3.5 w-3.5" />}
+          <div className="flex items-end gap-2">
+            <AccountPicker
+              label="From"
+              accounts={accounts}
+              value={fromId}
+              onChange={setFromId}
+              excludeId={toId}
             />
-            <ArrowRight
-              className={`h-4 w-4 shrink-0 text-gray-400 ${toBank ? "" : "rotate-180"}`}
-            />
-            <Side
-              label={bank?.name ?? "Bank"}
-              value={bankBalance}
-              icon={<Landmark className="h-3.5 w-3.5" />}
-            />
-          </div>
-
-          {/* A native <select> renders the operating system's own popup —
-              a plain list in the OS blue, ignoring every border radius, font
-              and colour the rest of this dialog uses. This is the app's own
-              popup instead: same rounded card, same accent highlight, and
-              room to show each account's balance beside its name, which a
-              native option row cannot lay out. */}
-          <div className="flex flex-col gap-1 text-[12px] relative" ref={pickerRef}>
-            <span className="text-muted-foreground font-medium">Bank Account *</span>
             <button
               type="button"
-              role="combobox"
-              aria-expanded={bankOpen}
-              aria-label="Bank account"
-              disabled={!banks.length}
-              onClick={() => setBankOpen((v) => !v)}
-              onKeyDown={(e) => {
-                if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  setBankOpen(true);
-                  setBankIdx(
-                    Math.max(
-                      0,
-                      banks.findIndex((b) => b.id === bankId),
-                    ),
-                  );
-                }
-              }}
-              className={`h-9 px-2.5 border rounded-md bg-background text-left text-sm flex items-center justify-between gap-2 outline-none transition disabled:opacity-60 ${
-                bankOpen ? "border-primary ring-1 ring-primary" : "border-input hover:bg-accent/40"
-              }`}
+              onClick={swap}
+              aria-label="Swap accounts"
+              title="Swap"
+              className="h-9 w-9 shrink-0 mb-[1px] rounded-md border border-input flex items-center justify-center text-muted-foreground hover:bg-accent transition"
             >
-              <span className="truncate font-medium">
-                {bank ? bank.name : "No bank accounts yet"}
-              </span>
-              <span className="flex items-center gap-1.5 shrink-0">
-                {bank && (
-                  <span className="tabular-nums text-muted-foreground">
-                    {fmtMoney(bank.balance)}
-                  </span>
-                )}
-                <ChevronDown
-                  className={`h-3.5 w-3.5 text-muted-foreground transition ${bankOpen ? "rotate-180" : ""}`}
-                />
-              </span>
+              <ArrowRight className="h-4 w-4" />
             </button>
-            {bankOpen && banks.length > 0 && (
-              <div
-                role="listbox"
-                aria-label="Bank accounts"
-                className="absolute z-30 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-elevated max-h-56 overflow-auto py-1"
-              >
-                {banks.map((b, i) => (
-                  <div
-                    key={b.id}
-                    role="option"
-                    aria-selected={b.id === bankId}
-                    onMouseEnter={() => setBankIdx(i)}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      setBankId(b.id);
-                      setBankOpen(false);
-                    }}
-                    className={`px-2.5 py-1.5 cursor-pointer flex items-center justify-between gap-3 ${
-                      i === bankIdx ? "bg-accent" : ""
-                    }`}
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate text-[13px] font-medium">{b.name}</span>
-                      {b.accountNumber && (
-                        <span className="block truncate text-[11px] text-muted-foreground font-mono">
-                          {b.accountNumber}
-                        </span>
-                      )}
-                    </span>
-                    <span className="shrink-0 flex items-center gap-1.5">
-                      <span className="text-[12px] tabular-nums text-muted-foreground">
-                        {fmtMoney(b.balance)}
-                      </span>
-                      {b.id === bankId && <Check className="h-3.5 w-3.5 text-primary" />}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
+            <AccountPicker
+              label="To"
+              accounts={accounts}
+              value={toId}
+              onChange={setToId}
+              excludeId={fromId}
+            />
           </div>
+
+          {sameAccount && (
+            <p className="text-[12px] text-rose-600">
+              Pick two different accounts — money cannot move to where it already is.
+            </p>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <label className="flex flex-col gap-1 text-[12px]">
@@ -373,11 +253,16 @@ export function CashBankTransferDialog({
             placeholder="Slip no, reference…"
           />
 
-          {amount > 0 && bank && (
+          {amount > 0 && from && to && !sameAccount && (
             <p className="text-[12px] text-gray-600 bg-gray-50 border rounded-md px-3 py-2">
-              After this: cash{" "}
-              <span className="font-semibold tabular-nums">{fmtMoney(cashAfter)}</span>, {bank.name}{" "}
-              <span className="font-semibold tabular-nums">{fmtMoney(bankAfter)}</span>
+              After this: {from.name}{" "}
+              <span className="font-semibold tabular-nums">
+                {fmtMoney(r2(from.balance - amount))}
+              </span>
+              , {to.name}{" "}
+              <span className="font-semibold tabular-nums">
+                {fmtMoney(r2(to.balance + amount))}
+              </span>
             </p>
           )}
 
@@ -390,7 +275,7 @@ export function CashBankTransferDialog({
             >
               Cancel
             </Button>
-            <Button type="button" onClick={save} disabled={saving || !banks.length}>
+            <Button type="button" onClick={save} disabled={saving || accounts.length < 2}>
               {saving && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
               Transfer
             </Button>
@@ -398,5 +283,158 @@ export function CashBankTransferDialog({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * One side of the transfer.
+ *
+ * A native <select> hands its popup to the operating system, which draws a
+ * plain list in the OS blue and cannot lay out more than one string per row —
+ * and each row here needs a name AND a balance, which is the number that
+ * decides whether the transfer makes sense.
+ */
+function AccountPicker({
+  label,
+  accounts,
+  value,
+  onChange,
+  excludeId,
+}: {
+  label: string;
+  accounts: Account[];
+  value: string;
+  onChange: (id: string) => void;
+  /** The other side, greyed out — a transfer to the same place is not one. */
+  excludeId?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [idx, setIdx] = useState(0);
+  const ref = useRef<HTMLDivElement>(null);
+  const chosen = accounts.find((a) => a.id === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        // Closes the LIST, not the dialog it sits in.
+        e.preventDefault();
+        e.stopPropagation();
+        setOpen(false);
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setIdx((i) => Math.min(accounts.length - 1, i + 1));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setIdx((i) => Math.max(0, i - 1));
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const picked = accounts[idx];
+        if (picked && picked.id !== excludeId) onChange(picked.id);
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }, [open, accounts, idx, excludeId, onChange]);
+
+  const Icon = chosen?.id === CASH ? Banknote : Landmark;
+
+  return (
+    <div className="flex-1 min-w-0 flex flex-col gap-1 text-[12px] relative" ref={ref}>
+      <span className="text-muted-foreground font-medium">{label}</span>
+      <button
+        type="button"
+        role="combobox"
+        aria-expanded={open}
+        aria-label={`${label} account`}
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setOpen(true);
+            setIdx(
+              Math.max(
+                0,
+                accounts.findIndex((a) => a.id === value),
+              ),
+            );
+          }
+        }}
+        className={`h-9 px-2.5 border rounded-md bg-background text-left outline-none transition ${
+          open ? "border-primary ring-1 ring-primary" : "border-input hover:bg-accent/40"
+        }`}
+      >
+        <span className="flex items-center gap-1.5 min-w-0">
+          <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <span className="truncate font-medium flex-1 text-sm">{chosen?.name ?? "Choose…"}</span>
+          <ChevronDown
+            className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition ${open ? "rotate-180" : ""}`}
+          />
+        </span>
+      </button>
+      {chosen && (
+        <span className="text-[11px] text-muted-foreground tabular-nums">
+          {fmtMoney(chosen.balance)}
+        </span>
+      )}
+      {open && (
+        <div
+          role="listbox"
+          aria-label={`${label} accounts`}
+          className="absolute z-30 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-elevated max-h-56 overflow-auto py-1"
+        >
+          {accounts.map((a, i) => {
+            const disabled = a.id === excludeId;
+            const RowIcon = a.id === CASH ? Banknote : Landmark;
+            return (
+              <div
+                key={a.id}
+                role="option"
+                aria-selected={a.id === value}
+                aria-disabled={disabled}
+                onMouseEnter={() => setIdx(i)}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  if (disabled) return;
+                  onChange(a.id);
+                  setOpen(false);
+                }}
+                className={`px-2.5 py-1.5 flex items-center justify-between gap-3 ${
+                  disabled
+                    ? "opacity-40 cursor-not-allowed"
+                    : `cursor-pointer ${i === idx ? "bg-accent" : ""}`
+                }`}
+              >
+                <span className="flex items-center gap-1.5 min-w-0">
+                  <RowIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0">
+                    <span className="block truncate text-[13px] font-medium">{a.name}</span>
+                    {a.accountNumber && (
+                      <span className="block truncate text-[11px] text-muted-foreground font-mono">
+                        {a.accountNumber}
+                      </span>
+                    )}
+                  </span>
+                </span>
+                <span className="shrink-0 flex items-center gap-1.5">
+                  <span className="text-[12px] tabular-nums text-muted-foreground">
+                    {fmtMoney(a.balance)}
+                  </span>
+                  {a.id === value && <Check className="h-3.5 w-3.5 text-primary" />}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }

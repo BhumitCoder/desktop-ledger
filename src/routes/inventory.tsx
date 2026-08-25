@@ -136,7 +136,7 @@ function InventoryPage() {
     (r) => (r.minStock != null && r.stock <= r.minStock) || r.stock < 0,
   ).length;
 
-  const pg = usePagination(filtered);
+  const pg = usePagination(filtered, "inventory");
 
   return (
     <div className="flex flex-col h-full">
@@ -207,6 +207,7 @@ function InventoryPage() {
       {/* Table (desktop) */}
       <div className="hidden md:flex flex-1 min-h-0 p-6">
         <DataTable
+          storageKey="inventory"
           columns={columns}
           rows={filtered}
           rowKey={(r) => r.id}

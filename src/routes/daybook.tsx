@@ -286,7 +286,7 @@ function DaybookPage() {
   // is also the exact snapshot the PDF/print export captures, so pagination
   // must never silently cut a busy day's transactions out of that export. A
   // single day realistically never gets close to 100 entries for this app.
-  const pg = usePagination(filteredRows, 100);
+  const pg = usePagination(filteredRows, "daybook", 100);
 
   const shiftDay = (delta: number) => {
     const [y, m, dd] = date.split("-").map(Number);

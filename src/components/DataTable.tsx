@@ -27,6 +27,10 @@ interface Props<T> {
    * open a bill, vs. Items/Parties where a click just selects a record to
    * inspect further with Edit/Delete. */
   activateOnClick?: boolean;
+  /** Names the screen so its rows-per-page choice is remembered. Pass the
+   * SAME key the screen gives its own usePagination (the phone card list),
+   * or the two halves of one screen will disagree about the size. */
+  storageKey?: string;
 }
 
 export function DataTable<T>({
@@ -38,6 +42,7 @@ export function DataTable<T>({
   emptyMessage,
   footer,
   activateOnClick,
+  storageKey,
 }: Props<T>) {
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -60,7 +65,7 @@ export function DataTable<T>({
     }
   }
 
-  const pg = usePagination(sorted);
+  const pg = usePagination(sorted, storageKey);
   const paged = pg.paged;
 
   useEffect(() => {

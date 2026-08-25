@@ -47,7 +47,7 @@ function PayeesPage() {
     return matchesQuery(s, r.name);
   });
 
-  const pg = usePagination(filtered);
+  const pg = usePagination(filtered, "payees");
 
   // Total paid + most recent payment date per payee, derived straight from
   // the expense records — never a second, separately-maintained number that
@@ -222,6 +222,7 @@ function PayeesPage() {
 
       <div className="hidden md:flex flex-1 min-h-0 p-6">
         <DataTable
+          storageKey="payees"
           columns={columns}
           rows={filtered}
           rowKey={(r) => r.id}

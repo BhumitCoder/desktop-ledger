@@ -38,7 +38,7 @@ function ExpensesPage() {
   const _repoV = useRepoData();
   useEffect(refresh, [_repoV]);
 
-  const pg = usePagination(rows);
+  const pg = usePagination(rows, "expenses");
 
   const total = rows.reduce((s, r) => s + r.amount, 0);
 
@@ -249,6 +249,7 @@ function ExpensesPage() {
       {/* Table (desktop) */}
       <div className="hidden md:flex flex-1 min-h-0 p-6">
         <DataTable
+          storageKey="expenses"
           columns={columns}
           rows={rows}
           rowKey={(r) => r.id}

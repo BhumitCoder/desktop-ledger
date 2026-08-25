@@ -93,7 +93,7 @@ function PurchasePage() {
     });
   }, [rows, dateFrom, dateTo, partyId, status, search]);
 
-  const pg = usePagination(filtered);
+  const pg = usePagination(filtered, "purchase");
   const totalAmount = filtered.reduce((a, r) => a + r.total, 0);
   const totalPaid = filtered.reduce((a, r) => a + r.paid, 0);
   const totalPayable = filtered.reduce((a, r) => a + Math.max(0, r.total - r.paid), 0);
@@ -545,6 +545,7 @@ function PurchasePage() {
       {/* Table (desktop) */}
       <div className="hidden md:flex flex-1 min-h-0 p-6">
         <DataTable
+          storageKey="purchase"
           activateOnClick
           columns={[
             {
