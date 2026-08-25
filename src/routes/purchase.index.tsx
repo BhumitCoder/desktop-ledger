@@ -628,7 +628,7 @@ function PurchasePage() {
                         e.stopPropagation();
                         navigate({ to: "/purchase/edit/$id", params: { id: r.id } });
                       }}
-                      className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+                      className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-transparent text-gray-400 transition hover:bg-primary-soft hover:text-primary hover:border-primary/25"
                       title="Edit bill"
                     >
                       <Pencil className="h-3.5 w-3.5" />

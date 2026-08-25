@@ -95,13 +95,13 @@ function PayeesPage() {
       width: "90px",
       align: "center",
       render: (r) => (
-        <span className="inline-flex gap-1">
+        <span className="inline-flex items-center justify-center gap-0.5">
           <button
             onClick={(e) => {
               e.stopPropagation();
               navigate({ to: "/payees/$id", params: { id: r.id } });
             }}
-            className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+            className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-transparent text-gray-400 transition hover:bg-primary-soft hover:text-primary hover:border-primary/25"
             title="View ledger"
           >
             <FileText className="h-3.5 w-3.5" />
@@ -113,7 +113,7 @@ function PayeesPage() {
                 setEdit(r);
                 setOpen(true);
               }}
-              className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+              className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-transparent text-gray-400 transition hover:bg-primary-soft hover:text-primary hover:border-primary/25"
               title="Edit payee"
             >
               <Pencil className="h-3.5 w-3.5" />

@@ -27,6 +27,7 @@ import { BulkUpdateItemsDialog } from "@/components/BulkUpdateItemsDialog";
 import { PrintablePartyStatement } from "@/components/PrintablePartyStatement";
 import { CashBankTransferDialog } from "@/components/CashBankTransferDialog";
 import { PartyDialog } from "@/routes/parties";
+import { DataTable } from "@/components/DataTable";
 import { PrintableInvoice } from "@/components/PrintableInvoice";
 import { PrintableReturn } from "@/components/PrintableReturn";
 import { fmtMoney, ymd } from "@/lib/format";
@@ -2556,6 +2557,95 @@ async function runAll(): Promise<Results> {
     assert(
       BankRepo.get("XB1")?.balance === 2000,
       `transfer delete: the account balance is put back — ${BankRepo.get("XB1")?.balance} (want 2000)`,
+    );
+  }
+
+  /* ── The summary strip reaches the table's right edge ─────────────────
+     Screens hand in their own footer <tr>, counting columns by hand. Adding
+     the Action column left every one of them a cell short, so the strip
+     stopped before the edge — and with the last column pinned, the ROW
+     BENEATH showed through the gap. That is how a totals strip ended up with
+     a stray pencil and bin floating off its end. */
+  {
+    await renderRoute("/payments");
+    const table = document.querySelector(".data-table table") as HTMLTableElement | null;
+    assert(!!table, "footer: found the table");
+    const colCount = table?.querySelectorAll("thead th").length ?? 0;
+    const footRow = table?.querySelector("tfoot tr");
+    assert(!!footRow, "footer: the totals row is rendered");
+
+    const spanOf = (row: Element) =>
+      Array.from(row.children).reduce((n, c) => n + (Number(c.getAttribute("colspan")) || 1), 0);
+    assert(
+      !!footRow && spanOf(footRow) === colCount,
+      `footer: it covers every column — spans ${footRow && spanOf(footRow)} of ${colCount}`,
+    );
+
+    // Measured, not just counted: the strip has to reach as far right as the
+    // header does, or there is a gap for the rows below to show through.
+    const lastTh = table?.querySelector("thead th:last-child") as HTMLElement | null;
+    const lastFootCell = footRow?.lastElementChild as HTMLElement | null;
+    if (lastTh && lastFootCell) {
+      assert(
+        Math.abs(
+          lastTh.getBoundingClientRect().right - lastFootCell.getBoundingClientRect().right,
+        ) < 1.5,
+        `footer: and ends where the table ends — header right ${Math.round(
+          lastTh.getBoundingClientRect().right,
+        )}, footer right ${Math.round(lastFootCell.getBoundingClientRect().right)}`,
+      );
+      // The pinned footer cell must be painted, or rows scroll under it.
+      const bg = getComputedStyle(lastFootCell).backgroundColor;
+      assert(
+        bg !== "" && !bg.includes("rgba(0, 0, 0, 0)"),
+        `footer: the pinned corner is opaque — background ${bg}`,
+      );
+    }
+
+    // A footer that IS short gets padded out. Every screen's footer happens to
+    // be right today, so nothing on a real page exercises this — but they are
+    // counted by hand, and the next column added to any table would leave one
+    // of them a cell short with the pinned column's row showing through the
+    // gap. Worth holding still.
+    {
+      const h2 = document.createElement("div");
+      document.body.appendChild(h2);
+      const r2root = createRoot(h2);
+      await act(async () => {
+        r2root.render(
+          <DataTable
+            columns={[
+              { key: "a", label: "A", render: () => "a" },
+              { key: "b", label: "B", render: () => "b" },
+              { key: "action", label: "Action", render: () => "x" },
+            ]}
+            rows={[{ id: "1" }]}
+            rowKey={(r) => r.id}
+            footer={
+              <tr>
+                <td>Total</td>
+              </tr>
+            }
+          />,
+        );
+      });
+      await settleMs(60);
+      const shortFoot = h2.querySelector("tfoot tr");
+      assert(!!shortFoot, "footer: the short-footer probe rendered");
+      assert(
+        (shortFoot?.children.length ?? 0) === 3,
+        `footer: a one-cell footer is padded to the column count — got ${shortFoot?.children.length}`,
+      );
+      r2root.unmount();
+      h2.remove();
+    }
+
+    // A pinned cell has to carry the row's OWN colour, or a hovered row shows
+    // a white block where its buttons are.
+    const firstTd = table?.querySelector("tbody tr td:last-child") as HTMLElement | null;
+    assert(
+      !!firstTd && getComputedStyle(firstTd).backgroundColor !== "rgba(0, 0, 0, 0)",
+      `footer: pinned body cells are opaque — ${firstTd && getComputedStyle(firstTd).backgroundColor}`,
     );
   }
 

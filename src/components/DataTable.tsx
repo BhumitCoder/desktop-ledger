@@ -1,4 +1,13 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { Inbox } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PaginationBar } from "@/components/Pagination";
@@ -31,6 +40,32 @@ interface Props<T> {
    * SAME key the screen gives its own usePagination (the phone card list),
    * or the two halves of one screen will disagree about the size. */
   storageKey?: string;
+}
+
+/**
+ * Make a screen's footer row cover every column.
+ *
+ * Screens hand in their own <tr> of totals, counting the columns by hand. Add
+ * a column — an Action column, say — and every one of those rows is suddenly
+ * one cell short. The strip then stops before the table's right edge, and
+ * with a pinned last column the ROW BENEATH shows through the gap, which is
+ * how a summary strip ended up with a stray pencil and bin floating off its
+ * end.
+ *
+ * Counting the cells here and padding the difference means a footer can never
+ * be out of step with the columns again, whatever a screen adds later.
+ */
+function padFooter(footer: ReactNode, colCount: number): ReactNode {
+  if (!isValidElement(footer)) return footer;
+  const row = footer as ReactElement<{ children?: ReactNode }>;
+  const cells = Children.toArray(row.props.children).filter(isValidElement);
+  const span = cells.reduce(
+    (n, c) => n + (Number((c as ReactElement<{ colSpan?: number }>).props.colSpan) || 1),
+    0,
+  );
+  if (span >= colCount) return footer;
+  const filler = Array.from({ length: colCount - span }, (_, i) => <td key={`pad-${i}`} />);
+  return cloneElement(row, undefined, [...cells, ...filler]);
 }
 
 export function DataTable<T>({
@@ -73,10 +108,6 @@ export function DataTable<T>({
   // action column keeps it in view however far the rest scrolls, which is
   // what every dense table people already use does.
   const pinLast = /^actions?$/.test(columns[columns.length - 1]?.key ?? "");
-  const pinCls = (i: number) =>
-    pinLast && i === columns.length - 1
-      ? "sticky right-0 z-10 bg-card shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.12)]"
-      : "";
   const paged = pg.paged;
 
   useEffect(() => {
@@ -125,15 +156,15 @@ export function DataTable<T>({
         onKeyDown={onKey}
         className="data-table relative flex-1 overflow-auto outline-none"
       >
-        <table className="w-full min-w-max text-[13px]">
+        <table className="w-full min-w-max text-[13px]" data-pin-last={pinLast || undefined}>
           <thead>
             <tr>
-              {columns.map((c, ci) => (
+              {columns.map((c) => (
                 <th
                   key={c.key}
                   style={{ width: c.width, textAlign: c.align ?? "left" }}
                   onClick={() => c.sortValue && toggleSort(c.key)}
-                  className={cn(c.sortValue && "cursor-pointer select-none", pinCls(ci))}
+                  className={cn(c.sortValue && "cursor-pointer select-none")}
                 >
                   {c.label}
                   {sortKey === c.key && (
@@ -157,19 +188,15 @@ export function DataTable<T>({
                     onDoubleClick={() => onRowActivate?.(row)}
                     className="cursor-pointer"
                   >
-                    {columns.map((c, ci) => (
-                      <td
-                        key={c.key}
-                        style={{ textAlign: c.align ?? "left" }}
-                        className={pinCls(ci)}
-                      >
+                    {columns.map((c) => (
+                      <td key={c.key} style={{ textAlign: c.align ?? "left" }}>
                         {c.render(row)}
                       </td>
                     ))}
                   </tr>
                 ))}
           </tbody>
-          {footer && paged.length > 0 && <tfoot>{footer}</tfoot>}
+          {footer && paged.length > 0 && <tfoot>{padFooter(footer, columns.length)}</tfoot>}
         </table>
         {paged.length === 0 && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center pointer-events-none">

@@ -272,6 +272,31 @@
     position: sticky;
     bottom: 0;
   }
+  /* A pinned last column — the Action buttons, which on a table wider than
+     the panel otherwise sit past the right edge where nobody scrolls to.
+     Each context needs its OWN opaque background, because a sticky cell is
+     painted over whatever scrolls under it: a single class could not follow
+     the row's hover and selected colours, so it is done here. */
+  & table[data-pin-last] th:last-child,
+  & table[data-pin-last] td:last-child {
+    position: sticky;
+    right: 0;
+    box-shadow: -8px 0 8px -8px rgb(0 0 0 / 0.14);
+  }
+  & table[data-pin-last] thead th:last-child {
+    z-index: 2;
+  }
+  & table[data-pin-last] tbody td:last-child {
+    z-index: 1;
+    background: var(--color-card);
+  }
+  & table[data-pin-last] tbody tr:hover td:last-child {
+    background: color-mix(in oklch, var(--color-accent) 70%, var(--color-card));
+  }
+  & table[data-pin-last] tbody tr[data-selected="true"] td:last-child {
+    background: color-mix(in oklch, var(--color-primary) 12%, var(--color-card));
+  }
+
   & tfoot td {
     /* Same reasoning as thead — sticky footer needs an opaque background.
        Darker than --color-muted (which is barely off-white) and given more

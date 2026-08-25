@@ -361,7 +361,6 @@ function CashPage() {
               </td>
               <td className="text-right tabular-nums">{fmtMoney(totalIn)}</td>
               <td className="text-right tabular-nums">{fmtMoney(totalOut)}</td>
-              <td />
             </tr>
           }
         />
@@ -410,19 +409,22 @@ function CashRowActions({
     // changing one side's amount here would leave the two ends disagreeing.
     const isTransfer = !!adj?.transferId;
     return (
-      <span className="inline-flex gap-1" onClick={(e) => e.stopPropagation()}>
+      <span
+        className="inline-flex items-center justify-center gap-0.5"
+        onClick={(e) => e.stopPropagation()}
+      >
         <button
           onClick={() => adj && onEdit(adj)}
           disabled={!adj || isTransfer}
           title={isTransfer ? "Part of a transfer — delete it and enter it again" : "Edit entry"}
-          className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition disabled:opacity-30 disabled:hover:bg-transparent"
+          className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-transparent text-gray-400 transition hover:bg-primary-soft hover:text-primary hover:border-primary/25 disabled:opacity-30 disabled:pointer-events-none"
         >
           <Pencil className="h-3.5 w-3.5" />
         </button>
         <button
           onClick={() => onDelete(row)}
           title={isTransfer ? "Delete this transfer from both accounts" : "Delete entry"}
-          className="p-1 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-600 transition"
+          className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-transparent text-gray-400 transition hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
@@ -445,7 +447,7 @@ function CashRowActions({
         navigate({ to });
       }}
       title={`This came from a ${src.kind} — open it to change it`}
-      className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition"
+      className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-transparent text-gray-400 transition hover:bg-primary-soft hover:text-primary hover:border-primary/25"
     >
       <ExternalLink className="h-3.5 w-3.5" />
     </button>
