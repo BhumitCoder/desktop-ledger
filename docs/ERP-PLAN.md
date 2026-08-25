@@ -192,7 +192,7 @@ caught by a named assertion.
 - **Payoff** this is what retires the drift class permanently. Nothing mutates,
   so nothing can disagree with itself.
 
-### 4.6 Posting ledger + Trial Balance
+### 4.6 Posting ledger + Trial Balance — **DONE (Phase 2)**
 - **Add** the two collections above; `src/lib/posting.ts` builds the lines for a
   document; `src/lib/trialBalance.ts` sums the ledger.
 - **Touches** every posting point (table in §3) — the largest single change.
@@ -202,6 +202,68 @@ caught by a named assertion.
   already in `tests/audit.test.ts`, that for every scenario: every entry balances,
   and the ledger's receivable/payable/cash/bank equals what `netPartyPositions`,
   `cashFlows` and `bankFlows` say.
+
+**Built, and the one deliberate departure from §1.** The posting rules are
+complete and live in `src/lib/posting.ts`; the chart of accounts is
+`src/lib/accounts.ts`; `src/lib/trialBalance.ts` sums it and reconciles it.
+What §1 got wrong is *when* the rules run: it said write ledger lines on every
+document's batch. They are applied **on read** instead, and the reasons only
+became clear with the shop's real data in view:
+
+1. **A written ledger would be empty for all of history.** Every bill, payment
+   and expense on the books predates the change, so a trial balance read off it
+   is wrong until thousands of documents are backfilled — a mass write to a
+   live shop's Firestore, the riskiest single act in this whole plan, buying
+   nothing a derived ledger does not already give.
+2. **Dual writing can drift.** Two records of one fact, written on every path,
+   is the exact shape of the bug this phase exists to kill: the dashboard
+   double-count happened because two places answered the same question
+   separately. A derived ledger cannot disagree with the documents, because it
+   *is* the documents.
+3. **Nothing needs it stored yet.** Storage buys immutability, and immutability
+   matters only for what no document implies — a manual journal voucher, a
+   year-end closing entry, an append-only reversal. Those are Phases 3 and 4,
+   and `JournalEntry` is already the shape they will be stored in, so they add
+   rows to the list rather than replacing it.
+
+§1's stage 2 — reconcile before switching any reader — is untouched and is the
+reason to trust any of this. Nothing on any screen reads the ledger for a
+figure it already had.
+
+**Three accounts exist to expose gaps rather than hide them,** and they are
+what makes the trial balance worth reading on this shop's data:
+- **Suspense** — money recorded as paid on a Credit-mode bill. It reduces what
+  the party owes and reaches no cash or bank position anywhere.
+- **Bank (account not recorded)** — bank/UPI/cheque money never tied to WHICH
+  account. Sits outside every stored bank balance.
+- **Cash Short/Over** — counting differences, and every cash entry with no
+  stated reason (what Phase 1 now prevents going forward).
+
+**Two findings the reconciliation surfaced immediately.** The app's P&L does not
+count stock written off, unexplained cash, or other income; rather than dropping
+those from the ledger to make the row match, the Net Profit row adds them back
+to the app's figure and names the amount. And a stored `BankAccount.balance`
+drifting from its own documents now shows as a figure per account — the same
+drift `planBankRepair` hunts, finally measurable.
+
+**Screens** `/reports?r=trial-balance` and `/reports?r=reconcile`.
+
+**Proven by** 22 mutations, each caught by a named assertion: GST booked as
+revenue, revenue at the bill total, the discount line dropped, an advance
+counted only when allocated, both transfer legs posted twice, openings never
+posted, drawings treated as an expense, the ₹29,000 sent to profit, Credit-mode
+money counted as cash, the named bank account ignored, a stale tax field
+trusted, a purchase booked as a receivable, goods never leaving stock, a
+party's position summed the wrong way, a liability printed negative, an
+unbalanced entry reaching the report, the reconciliation always saying "fine",
+a disagreeing row ticked, and the difference column blanked.
+
+Two of those mutations survived the first attempt and both were **test gaps,
+not code gaps**: the randomised generator never produced a non-GST bill with a
+stale tax figure (its non-GST bills had zero-rated lines, so "keep the tax
+field" kept a zero), and the trial balance's footer was only ever checked
+against itself — two totals computed the same wrong way agree perfectly. Both
+tests were fixed and the mutations then failed as they should.
 
 ### 4.7 Balance Sheet + P&L from the ledger, and year close
 - **Add** `/reports?r=balance-sheet`, `?r=trial-balance`; a Year Close action
@@ -268,7 +330,7 @@ Dependency-driven, cheapest-safest first:
 |---|---|---|---|
 | 0 | Audit trail · Period lock · Voucher numbers | — | **done** |
 | 1 | Reason categories on cash | 0 | **done** |
-| 2 | Posting ledger + reconciliation report + Trial Balance | 0 | |
+| 2 | Posting ledger + reconciliation report + Trial Balance | 0 | **done** |
 | 3 | Balance Sheet · P&L from ledger · Year close | 2 reconciled | |
 | 4 | Append-only corrections | 2 | |
 | 5 | Unit conversion | — | |

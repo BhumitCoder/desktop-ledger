@@ -40,6 +40,8 @@ import { planStockRepair } from "@/lib/dataRepair";
 import { transferLegsFor } from "@/lib/transferLegs";
 import { AuditLogRepo, nextVoucherNo } from "@/repositories";
 import { isLocked, blockedDate, lockMessage } from "@/lib/periodLock";
+import { buildJournal, isBalanced, entryDrift, type Book } from "@/lib/posting";
+import { reconcile, trialBalance, balanceOf, partyPositionsFromLedger } from "@/lib/trialBalance";
 import {
   CASH_PURPOSES,
   CHOOSABLE_PURPOSES,
@@ -1725,6 +1727,882 @@ console.log(`\n═════════════════════�
     { purpose: "short-over", type: "reduce", amount: 0.02 },
   ]);
   assert(paise[0].net === 0.03, `T26: paise add up exactly — ${paise[0].net}`);
+}
+
+/* ═══ TEST 27: the posting ledger, and proof it agrees with the app ═════
+   The whole case for a ledger is that there is ONE answer to read. That is
+   worth nothing unless the one answer matches the answers the shop has been
+   running its business on — so every assertion below compares the posting
+   rules against an independently written calculation: netPartyPositions,
+   cashFlows, bankFlows, the stored bank balances, and the P&L the Reports
+   screen prints. None of them share code with lib/posting.ts, so agreement
+   is evidence rather than a tautology. */
+{
+  const emptyBook = (): Book => ({
+    parties: [],
+    items: [],
+    banks: [],
+    sales: [],
+    purchases: [],
+    saleReturns: [],
+    purchaseReturns: [],
+    payments: [],
+    expenses: [],
+    cashAdjustments: [],
+    bankTxns: [],
+    stockAdjustments: [],
+  });
+
+  /* ── The rules, one at a time, with numbers worked out by hand ────────
+     A randomised sweep follows, but a sweep only proves self-consistency:
+     if a rule is wrong in the same way everywhere, every invariant still
+     holds. These are the individual postings, checked against arithmetic
+     done outside the code. */
+
+  // A GST sale, part paid in cash at the counter, with freight and a
+  // round-off — every component of a bill total in one document.
+  {
+    const b = emptyBook();
+    b.items.push({ id: "I1", name: "Item", purchasePrice: 100, openingStock: 0 } as never);
+    b.parties.push({ id: "P1", name: "Cust", openingBalance: 0, createdAt: "" } as never);
+    b.sales.push({
+      id: "S1",
+      number: "INV-1",
+      date: "2026-04-01",
+      partyId: "P1",
+      partyName: "Cust",
+      gstEnabled: true,
+      lineItems: [{ itemId: "I1", qty: 2, price: 1000, costPrice: 100 }],
+      subtotal: 2000,
+      discount: 0,
+      shippingCharge: 50,
+      taxAmount: 360,
+      roundOff: -0.4,
+      total: 2409.6,
+      paid: 409.6,
+      paymentMode: "cash",
+      createdAt: "",
+    } as never);
+
+    const [je] = buildJournal(b).filter((e) => e.docKind === "sale");
+    const amt = (accountId: string, side: "debit" | "credit") =>
+      r2(je.lines.filter((l) => l.accountId === accountId).reduce((s, l) => s + l[side], 0));
+    assert(isBalanced(je), `T27: a sale entry balances — out by ${entryDrift(je)}`);
+    assert(
+      amt("ar", "debit") === 2409.6,
+      `T27: the customer owes the bill total — ${amt("ar", "debit")}`,
+    );
+    assert(
+      amt("sales", "credit") === 2000,
+      `T27: revenue is the taxable value only — ${amt("sales", "credit")}`,
+    );
+    assert(
+      amt("output-gst", "credit") === 360,
+      `T27: GST collected is a liability, never revenue — ${amt("output-gst", "credit")}`,
+    );
+    assert(
+      amt("freight-income", "credit") === 50,
+      `T27: freight charged is its own income line — ${amt("freight-income", "credit")}`,
+    );
+    // −0.40 credit is not a thing a ledger prints; it is a 0.40 debit.
+    assert(
+      amt("round-off", "debit") === 0.4 && amt("round-off", "credit") === 0,
+      `T27: a negative round-off posts as a debit — dr ${amt("round-off", "debit")} cr ${amt("round-off", "credit")}`,
+    );
+    assert(
+      amt("cash", "debit") === 409.6 && amt("ar", "credit") === 409.6,
+      "T27: cash taken at the counter clears that much of the receivable",
+    );
+    assert(
+      amt("cogs", "debit") === 200 && amt("inventory", "credit") === 200,
+      `T27: the goods leave stock at cost — ${amt("cogs", "debit")}`,
+    );
+  }
+
+  /* A settlement discount. Collecting 20,000 against a 20,500 bill and
+     waiving 500 closes the bill without inventing 500 of cash — the mistake
+     that would show up as phantom money in the drawer. */
+  {
+    const b = emptyBook();
+    b.parties.push({ id: "P1", name: "Cust", openingBalance: 0, createdAt: "" } as never);
+    b.sales.push({
+      id: "S1",
+      number: "INV-1",
+      date: "2026-04-01",
+      partyId: "P1",
+      partyName: "Cust",
+      lineItems: [],
+      subtotal: 20500,
+      discount: 0,
+      taxAmount: 0,
+      total: 20500,
+      paid: 20500,
+      paymentMode: "credit",
+      createdAt: "",
+    } as never);
+    b.payments.push({
+      id: "PAY1",
+      date: "2026-04-21",
+      partyId: "P1",
+      partyName: "Cust",
+      type: "in",
+      amount: 20000,
+      mode: "cash",
+      allocations: [{ invoiceId: "S1", number: "INV-1", amount: 20000, discount: 500 }],
+      createdAt: "",
+    } as never);
+
+    const entries = buildJournal(b);
+    assert(entries.every(isBalanced), "T27: a discounted settlement balances");
+    assert(
+      balanceOf(entries, "cash") === 20000,
+      `T27: only the money actually taken reaches cash — ${balanceOf(entries, "cash")}`,
+    );
+    assert(
+      balanceOf(entries, "discount-allowed") === 500,
+      `T27: the waived 500 is a cost, not cash — ${balanceOf(entries, "discount-allowed")}`,
+    );
+    assert(
+      balanceOf(entries, "ar") === 0,
+      `T27: and the bill is closed — receivable ${balanceOf(entries, "ar")}`,
+    );
+    assert(
+      balanceOf(entries, "suspense") === 0,
+      "T27: the credit-mode bill's own 'paid' was all settled by the payment, so nothing is left unexplained",
+    );
+  }
+
+  /* Money recorded as paid on a Credit bill with no payment behind it. The
+     app reduces what the party owes but the money reaches no cash or bank
+     position anywhere — so it must land somewhere visible instead of
+     vanishing, or the ledger would not balance and nobody would know why. */
+  {
+    const b = emptyBook();
+    b.parties.push({ id: "P1", name: "Cust", openingBalance: 0, createdAt: "" } as never);
+    b.sales.push({
+      id: "S1",
+      number: "INV-1",
+      date: "2026-04-01",
+      partyId: "P1",
+      partyName: "Cust",
+      lineItems: [],
+      subtotal: 1000,
+      discount: 0,
+      taxAmount: 0,
+      total: 1000,
+      paid: 400,
+      paymentMode: "credit",
+      createdAt: "",
+    } as never);
+    const entries = buildJournal(b);
+    assert(entries.every(isBalanced), "T27: it still balances");
+    /* A DEBIT of 400: the bill says money arrived, so something the shop owns
+       went up — which thing is what is missing. That is what Suspense is, and
+       it is why it sits with the assets rather than reading as a negative
+       liability. */
+    assert(
+      balanceOf(entries, "suspense") === 400,
+      `T27: money paid with no mode named sits in Suspense — ${balanceOf(entries, "suspense")}`,
+    );
+    assert(balanceOf(entries, "cash") === 0, "T27: and is NOT counted as cash the shop has");
+  }
+
+  /* Receivable and Payable are separate accounts, and must stay separate.
+     Every check above works from ONE net figure per party, which is what the
+     dashboard needs — and that number is identical whether a purchase posts
+     to Payable or to Receivable, so none of them would notice the swap. A
+     balance sheet would: it has to show what the shop is owed and what it
+     owes side by side, gross, not one line that happens to net out. */
+  {
+    const b = emptyBook();
+    b.parties.push({ id: "P1", name: "Supplier", openingBalance: 0, createdAt: "" } as never);
+    b.purchases.push({
+      id: "PB1",
+      number: "PB-1",
+      date: "2026-04-01",
+      partyId: "P1",
+      partyName: "Supplier",
+      lineItems: [],
+      subtotal: 8000,
+      discount: 0,
+      taxAmount: 0,
+      total: 8000,
+      paid: 3000,
+      paymentMode: "cash",
+      createdAt: "",
+    } as never);
+    const entries = buildJournal(b);
+    assert(
+      balanceOf(entries, "ar") === 0,
+      `T27: a purchase never touches Receivable — ${balanceOf(entries, "ar")}`,
+    );
+    assert(
+      balanceOf(entries, "ap") === -5000,
+      `T27: it is a payable, and the 3,000 paid reduced it — ${balanceOf(entries, "ap")}`,
+    );
+
+    // The same party trading both ways: each side stays on its own account,
+    // and the net the dashboard reads is the sum of the two.
+    b.sales.push({
+      id: "S1",
+      number: "INV-1",
+      date: "2026-04-02",
+      partyId: "P1",
+      partyName: "Supplier",
+      lineItems: [],
+      subtotal: 6000,
+      discount: 0,
+      taxAmount: 0,
+      total: 6000,
+      paid: 0,
+      paymentMode: "credit",
+      createdAt: "",
+    } as never);
+    const both = buildJournal(b);
+    assert(
+      balanceOf(both, "ar") === 6000 && balanceOf(both, "ap") === -5000,
+      `T27: both sides shown gross — receivable ${balanceOf(both, "ar")}, payable ${balanceOf(both, "ap")}`,
+    );
+    assert(
+      partyPositionsFromLedger(both).get("P1") === 1000,
+      `T27: and the party's own position is the net of them — ${partyPositionsFromLedger(both).get("P1")}`,
+    );
+  }
+
+  /* An imported bill that says it carries no GST but still has a tax figure
+     sitting in the field — real, and what valueExTax's own guard exists for.
+     If the posting rules trusted that field, revenue would be understated by a
+     tax the shop never charged, and the P&L would disagree with the ledger by
+     exactly that amount. */
+  {
+    const b = emptyBook();
+    b.parties.push({ id: "P1", name: "Cust", openingBalance: 0, createdAt: "" } as never);
+    b.sales.push({
+      id: "S1",
+      number: "INV-1",
+      date: "2026-04-01",
+      partyId: "P1",
+      partyName: "Cust",
+      gstEnabled: false,
+      lineItems: [],
+      subtotal: 5000,
+      discount: 0,
+      // Left behind by whatever exported it. The bill total does not include
+      // it, so none of this is tax.
+      taxAmount: 500,
+      total: 5000,
+      paid: 0,
+      paymentMode: "credit",
+      createdAt: "",
+    } as never);
+    const entries = buildJournal(b);
+    assert(entries.every(isBalanced), "T27: a bill with a stale tax field still balances");
+    assert(
+      balanceOf(entries, "output-gst") === 0,
+      `T27: a bill marked non-GST posts no GST, whatever its tax field holds — ${balanceOf(entries, "output-gst")}`,
+    );
+    assert(
+      balanceOf(entries, "sales") === -5000,
+      `T27: and the whole bill is revenue — ${balanceOf(entries, "sales")}`,
+    );
+  }
+
+  /* A sale never touches Payable either — the mirror of the check above. */
+  {
+    const b = emptyBook();
+    b.parties.push({ id: "P1", name: "Cust", openingBalance: 0, createdAt: "" } as never);
+    b.sales.push({
+      id: "S1",
+      number: "INV-1",
+      date: "2026-04-01",
+      partyId: "P1",
+      partyName: "Cust",
+      lineItems: [],
+      subtotal: 4000,
+      discount: 0,
+      taxAmount: 0,
+      total: 4000,
+      paid: 0,
+      paymentMode: "credit",
+      createdAt: "",
+    } as never);
+    const entries = buildJournal(b);
+    assert(
+      balanceOf(entries, "ap") === 0 && balanceOf(entries, "ar") === 4000,
+      `T27: a sale is a receivable and nothing else — ar ${balanceOf(entries, "ar")}, ap ${balanceOf(entries, "ap")}`,
+    );
+  }
+
+  /* An advance. Money received against no bill still moves the party, and the
+     receivable going into credit is what "we owe them goods" looks like. */
+  {
+    const b = emptyBook();
+    b.parties.push({ id: "P1", name: "Cust", openingBalance: 0, createdAt: "" } as never);
+    b.payments.push({
+      id: "PAY1",
+      date: "2026-04-02",
+      partyId: "P1",
+      partyName: "Cust",
+      type: "in",
+      amount: 3000,
+      mode: "cash",
+      createdAt: "",
+    } as never);
+    const entries = buildJournal(b);
+    assert(
+      balanceOf(entries, "cash") === 3000 && balanceOf(entries, "ar") === -3000,
+      `T27: an advance is cash in and receivable in credit — ${balanceOf(entries, "ar")}`,
+    );
+  }
+
+  /* Opening balances. Without these the ledger disagrees with every screen by
+     exactly the openings — the first thing a trial balance would show. */
+  {
+    const b = emptyBook();
+    b.parties.push(
+      {
+        id: "P1",
+        name: "Owes us",
+        openingBalance: 5000,
+        createdAt: "2026-01-01T00:00:00Z",
+      } as never,
+      {
+        id: "P2",
+        name: "We owe",
+        openingBalance: -2000,
+        createdAt: "2026-01-01T00:00:00Z",
+      } as never,
+    );
+    b.banks.push({
+      id: "B1",
+      name: "Bank",
+      openingBalance: 7000,
+      balance: 7000,
+      createdAt: "2026-01-01T00:00:00Z",
+    } as never);
+    b.items.push({
+      id: "I1",
+      name: "Item",
+      purchasePrice: 40,
+      openingStock: 10,
+      createdAt: "2026-01-01T00:00:00Z",
+    } as never);
+
+    const entries = buildJournal(b);
+    assert(entries.every(isBalanced), "T27: opening entries balance");
+    assert(balanceOf(entries, "ar") === 5000, "T27: an opening receivable lands in Receivable");
+    assert(balanceOf(entries, "ap") === -2000, "T27: an opening payable lands in Payable");
+    assert(
+      balanceOf(entries, "bank:B1") === 7000,
+      "T27: a bank's opening balance is its own account",
+    );
+    assert(balanceOf(entries, "inventory") === 400, "T27: opening stock is valued at cost");
+    // 5,000 + 7,000 + 400 carried in, less the 2,000 the shop already owed.
+    assert(
+      balanceOf(entries, "opening-equity") === -10400,
+      `T27: and all of it against Opening Balance Equity — ${balanceOf(entries, "opening-equity")}`,
+    );
+  }
+
+  /* A transfer is ONE voucher. Posting each stored leg on its own would move
+     the money out of one account and never into the other — the exact failure
+     the leg pairing exists to prevent, reappearing in the ledger. */
+  {
+    const b = emptyBook();
+    b.banks.push({
+      id: "B1",
+      name: "Bank",
+      openingBalance: 0,
+      balance: 5000,
+      createdAt: "",
+    } as never);
+    b.cashAdjustments.push({
+      id: "CA1",
+      date: "2026-04-05",
+      type: "reduce",
+      amount: 5000,
+      reason: "Transfer Cash in Hand → Bank",
+      transferId: "TR1",
+      createdAt: "",
+    } as never);
+    b.bankTxns.push({
+      id: "BT1",
+      bankId: "B1",
+      date: "2026-04-05",
+      type: "deposit",
+      amount: 5000,
+      notes: "Transfer Cash in Hand → Bank",
+      transferId: "TR1",
+      createdAt: "",
+    } as never);
+
+    const entries = buildJournal(b);
+    assert(
+      entries.filter((e) => e.docKind === "transfer").length === 1,
+      `T27: a transfer is one entry, not two — got ${entries.filter((e) => e.docKind === "transfer").length}`,
+    );
+    assert(
+      entries.filter((e) => e.docKind === "cash-adjustment").length === 0 &&
+        entries.filter((e) => e.docKind === "bank-txn").length === 0,
+      "T27: and neither leg is ALSO posted on its own",
+    );
+    assert(
+      balanceOf(entries, "cash") === -5000 && balanceOf(entries, "bank:B1") === 5000,
+      `T27: the money left cash and arrived at the bank — cash ${balanceOf(entries, "cash")}, bank ${balanceOf(entries, "bank:B1")}`,
+    );
+    assert(
+      balanceOf(entries, "suspense") === 0,
+      "T27: a paired transfer explains itself — nothing goes to Suspense",
+    );
+
+    // The same pair as the shop's older records hold it: no transferId on
+    // either side, recognised only by the note and the amount.
+    const legacy = emptyBook();
+    legacy.banks = b.banks;
+    legacy.cashAdjustments = [
+      { ...b.cashAdjustments[0], id: "CA2", transferId: undefined } as never,
+    ];
+    legacy.bankTxns = [{ ...b.bankTxns[0], id: "BT2", transferId: undefined } as never];
+    const legacyEntries = buildJournal(legacy);
+    assert(
+      legacyEntries.filter((e) => e.docKind === "transfer").length === 1,
+      "T27: an older unstamped pair is still one transfer, not two loose entries",
+    );
+    assert(
+      balanceOf(legacyEntries, "cash") === -5000 && balanceOf(legacyEntries, "bank:B1") === 5000,
+      "T27: and it moves the same money the same way",
+    );
+  }
+
+  /* Phase 1 arriving where it was always headed: a stated reason becomes the
+     account the other side of the cash movement posts to. */
+  {
+    const b = emptyBook();
+    b.cashAdjustments.push(
+      {
+        id: "C1",
+        date: "2026-04-01",
+        type: "add",
+        amount: 29000,
+        purpose: "opening",
+        createdAt: "",
+      } as never,
+      {
+        id: "C2",
+        date: "2026-04-02",
+        type: "add",
+        amount: 5000,
+        purpose: "owner-in",
+        createdAt: "",
+      } as never,
+      {
+        id: "C3",
+        date: "2026-04-03",
+        type: "reduce",
+        amount: 2000,
+        purpose: "owner-out",
+        createdAt: "",
+      } as never,
+      { id: "C4", date: "2026-04-04", type: "reduce", amount: 100, createdAt: "" } as never,
+    );
+    const entries = buildJournal(b);
+    assert(entries.every(isBalanced), "T27: cash vouchers balance");
+    assert(
+      balanceOf(entries, "opening-equity") === -29000,
+      `T27: the shop's ₹29,000 lands in Opening Balance Equity — ${balanceOf(entries, "opening-equity")}`,
+    );
+    assert(
+      balanceOf(entries, "capital") === -5000,
+      "T27: money the owner put in is capital, not profit",
+    );
+    assert(
+      balanceOf(entries, "drawings") === 2000,
+      "T27: money the owner took out is drawings, not an expense",
+    );
+    assert(
+      balanceOf(entries, "cash-short-over") === 100,
+      `T27: and an entry with no stated reason is visible as unexplained — ${balanceOf(entries, "cash-short-over")}`,
+    );
+    assert(
+      balanceOf(entries, "cash") === 31900,
+      `T27: cash in hand is unaffected by which reason was given — ${balanceOf(entries, "cash")}`,
+    );
+  }
+
+  /* ── The randomised sweep ─────────────────────────────────────────────
+     Full books: GST and non-GST bills, part payments, allocations with
+     write-offs, advances, both kinds of return, expenses, manual cash,
+     deposits, and transfers of all three shapes. The stored bank balance is
+     moved exactly as the app moves it, so comparing the ledger against it
+     means something. */
+  for (let t = 0; t < 150; t++) {
+    const book = emptyBook();
+    const pid = (n: number) => `p${t}-${n}`;
+
+    const nParties = 2 + ri(4);
+    for (let i = 0; i < nParties; i++)
+      book.parties.push({
+        id: pid(i),
+        name: `Party ${i}`,
+        type: "both",
+        openingBalance: ri(3) === 0 ? r2((rnd() - 0.5) * 20000) : 0,
+        createdAt: "2026-01-01T00:00:00Z",
+      } as never);
+
+    const nBanks = 1 + ri(2);
+    for (let i = 0; i < nBanks; i++) {
+      const opening = r2(rnd() * 50000);
+      book.banks.push({
+        id: `b${t}-${i}`,
+        name: `Bank ${i}`,
+        openingBalance: opening,
+        // The app keeps this as a stored running total; every write below
+        // moves it the way the real screens do.
+        balance: opening,
+        createdAt: "2026-01-01T00:00:00Z",
+      } as never);
+    }
+    const bumpBank = (bankId: string, delta: number) => {
+      const acct = book.banks.find((b) => b.id === bankId)!;
+      acct.balance = r2(acct.balance + delta);
+    };
+
+    for (let i = 0; i < 2 + ri(6); i++)
+      book.items.push({
+        id: `i${t}-${i}`,
+        name: `Item ${i}`,
+        unit: "PCS",
+        gstRate: pick([0, 5, 12, 18]),
+        purchasePrice: r2(10 + rnd() * 500),
+        salePrice: 0,
+        stock: 0,
+        openingStock: ri(2) === 0 ? ri(50) : 0,
+        createdAt: "2026-01-01T00:00:00Z",
+      } as never);
+
+    /** A bill, built the way InvoiceForm builds one. */
+    const makeBill = (kind: "sale" | "purchase", n: number) => {
+      const party = pick(book.parties);
+      const gst = ri(4) !== 0;
+      /* An imported bill that says it carries no GST but still has a tax
+         figure sitting in the field. valueExTax guards against exactly this
+         ("legacy/imported documents"), so the posting rules have to be fed it
+         or that guard is untested — and it was: removing it broke nothing. */
+      const staleTax = !gst && ri(3) === 0;
+      const lines = Array.from({ length: 1 + ri(3) }, () => {
+        const item = pick(book.items);
+        const qty = 1 + ri(5);
+        const price = r2(20 + rnd() * 800);
+        const gstRate = gst ? item.gstRate : 0;
+        return {
+          id: nid(),
+          itemId: item.id,
+          name: item.name,
+          qty,
+          unit: "PCS",
+          price,
+          discountPct: 0,
+          gstRate,
+          amount: r2(qty * price),
+          costPrice: item.purchasePrice,
+        };
+      });
+      const subtotal = r2(lines.reduce((s, l) => s + l.amount, 0));
+      const taxAmount = r2(lines.reduce((s, l) => s + (l.amount * l.gstRate) / 100, 0));
+      const discount = ri(4) === 0 ? r2(rnd() * 100) : 0;
+      const shippingCharge = kind === "sale" && ri(4) === 0 ? r2(rnd() * 200) : 0;
+      const staleTaxAmount = r2(subtotal * 0.18);
+      // A non-GST bill total never includes tax, whatever the field holds.
+      const raw = r2(subtotal - discount + shippingCharge + (gst ? taxAmount : 0));
+      const total = Math.round(raw);
+      const roundOff = r2(total - raw);
+
+      const mode = pick(["cash", "bank", "upi", "credit"] as PaymentMode[]);
+      const useBankId = mode === "bank" && ri(2) === 0;
+      const bankId = useBankId ? pick(book.banks).id : undefined;
+      // A bill tied to a bank account has its money on that account's stored
+      // balance already, so later payments are never allocated to it — the
+      // same shape the app produces, and what makes the bank row comparable.
+      const paid = ri(3) === 0 ? total : ri(3) === 0 ? r2(total * rnd()) : 0;
+
+      const bill = {
+        id: `${kind[0]}${t}-${n}`,
+        number: `${kind === "sale" ? "INV" : "PB"}-${t}-${n}`,
+        date: `2026-0${1 + ri(6)}-1${ri(9)}`,
+        partyId: party.id,
+        partyName: party.name,
+        gstEnabled: gst,
+        lineItems: lines,
+        subtotal,
+        discount,
+        shippingCharge,
+        // The tax field on a non-GST bill: normally 0, and on a stale import
+        // whatever the exporting system left in it — which is not zero, and
+        // is the entire point of the case.
+        taxAmount: gst ? taxAmount : staleTax ? staleTaxAmount : 0,
+        roundOff,
+        total,
+        paid,
+        paymentMode: mode,
+        ...(bankId ? { bankId, bankPaidAmount: paid } : {}),
+        createdAt: "",
+      } as unknown as Invoice;
+
+      if (bankId && paid) bumpBank(bankId, kind === "sale" ? paid : -paid);
+      return { bill, allocatable: !bankId };
+    };
+
+    for (let i = 0; i < 1 + ri(8); i++) {
+      const { bill } = makeBill("sale", i);
+      book.sales.push(bill);
+    }
+    for (let i = 0; i < ri(5); i++) {
+      const { bill } = makeBill("purchase", i);
+      book.purchases.push(bill);
+    }
+
+    /* Payments against open bills, some with a write-off, plus pure
+       advances. `paid` moves by cash + discount, exactly as payments.tsx
+       does, which is what keeps the direct-portion subtraction honest. */
+    const settle = (bills: Invoice[], type: "in" | "out") => {
+      for (const bill of bills) {
+        if (bill.bankId) continue;
+        const due = r2(bill.total - bill.paid);
+        if (due <= 1 || ri(2)) continue;
+        const cash = r2(due * (0.2 + rnd() * 0.6));
+        const writeOff = ri(3) === 0 ? r2(Math.min(due - cash, rnd() * 200)) : 0;
+        if (cash <= 0) continue;
+        bill.paid = r2(bill.paid + cash + writeOff);
+        const mode = pick(["cash", "bank", "upi"] as PaymentMode[]);
+        const bankId = mode === "bank" && ri(2) === 0 ? pick(book.banks).id : undefined;
+        if (bankId) bumpBank(bankId, type === "in" ? cash : -cash);
+        book.payments.push({
+          id: nid(),
+          date: "2026-06-20",
+          partyId: bill.partyId,
+          partyName: bill.partyName,
+          type,
+          amount: cash,
+          mode,
+          ...(bankId ? { bankId } : {}),
+          allocations: [
+            {
+              invoiceId: bill.id,
+              number: bill.number,
+              amount: cash,
+              ...(writeOff ? { discount: writeOff } : {}),
+            },
+          ],
+          createdAt: "",
+        } as unknown as Payment);
+      }
+    };
+    settle(book.sales, "in");
+    settle(book.purchases, "out");
+
+    for (let i = 0; i < ri(3); i++) {
+      const party = pick(book.parties);
+      const type = ri(2) ? "in" : "out";
+      const amount = r2(100 + rnd() * 5000);
+      const mode = pick(["cash", "bank", "upi"] as PaymentMode[]);
+      const bankId = mode === "bank" && ri(2) === 0 ? pick(book.banks).id : undefined;
+      if (bankId) bumpBank(bankId, type === "in" ? amount : -amount);
+      book.payments.push({
+        id: nid(),
+        date: "2026-06-25",
+        partyId: party.id,
+        partyName: party.name,
+        type,
+        amount,
+        mode,
+        ...(bankId ? { bankId } : {}),
+        createdAt: "",
+      } as unknown as Payment);
+    }
+
+    // Returns, both directions.
+    for (const [source, target] of [
+      [book.sales, book.saleReturns],
+      [book.purchases, book.purchaseReturns],
+    ] as const) {
+      for (const bill of source) {
+        if (ri(5)) continue;
+        const total = Math.round(bill.total * 0.2);
+        const gst = bill.gstEnabled !== false;
+        const taxAmount = gst ? r2(total - total / 1.18) : 0;
+        target.push({
+          id: nid(),
+          number: `RT-${bill.number}`,
+          date: "2026-06-28",
+          partyId: bill.partyId,
+          partyName: bill.partyName,
+          gstEnabled: gst,
+          lineItems: (bill.lineItems ?? []).slice(0, 1).map((l) => ({ ...l, qty: 1 })),
+          subtotal: r2(total - taxAmount),
+          taxAmount,
+          total,
+          createdAt: "",
+        } as unknown as Return);
+      }
+    }
+
+    for (let i = 0; i < ri(5); i++) {
+      const amount = r2(50 + rnd() * 3000);
+      const mode = pick(["cash", "bank", "upi"] as PaymentMode[]);
+      const bankId = mode === "bank" && ri(2) === 0 ? pick(book.banks).id : undefined;
+      if (bankId) bumpBank(bankId, -amount);
+      book.expenses.push({
+        id: nid(),
+        date: "2026-06-30",
+        category: pick(["Shop Rent", "Salary", "Electricity", "Tea"]),
+        amount,
+        paymentMode: mode,
+        ...(bankId ? { bankId } : {}),
+        createdAt: "",
+      } as unknown as Expense);
+    }
+
+    for (let i = 0; i < ri(4); i++)
+      book.cashAdjustments.push({
+        id: nid(),
+        date: "2026-06-30",
+        type: ri(2) ? "add" : "reduce",
+        amount: r2(100 + rnd() * 4000),
+        purpose: pick(["opening", "owner-in", "owner-out", "short-over", "other", undefined]),
+        createdAt: "",
+      } as unknown as CashAdjustment);
+
+    // Loose deposits and withdrawals — the ones with no other side recorded.
+    for (let i = 0; i < ri(3); i++) {
+      const bank = pick(book.banks);
+      const type = ri(2) ? "deposit" : "withdraw";
+      const amount = r2(100 + rnd() * 8000);
+      bumpBank(bank.id, type === "deposit" ? amount : -amount);
+      book.bankTxns.push({
+        id: nid(),
+        bankId: bank.id,
+        date: "2026-06-30",
+        type,
+        amount,
+        createdAt: "",
+      } as unknown as BankTxn);
+    }
+
+    // Cash ↔ bank, and bank ↔ bank when there are two accounts.
+    if (ri(2) === 0) {
+      const bank = pick(book.banks);
+      const amount = r2(500 + rnd() * 9000);
+      const toBank = ri(2) === 0;
+      const transferId = nid();
+      bumpBank(bank.id, toBank ? amount : -amount);
+      book.cashAdjustments.push({
+        id: nid(),
+        date: "2026-07-01",
+        type: toBank ? "reduce" : "add",
+        amount,
+        reason: "Transfer",
+        transferId,
+        createdAt: "",
+      } as unknown as CashAdjustment);
+      book.bankTxns.push({
+        id: nid(),
+        bankId: bank.id,
+        date: "2026-07-01",
+        type: toBank ? "deposit" : "withdraw",
+        amount,
+        notes: "Transfer",
+        transferId,
+        createdAt: "",
+      } as unknown as BankTxn);
+    }
+    if (book.banks.length > 1 && ri(2) === 0) {
+      const amount = r2(500 + rnd() * 9000);
+      const transferId = nid();
+      bumpBank(book.banks[0].id, -amount);
+      bumpBank(book.banks[1].id, amount);
+      book.bankTxns.push(
+        {
+          id: nid(),
+          bankId: book.banks[0].id,
+          date: "2026-07-02",
+          type: "withdraw",
+          amount,
+          notes: "Transfer",
+          transferId,
+          createdAt: "",
+        } as unknown as BankTxn,
+        {
+          id: nid(),
+          bankId: book.banks[1].id,
+          date: "2026-07-02",
+          type: "deposit",
+          amount,
+          notes: "Transfer",
+          transferId,
+          createdAt: "",
+        } as unknown as BankTxn,
+      );
+    }
+
+    for (let i = 0; i < ri(3); i++) {
+      const item = pick(book.items);
+      book.stockAdjustments.push({
+        id: nid(),
+        itemId: item.id,
+        itemName: item.name,
+        date: "2026-07-03",
+        type: ri(2) ? "add" : "reduce",
+        qty: 1 + ri(5),
+        createdAt: "",
+      } as unknown as StockAdjustment);
+    }
+
+    /* ── and now the check ─────────────────────────────────────────── */
+    const recon = reconcile(book);
+
+    assert(
+      recon.unbalanced.length === 0,
+      `T27: every entry balances — ${recon.unbalanced.length} did not, first ${JSON.stringify(
+        recon.unbalanced[0]?.narration,
+      )} out by ${recon.unbalanced[0] ? entryDrift(recon.unbalanced[0]) : 0}`,
+    );
+
+    const tb = trialBalance(recon.entries, recon.accounts);
+    assert(tb.drift === 0, `T27: the trial balance itself balances — out by ${tb.drift}`);
+    assert(
+      tb.orphans.length === 0,
+      `T27: every posting points at an account in the chart — orphans ${JSON.stringify(tb.orphans)}`,
+    );
+
+    for (const row of recon.rows) {
+      assert(
+        row.ok,
+        `T27: ${row.label} — ledger ${row.ledger} vs app ${row.app}, out by ${row.diff}`,
+      );
+    }
+    assert(
+      recon.partyGaps.length === 0,
+      `T27: every party's position matches netPartyPositions — ${recon.partyGaps.length} differ, worst ${JSON.stringify(
+        recon.partyGaps[0],
+      )}`,
+    );
+    assert(recon.ok, "T27: so the whole book reconciles");
+
+    /* The trial balance must also be readable: assets and expenses lean
+       debit, everything else credit, or the report prints every liability as
+       a negative number. */
+    const assetRow = tb.rows.find((r) => r.accountId === "cash");
+    if (assetRow) {
+      assert(assetRow.balance === assetRow.net, "T27: an asset's balance is its debit position");
+    }
+    const gstRow = tb.rows.find((r) => r.accountId === "output-gst");
+    if (gstRow) {
+      assert(
+        gstRow.balance === -gstRow.net,
+        "T27: a liability reads as what is owed, not as a negative",
+      );
+    }
+  }
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);

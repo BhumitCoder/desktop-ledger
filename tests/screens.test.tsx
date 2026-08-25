@@ -3162,6 +3162,223 @@ async function runAll(): Promise<Results> {
     );
   }
 
+  /* ── The Trial Balance, on a real screen ──────────────────────────────
+     The report an accountant asks for first, and the one this shop has never
+     been able to produce. Driven against whatever every block above has
+     already put in the repos — a book with sales, purchases, returns,
+     payments, expenses, transfers and manual cash in it. */
+  {
+    const page = await renderRoute("/reports?r=trial-balance");
+    assert(page.includes("Trial Balance"), "trial balance: the report opened");
+
+    const table = document.querySelector("table");
+    assert(!!table, "trial balance: there is a table");
+    const headers = Array.from(table?.querySelectorAll("thead th") ?? []).map((th) =>
+      (th.textContent ?? "").trim(),
+    );
+    assert(
+      headers.join("|") === "Code|Account|Debit|Credit",
+      `trial balance: the four columns an accountant expects — ${headers}`,
+    );
+
+    // The groups are what make it readable as a balance sheet and a P&L.
+    for (const group of ["Assets", "Liabilities", "Income", "Expenses"]) {
+      assert(page.includes(group), `trial balance: the ${group} section is on the page`);
+    }
+
+    /* The one invariant the report exists to show. Read off the rendered
+       footer rather than recomputed, because a total that is right in the
+       library and wrong on screen is still wrong on screen. */
+    const foot = Array.from(table?.querySelectorAll("tfoot td") ?? []).map((td) =>
+      (td.textContent ?? "").trim(),
+    );
+    const num = (s: string) => Number((s || "").replace(/[^\d.-]/g, ""));
+    assert(foot.length === 3, `trial balance: the footer totals both columns — ${foot}`);
+    assert(
+      foot[0] === "Total" && num(foot[1]) > 0,
+      `trial balance: there is a real total to check — ${foot}`,
+    );
+    assert(
+      Math.abs(num(foot[1]) - num(foot[2])) < 0.02,
+      `trial balance: total debits equal total credits — ${foot[1]} vs ${foot[2]}`,
+    );
+    /* And each total against the column it is under, cell by cell as
+       rendered. Comparing the two totals to each other only proves they were
+       computed the same way — including the same wrong way. */
+    const columnSum = (nth: number) =>
+      Array.from(table?.querySelectorAll("tbody tr") ?? []).reduce((sum, tr) => {
+        const cells = tr.querySelectorAll("td");
+        // Group heading rows span all four columns and hold no figures.
+        if (cells.length < 4) return sum;
+        return sum + num((cells[nth].textContent ?? "").trim());
+      }, 0);
+    assert(
+      Math.abs(columnSum(2) - num(foot[1])) < 0.02,
+      `trial balance: the debit total is the sum of the debits shown — ${columnSum(2)} vs ${foot[1]}`,
+    );
+    assert(
+      Math.abs(columnSum(3) - num(foot[2])) < 0.02,
+      `trial balance: and the credit total the sum of the credits shown — ${columnSum(3)} vs ${foot[2]}`,
+    );
+
+    assert(
+      !page.includes("The books are out by"),
+      "trial balance: and nothing is flagged as out of balance",
+    );
+    assert(
+      !page.includes("accounts that do not exist"),
+      "trial balance: every posting points at an account in the chart",
+    );
+
+    // Cash in Hand is the row a shopkeeper looks for first.
+    const rowFor = (name: string) =>
+      Array.from(table?.querySelectorAll("tbody tr") ?? []).find((tr) =>
+        (tr.textContent ?? "").includes(name),
+      );
+    assert(!!rowFor("Cash in Hand"), "trial balance: Cash in Hand is listed");
+    assert(!!rowFor("Accounts Receivable"), "trial balance: so is Accounts Receivable");
+    /* Accounts that exist to expose a gap carry an explanation on the row.
+       "Suspense: 4,000" with nothing saying what it means would be worse than
+       not showing it. */
+    const suspense = rowFor("Suspense");
+    if (suspense) {
+      assert(
+        !!suspense.querySelector("[title]"),
+        "trial balance: an account that means something needs explaining says so on hover",
+      );
+    }
+  }
+
+  /* ── Reconciliation: does the ledger agree with the app? ──────────────
+     The screen that decides whether to believe the other one. What matters
+     is not that this book happens to reconcile — the harness seeds bank
+     balances by hand — but that a difference is CAUGHT, named, and put in
+     front of the shop instead of averaging away in a total. */
+  {
+    const page = await renderRoute("/reports?r=reconcile");
+    assert(page.includes("Ledger Reconciliation"), "reconcile: the report opened");
+    assert(
+      page.includes("Total Receivable") && page.includes("Total Payable"),
+      "reconcile: receivables and payables are checked",
+    );
+    assert(page.includes("Cash in Hand"), "reconcile: so is cash");
+    assert(page.includes("Net Profit"), "reconcile: and the profit figure");
+
+    const table = document.querySelector("table");
+    const headers = Array.from(table?.querySelectorAll("thead th") ?? []).map((th) =>
+      (th.textContent ?? "").trim(),
+    );
+    assert(
+      headers.join("|") === "Figure|Ledger|App today|Difference",
+      `reconcile: both answers side by side, with the gap — ${headers}`,
+    );
+
+    const rowFor = (name: string) =>
+      Array.from(table?.querySelectorAll("tbody tr") ?? []).find((tr) =>
+        (tr.textContent ?? "").includes(name),
+      );
+    const cells = (tr: Element | undefined) =>
+      Array.from(tr?.querySelectorAll("td") ?? []).map((td) => (td.textContent ?? "").trim());
+    const num = (s: string) => Number((s || "").replace(/[^\d.-]/g, ""));
+
+    /* Every entry balancing is the first row, because nothing below it means
+       anything if the journal does not add up. */
+    const balanced = rowFor("Every entry balances");
+    assert(!!balanced, "reconcile: the journal's own arithmetic is the first thing checked");
+    const bc = cells(balanced);
+    assert(
+      Math.abs(num(bc[1]) - num(bc[2])) < 0.02,
+      `reconcile: and it does balance — ${bc[1]} vs ${bc[2]}`,
+    );
+
+    /* Receivables and cash are derived twice by completely separate code —
+       the ledger's postings, and netPartyPositions/cashFlows. On this book
+       they must agree, and this is the assertion that would have caught the
+       dashboard double-count. */
+    for (const figure of ["Total Receivable", "Total Payable", "Cash in Hand"]) {
+      const c = cells(rowFor(figure));
+      assert(
+        c.length === 4 && Math.abs(num(c[1]) - num(c[2])) < 0.02,
+        `reconcile: ${figure} — ledger ${c[1]} vs app ${c[2]}`,
+      );
+    }
+    assert(
+      !page.includes("Parties where the two disagree"),
+      "reconcile: no party's position differs between the two derivations",
+    );
+
+    /* Now break it on purpose, on an account built for the job.
+       A stored bank balance drifting from the documents is the single most
+       likely real-world failure here — it is one of only two running totals
+       the app stores, and lib/bankRepair.ts exists because it has happened.
+       The screen must NAME the account and the amount, not average it away.
+
+       A purpose-built account, because the blocks above seed bank balances by
+       hand with no documents behind them, so most accounts in this book are
+       ALREADY drifting — which the screen is right to report and which is
+       asserted just below. Measuring a deliberate 777 against a figure that
+       is already off by something else would prove nothing. */
+    BankRepo.add({
+      id: "RECONB",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "Recon Test Bank",
+      // Opening balance and stored balance agree and nothing has moved since,
+      // so the ledger and the stored figure must land on the same number.
+      openingBalance: 12000,
+      balance: 12000,
+    } as never);
+
+    const bankRowCells = async () => {
+      await renderRoute("/reports?r=reconcile");
+      const t = document.querySelector("table");
+      const tr = Array.from(t?.querySelectorAll("tbody tr") ?? []).find((row) =>
+        (row.textContent ?? "").includes("Recon Test Bank"),
+      );
+      assert(!!tr, "reconcile: the account is listed by name");
+      return Array.from(tr?.querySelectorAll("td") ?? []).map((td) =>
+        (td.textContent ?? "").trim(),
+      );
+    };
+
+    {
+      const c = await bankRowCells();
+      assert(
+        Math.abs(num(c[1]) - 12000) < 0.02 && Math.abs(num(c[2]) - 12000) < 0.02,
+        `reconcile: an untouched account agrees with its own opening balance — ${c[1]} vs ${c[2]}`,
+      );
+      assert(c[3] === "—", `reconcile: and shows no difference — ${c[3]}`);
+    }
+
+    BankRepo.update("RECONB", { balance: 12777 });
+    {
+      const c = await bankRowCells();
+      assert(
+        Math.abs(Math.abs(num(c[3])) - 777) < 0.02,
+        `reconcile: drift is reported as the exact amount — ${c[3]}`,
+      );
+      assert(
+        !document.body.textContent?.includes("The ledger agrees with every screen"),
+        "reconcile: and the screen does not also claim everything is fine",
+      );
+    }
+
+    // Put it back: a fixed problem must stop shouting, or the warning stops
+    // being read.
+    BankRepo.update("RECONB", { balance: 12000 });
+    {
+      const c = await bankRowCells();
+      assert(c[3] === "—", `reconcile: once it is put right, the row clears — ${c[3]}`);
+    }
+
+    /* The drift the harness left behind by seeding balances with no documents
+       is itself reported. This is what the screen is FOR: money on a stored
+       balance that nothing explains. */
+    assert(
+      document.body.textContent?.includes("Something does not agree"),
+      "reconcile: a balance no document explains is reported, not quietly accepted",
+    );
+  }
+
   /* ── A closed period actually refuses, on a real screen ───────────────
      lib/periodLock is unit-tested, but a rule that is never asked is not a
      lock. This drives the Cash screen with the books closed and checks that

@@ -29,6 +29,7 @@ import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { partyStatementSheet } from "@/lib/partySheet";
 import { PartyStatementRowBlock, PartyStatementCardBlock } from "./parties_.$id";
 import { fmtMode } from "@/lib/paymentMode";
+import { TrialBalanceReport, ReconciliationReport } from "@/components/LedgerReports";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
@@ -48,6 +49,8 @@ import {
   ChevronRight,
   SlidersHorizontal,
   Loader2,
+  Scale,
+  ShieldCheck,
 } from "lucide-react";
 
 export const Route = createFileRoute("/reports")({
@@ -63,6 +66,18 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 
 const REPORTS = [
   { key: "pl", label: "Profit & Loss", icon: BarChart3, desc: "Revenue, costs, net profit" },
+  {
+    key: "trial-balance",
+    label: "Trial Balance",
+    icon: Scale,
+    desc: "Every account, debit and credit — the accountant's first question",
+  },
+  {
+    key: "reconcile",
+    label: "Ledger Reconciliation",
+    icon: ShieldCheck,
+    desc: "Does the ledger agree with what the app prints?",
+  },
   { key: "sales", label: "Sales Report", icon: FileText, desc: "Invoice-wise sales" },
   { key: "purchase", label: "Purchase Report", icon: FileText, desc: "Bill-wise purchases" },
   { key: "sale-return", label: "Sale Returns", icon: RefreshCcw, desc: "Credit notes issued" },
@@ -405,6 +420,9 @@ function ReportView({
       .filter(({ ledger }) => ledger.rows.length > 0)
       .sort((a, b) => a.party.name.localeCompare(b.party.name));
   }, [which, dateFrom, dateTo, parties]);
+
+  if (which === "trial-balance") return <TrialBalanceReport asAt={dateTo || today()} />;
+  if (which === "reconcile") return <ReconciliationReport />;
 
   if (which === "pl") {
     // Excluding GST — the tax collected on a sale is a liability owed to the
