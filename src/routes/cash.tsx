@@ -15,6 +15,7 @@ import type { CashAdjustment } from "@/types";
 import { newBatch, commitBatch } from "@/repositories/base";
 import { useRepoData } from "@/hooks/useRepoData";
 import { cashFlows, type FlowEntry } from "@/lib/ledger";
+import { transferLegsFor } from "@/lib/transferLegs";
 import { fmtMoney, fmtDate, today, fmtDateShort } from "@/lib/format";
 import { DataTable } from "@/components/DataTable";
 import { usePagination } from "@/hooks/usePagination";
@@ -79,9 +80,7 @@ function CashPage() {
     const adj = CashAdjustmentRepo.get(id);
     if (!adj) return;
 
-    const legs = adj.transferId
-      ? BankTxnRepo.all().filter((t) => t.transferId === adj.transferId)
-      : [];
+    const legs = transferLegsFor(adj, BankTxnRepo.all());
     const what = legs.length
       ? `Delete this transfer? It will be removed from cash AND from ${legs
           .map((t) => BankRepo.get(t.bankId)?.name ?? "the bank account")
@@ -406,8 +405,12 @@ function CashRowActions({
   if (src.kind === "adjustment") {
     const adj = CashAdjustmentRepo.get(src.id);
     // A transfer leg is editable only as a whole, from the transfer itself —
-    // changing one side's amount here would leave the two ends disagreeing.
-    const isTransfer = !!adj?.transferId;
+    // changing one side's amount here would move the cash and leave the bank
+    // account saying something else. Recognised by its partner record, not by
+    // a flag, so transfers made before the two legs were stamped with a
+    // shared id are refused too. Those are the ones that mattered: they were
+    // being offered for edit.
+    const isTransfer = !!adj && transferLegsFor(adj, BankTxnRepo.all()).length > 0;
     return (
       <span
         className="inline-flex items-center justify-center gap-0.5"
@@ -571,7 +574,7 @@ function CashAdjustDialog({
               Cancel
             </Button>
             <Button type="submit" disabled={saving}>
-              {saving ? "Saving…" : "Adjust Cash"}
+              {saving ? "Saving…" : editing ? "Save Changes" : "Adjust Cash"}
             </Button>
           </div>
         </form>

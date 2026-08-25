@@ -23,6 +23,8 @@ import {
 } from "@/lib/ledger";
 import type {
   StockAdjustment,
+  BankTxn,
+  CashAdjustment,
   Invoice,
   Payment,
   Return,
@@ -36,6 +38,7 @@ import type {
 import { Repository } from "@/repositories/base";
 import { correctBankPaidAmount, planBankRepair } from "@/lib/bankRepair";
 import { planStockRepair } from "@/lib/dataRepair";
+import { transferLegsFor } from "@/lib/transferLegs";
 
 let passed = 0,
   failed = 0;
@@ -1373,6 +1376,89 @@ console.log(`\n═════════════════════�
   assert(
     withAdvance.rows.filter((r) => r.type === "Payment Received").length === 1,
     "T21: and appears exactly once",
+  );
+}
+
+/* ═══ TEST 22: recognising both legs of a transfer ════════════════════
+   A transfer writes two records, one per account, and they have to be edited
+   and deleted as one thing. Newer ones carry a shared id. OLDER ones do not,
+   and they are the dangerous case: unrecognised, the Cash page treats the
+   cash side as an ordinary manual entry and offers to EDIT it — which would
+   move the cash and leave the bank account saying something else. The client
+   was shown exactly that dialog. */
+{
+  const leg = (over: Partial<BankTxn>): BankTxn =>
+    ({
+      id: "bt" + Math.round((over.amount ?? 0) * 100),
+      bankId: "B1",
+      date: "2026-08-22",
+      type: "deposit",
+      amount: 2000,
+      notes: "Transfer to K CASH — PIYUSH BHAI VALA",
+      createdAt: "",
+      ...over,
+    }) as BankTxn;
+  const cash = (over: Partial<CashAdjustment>): CashAdjustment =>
+    ({
+      id: "ca1",
+      date: "2026-08-22",
+      type: "reduce",
+      amount: 2000,
+      reason: "Transfer to K CASH — PIYUSH BHAI VALA",
+      createdAt: "",
+      ...over,
+    }) as CashAdjustment;
+
+  // The new way: a shared id, and nothing else needs to match.
+  assert(
+    transferLegsFor(cash({ transferId: "T1" }), [leg({ transferId: "T1", notes: "anything" })])
+      .length === 1,
+    "T22: a stamped pair is found by its id",
+  );
+
+  // The old way: same note, same date, same amount, opposite directions.
+  assert(
+    transferLegsFor(cash({}), [leg({})]).length === 1,
+    "T22: an UNSTAMPED pair is still recognised by note + date + amount",
+  );
+
+  // Each of those four has to agree. Any one off and it is not a partner.
+  assert(
+    transferLegsFor(cash({}), [leg({ amount: 2001 })]).length === 0,
+    "T22: a different amount is not the partner",
+  );
+  assert(
+    transferLegsFor(cash({}), [leg({ date: "2026-08-23" })]).length === 0,
+    "T22: a different date is not the partner",
+  );
+  assert(
+    transferLegsFor(cash({}), [leg({ notes: "Transfer to somewhere else" })]).length === 0,
+    "T22: a different note is not the partner",
+  );
+  // Direction: cash OUT pairs with money INTO a bank, never out of one.
+  assert(
+    transferLegsFor(cash({}), [leg({ type: "withdraw" })]).length === 0,
+    "T22: both legs going the same way is not a transfer",
+  );
+  assert(
+    transferLegsFor(cash({ type: "add" }), [leg({ type: "withdraw" })]).length === 1,
+    "T22: cash IN pairs with money out of a bank",
+  );
+
+  // A manual entry that merely mentions a transfer stays editable — there is
+  // no partner for it to fall out of step with.
+  assert(
+    transferLegsFor(cash({ reason: "Transfer to K CASH — PIYUSH BHAI VALA" }), []).length === 0,
+    "T22: no partner found means it is an ordinary entry",
+  );
+  assert(
+    transferLegsFor(cash({ reason: "Cash added, transferred from the shop till" }), [leg({})])
+      .length === 0,
+    "T22: a note that only mentions transferring is not a transfer leg",
+  );
+  assert(
+    transferLegsFor(cash({ reason: undefined }), [leg({ notes: undefined })]).length === 0,
+    "T22: an entry with no note is never paired by note",
   );
 }
 

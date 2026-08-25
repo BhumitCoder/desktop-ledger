@@ -2740,6 +2740,112 @@ async function runAll(): Promise<Results> {
     );
   }
 
+  /* ── An OLD transfer leg is refused for edit, and deletes both sides ───
+     Transfers made before the two legs were stamped with a shared id were
+     treated as ordinary manual entries, so the pencil was live on them — the
+     client was shown the Edit Cash Entry dialog sitting on one half of a
+     ₹2,25,100 transfer. Editing it there would have moved the cash and left
+     the bank account saying something else. */
+  {
+    BankRepo.add({
+      id: "OLDB",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "Legacy Transfer Bank",
+      openingBalance: 0,
+      balance: 5000,
+    } as never);
+    const NOTE = "Transfer to Legacy Transfer Bank — OLD ENTRY";
+    // No transferId on either side: exactly how they were written before.
+    CashAdjustmentRepo.add({
+      id: "OLDCA",
+      createdAt: "2026-01-01T00:00:00Z",
+      date: D2,
+      type: "reduce",
+      amount: 1200,
+      reason: NOTE,
+    } as never);
+    BankTxnRepo.add({
+      id: "OLDBT",
+      createdAt: "2026-01-01T00:00:00Z",
+      bankId: "OLDB",
+      date: D2,
+      type: "deposit",
+      amount: 1200,
+      notes: NOTE,
+    } as never);
+
+    await renderRoute("/cash");
+    const t = document.querySelector(".data-table table");
+    const legRow = Array.from(t?.querySelectorAll("tbody tr") ?? []).find((tr) =>
+      (tr.textContent ?? "").includes("OLD ENTRY"),
+    );
+    assert(!!legRow, "old transfer: the leg is listed on the Cash page");
+
+    const pencil = Array.from(legRow?.querySelectorAll("button") ?? []).find((b) =>
+      (b.getAttribute("title") ?? "").toLowerCase().includes("transfer"),
+    ) as HTMLButtonElement | undefined;
+    assert(
+      !!pencil && pencil.disabled,
+      `old transfer: the edit button is refused — ${pencil ? "enabled" : "not found"}`,
+    );
+
+    // And deleting it takes the bank side with it, putting the balance back.
+    const del = Array.from(legRow?.querySelectorAll("button") ?? []).find((b) =>
+      (b.getAttribute("title") ?? "").includes("both accounts"),
+    ) as HTMLButtonElement | undefined;
+    assert(!!del, "old transfer: delete says it will clear both accounts");
+    const realConfirm = window.confirm;
+    window.confirm = () => true;
+    try {
+      await act(async () => {
+        del?.click();
+      });
+      await settleMs(200);
+    } finally {
+      window.confirm = realConfirm;
+    }
+    assert(!CashAdjustmentRepo.get("OLDCA"), "old transfer: the cash leg is removed");
+    assert(!BankTxnRepo.get("OLDBT"), "old transfer: AND the unstamped bank leg with it");
+    assert(
+      BankRepo.get("OLDB")?.balance === 3800,
+      `old transfer: the account is put back — ${BankRepo.get("OLDB")?.balance} (want 3800)`,
+    );
+  }
+
+  /* ── The edit dialog says what its button will do ─────────────────────── */
+  {
+    CashAdjustmentRepo.add({
+      id: "PLAINCA",
+      createdAt: "2026-01-01T00:00:00Z",
+      date: D2,
+      type: "add",
+      amount: 500,
+      reason: "Till top-up",
+    } as never);
+    await renderRoute("/cash");
+    const t2 = document.querySelector(".data-table table");
+    const plain = Array.from(t2?.querySelectorAll("tbody tr") ?? []).find((tr) =>
+      (tr.textContent ?? "").includes("Till top-up"),
+    );
+    const edit = plain?.querySelector('[title="Edit entry"]') as HTMLButtonElement | null;
+    assert(!!edit && !edit.disabled, "edit label: an ordinary entry IS editable");
+    await act(async () => {
+      edit?.click();
+    });
+    await settleMs(120);
+    const dlg = currentDialog();
+    assert(
+      (dlg.textContent ?? "").includes("Edit Cash Entry"),
+      "edit label: the dialog is titled for editing",
+    );
+    assert(
+      (dlg.textContent ?? "").includes("Save Changes"),
+      `edit label: and its button says Save Changes, not "Adjust Cash" — ${JSON.stringify(
+        dlg.textContent?.slice(0, 160),
+      )}`,
+    );
+  }
+
   /* ── Bulk Update with a real-sized catalogue ──────────────────────────
      The client's shop has ~1,400 items and the screen froze on open,
      because every row mounted at once and each carries several live
