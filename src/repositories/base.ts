@@ -129,6 +129,38 @@ export type NewRecord<T> = Omit<T, "id" | "createdAt"> & {
   createdAt?: string;
 };
 
+/** The signed-in user, for audit stamps.
+ *
+ * Read defensively rather than gated on `isBrowser`: on the SSR path there is
+ * no session and this must return nothing, but that is already what an absent
+ * `currentUser` means — and gating on the environment would have made the
+ * stamps untestable, since the tests run against a stubbed Firebase. Undefined
+ * whenever there is no session, which is why every audit field is optional. */
+function actor(): string | undefined {
+  try {
+    return auth?.currentUser?.email ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * How a deletion gets recorded.
+ *
+ * Repository cannot import the audit-log repository directly — that repository
+ * IS a Repository, so the import would be circular. So the wiring is injected
+ * once from repositories/index.ts, and base.ts stays unaware of it.
+ */
+type DeletionRecorder = (
+  collection: string,
+  record: { id: string } & Record<string, unknown>,
+  batch: WriteBatch | null,
+) => void;
+let deletionRecorder: DeletionRecorder | null = null;
+export function setDeletionRecorder(fn: DeletionRecorder) {
+  deletionRecorder = fn;
+}
+
 export class Repository<T extends { id: string }> {
   private cache: T[] = [];
   private unsub?: () => void;
@@ -193,6 +225,7 @@ export class Repository<T extends { id: string }> {
       // document ID throws, crashing the save
       id: item.id || genId(),
       createdAt: new Date().toISOString(),
+      createdBy: actor(),
     } as unknown as T;
     this.cache.unshift(record);
     emitRepoChange();
@@ -210,6 +243,7 @@ export class Repository<T extends { id: string }> {
       ...item,
       id: item.id || genId(),
       createdAt: new Date().toISOString(),
+      createdBy: actor(),
     } as unknown as T;
     this.cache.unshift(record);
     emitRepoChange();
@@ -222,7 +256,12 @@ export class Repository<T extends { id: string }> {
   update(id: string, patch: Partial<T>): T | undefined {
     const idx = this.cache.findIndex((i) => i.id === id);
     if (idx < 0) return undefined;
-    const merged = { ...this.cache[idx], ...patch };
+    const merged = {
+      ...this.cache[idx],
+      ...patch,
+      updatedAt: new Date().toISOString(),
+      updatedBy: actor(),
+    };
     this.cache[idx] = merged;
     emitRepoChange();
     if (isBrowser) {
@@ -236,7 +275,12 @@ export class Repository<T extends { id: string }> {
   updateBatched(batch: WriteBatch | null, id: string, patch: Partial<T>): T | undefined {
     const idx = this.cache.findIndex((i) => i.id === id);
     if (idx < 0) return undefined;
-    const merged = { ...this.cache[idx], ...patch };
+    const merged = {
+      ...this.cache[idx],
+      ...patch,
+      updatedAt: new Date().toISOString(),
+      updatedBy: actor(),
+    };
     this.cache[idx] = merged;
     emitRepoChange();
     if (isBrowser && batch) {
@@ -291,8 +335,15 @@ export class Repository<T extends { id: string }> {
     const idx = this.cache.findIndex((i) => i.id === id);
     if (idx < 0) return undefined;
     const { base, canIncrement } = this.adjustBase(idx, field);
+    const stampedAt = new Date().toISOString();
     const next = Math.round((base + delta) * 100) / 100;
-    const merged = { ...this.cache[idx], ...(extra ?? {}), [field]: next } as T;
+    const merged = {
+      ...this.cache[idx],
+      ...(extra ?? {}),
+      [field]: next,
+      updatedAt: stampedAt,
+      updatedBy: actor(),
+    } as T;
     this.cache[idx] = merged;
     emitRepoChange();
     if (isBrowser) {
@@ -303,6 +354,8 @@ export class Repository<T extends { id: string }> {
         {
           [field]: canIncrement ? increment(Math.round(delta * 100) / 100) : next,
           ...stripUndefined(extra ?? {}),
+          updatedAt: stampedAt,
+          ...(actor() ? { updatedBy: actor() } : {}),
         },
         { merge: true },
       ).catch(writeError("update"));
@@ -321,8 +374,15 @@ export class Repository<T extends { id: string }> {
     const idx = this.cache.findIndex((i) => i.id === id);
     if (idx < 0) return undefined;
     const { base, canIncrement } = this.adjustBase(idx, field);
+    const stampedAt = new Date().toISOString();
     const next = Math.round((base + delta) * 100) / 100;
-    const merged = { ...this.cache[idx], ...(extra ?? {}), [field]: next } as T;
+    const merged = {
+      ...this.cache[idx],
+      ...(extra ?? {}),
+      [field]: next,
+      updatedAt: stampedAt,
+      updatedBy: actor(),
+    } as T;
     this.cache[idx] = merged;
     emitRepoChange();
     if (isBrowser && batch) {
@@ -331,6 +391,8 @@ export class Repository<T extends { id: string }> {
         {
           ...stripUndefined(extra ?? {}),
           [field]: canIncrement ? increment(Math.round(delta * 100) / 100) : next,
+          updatedAt: stampedAt,
+          ...(actor() ? { updatedBy: actor() } : {}),
         },
         { merge: true },
       );
@@ -338,7 +400,17 @@ export class Repository<T extends { id: string }> {
     return merged;
   }
 
+  /** Keep what is about to stop existing. Called before the record leaves the
+   *  cache, because afterwards there is nothing left to describe. */
+  private noteDeletion(id: string, batch: WriteBatch | null) {
+    if (!deletionRecorder) return;
+    const gone = this.cache.find((i) => i.id === id);
+    if (!gone) return;
+    deletionRecorder(this.name, gone as { id: string } & Record<string, unknown>, batch);
+  }
+
   remove(id: string) {
+    this.noteDeletion(id, null);
     this.cache = this.cache.filter((i) => i.id !== id);
     emitRepoChange();
     if (isBrowser) {
@@ -348,6 +420,10 @@ export class Repository<T extends { id: string }> {
 
   /** Batched counterpart to remove() — see addBatched(). */
   removeBatched(batch: WriteBatch | null, id: string) {
+    // On the SAME batch: if the delete lands, so does the record of it. A log
+    // that can be lost while the deletion succeeds is worse than none, because
+    // it looks complete.
+    this.noteDeletion(id, batch);
     this.cache = this.cache.filter((i) => i.id !== id);
     emitRepoChange();
     if (isBrowser && batch) {

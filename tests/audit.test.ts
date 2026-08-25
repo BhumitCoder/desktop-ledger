@@ -31,7 +31,6 @@ import type {
   Item,
   Expense,
   LineItem,
-  CashAdjustment,
   PaymentMode,
   BankAccount,
 } from "@/types";
@@ -39,6 +38,7 @@ import { Repository } from "@/repositories/base";
 import { correctBankPaidAmount, planBankRepair } from "@/lib/bankRepair";
 import { planStockRepair } from "@/lib/dataRepair";
 import { transferLegsFor } from "@/lib/transferLegs";
+import { AuditLogRepo } from "@/repositories";
 
 let passed = 0,
   failed = 0;
@@ -1460,6 +1460,116 @@ console.log(`\n═════════════════════�
     transferLegsFor(cash({ reason: undefined }), [leg({ notes: undefined })]).length === 0,
     "T22: an entry with no note is never paired by note",
   );
+}
+
+/* ═══ TEST 23: every write says who made it, and deletions survive ════
+   Several staff have edit and delete rights. Before this, "what happened to
+   invoice 0047" had no answer: the row was simply not there any more, and
+   nothing recorded who changed an amount either. Stamped centrally in
+   Repository rather than at each call site, because the call site that
+   forgets is exactly the record you later need to account for. */
+{
+  interface Row {
+    id: string;
+    name: string;
+    total: number;
+    createdAt: string;
+    createdBy?: string;
+    updatedAt?: string;
+    updatedBy?: string;
+  }
+  const repo = new Repository<Row>("test-audited");
+
+  const made = repo.add({ name: "First", total: 100 } as Row);
+  assert(
+    made.createdBy === "test@shop.local",
+    `T23: a new record records its author — ${made.createdBy}`,
+  );
+  assert(!!made.createdAt, "T23: and when it was made");
+  assert(!made.updatedAt, "T23: an untouched record has no update stamp");
+
+  const edited = repo.update(made.id, { total: 150 });
+  assert(
+    edited?.updatedBy === "test@shop.local",
+    `T23: an edit records who made it — ${edited?.updatedBy}`,
+  );
+  assert(!!edited?.updatedAt, "T23: and when");
+  assert(
+    edited?.createdBy === "test@shop.local" && edited?.createdAt === made.createdAt,
+    "T23: without disturbing who created it",
+  );
+
+  // An atomic field change is an edit too — this is the path every bill takes
+  // when it moves an item's stock, and it was the one most likely to be missed.
+  //
+  // Measured on a FRESH record, so the ABSENCE of a stamp is what the
+  // assertion turns on. Two earlier attempts were blind: checking that
+  // updatedBy exists passed even unstamped, because the record already carried
+  // one from the update() above and the merge spreads what is there; and
+  // comparing the timestamp before and after does not work either, because
+  // both writes land in the same millisecond.
+  const untouched = repo.add({ name: "Adjust me", total: 10 } as Row);
+  assert(!untouched.updatedAt, "T23: a fresh record has no edit stamp");
+  const nudged = repo.adjustField(untouched.id, "total", 25);
+  assert(nudged?.total === 35, `T23: the adjustment still applies — ${nudged?.total}`);
+  assert(
+    nudged?.updatedBy === "test@shop.local" && !!nudged?.updatedAt,
+    `T23: an atomic adjust counts as an edit — by ${nudged?.updatedBy}, at ${nudged?.updatedAt}`,
+  );
+
+  // A BATCHED delete is the path every bill, payment and return actually
+  // takes; only the direct remove() was covered, so the batched one could stop
+  // recording anything and no test would notice.
+  const batchedRow = repo.add({ name: "Batched", total: 40 } as Row);
+  const beforeBatched = AuditLogRepo.all().length;
+  repo.removeBatched(null, batchedRow.id);
+  assert(!repo.get(batchedRow.id), "T23: a batched delete removes the record");
+  assert(
+    AuditLogRepo.all().length === beforeBatched + 1,
+    `T23: and is written down like any other — ${AuditLogRepo.all().length - beforeBatched}`,
+  );
+  assert(
+    AuditLogRepo.all().some((e) => e.recordId === batchedRow.id),
+    "T23: findable by the id of the batched-deleted record",
+  );
+
+  // Deleting: the record goes, the account of it does not.
+  const before = AuditLogRepo.all().length;
+  repo.remove(made.id);
+  assert(!repo.get(made.id), "T23: the record is gone");
+  const log = AuditLogRepo.all();
+  assert(
+    log.length === before + 1,
+    `T23: a deletion is written down — ${log.length - before} entries`,
+  );
+  const entry = log.find((e) => e.recordId === made.id);
+  assert(!!entry, "T23: and can be found by the id of what was deleted");
+  assert(
+    entry?.collection === "test-audited",
+    `T23: it names the collection — ${entry?.collection}`,
+  );
+  assert(
+    (entry?.snapshot as Row | undefined)?.total === 150,
+    `T23: it keeps WHAT was deleted, as it stood — ${JSON.stringify(entry?.snapshot)}`,
+  );
+  assert(
+    (entry?.summary ?? "").includes("First"),
+    `T23: with a line a person can read — ${entry?.summary}`,
+  );
+
+  // The log must never audit itself, or clearing one entry writes another.
+  const auditCount = AuditLogRepo.all().length;
+  const first = AuditLogRepo.all()[0];
+  // Guarded: with the deletion log broken there are no entries at all, and
+  // reading [0].id crashed the run instead of reporting the failure.
+  assert(!!first, "T23: there is a log entry to clear");
+  if (first) {
+    AuditLogRepo.remove(first.id);
+    assert(
+      AuditLogRepo.all().length === auditCount - 1,
+      "T23: removing a log entry does not write a log entry about it",
+    );
+  }
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);

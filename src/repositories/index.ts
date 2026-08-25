@@ -1,5 +1,5 @@
 import { collection, doc, onSnapshot, setDoc, updateDoc, writeBatch } from "firebase/firestore";
-import { Repository, handlePostHydrationError, emitRepoChange } from "./base";
+import { Repository, handlePostHydrationError, emitRepoChange, setDeletionRecorder } from "./base";
 export { subscribeRepos, repoStoreVersion } from "./base";
 import { db, isBrowser } from "@/lib/firebase";
 import { toast } from "sonner";
@@ -16,6 +16,7 @@ import type {
   Company,
   StockAdjustment,
   CashAdjustment,
+  AuditEntry,
   TeamUser,
   ModuleKey,
 } from "@/types";
@@ -91,6 +92,57 @@ function hydrateCompany(): Promise<void> {
     );
   });
 }
+
+/**
+ * Deleted records, kept because the record itself is gone.
+ *
+ * Several staff have delete rights, so "what happened to invoice 0047" has no
+ * answer at all without this — the row is simply not there any more. The whole
+ * record is stored, not a summary, so the answer includes what it said.
+ *
+ * NOT hydrated at login: it only grows, nobody needs it to bill a customer,
+ * and loading it would slow every sign-in for a screen that is opened once a
+ * month. Settings hydrates it on demand. Writes do not need hydration — they
+ * are cache-first like every other write.
+ */
+export const AuditLogRepo = new Repository<AuditEntry>("audit-log");
+
+/** A line a person can pick out of a list. Falls back to the record's own
+ *  identifying fields, since collections name that field differently. */
+function describe(record: Record<string, unknown>): string {
+  const bits = [
+    record.number,
+    record.name,
+    record.partyName,
+    record.payeeName,
+    record.category,
+    record.reason,
+    record.notes,
+  ].filter((v): v is string => typeof v === "string" && v.trim().length > 0);
+  const amount = [record.total, record.amount].find((v) => typeof v === "number");
+  if (typeof amount === "number") bits.push(String(amount));
+  return bits.slice(0, 3).join(" · ");
+}
+
+// Wire base.ts's deletion hook. It cannot import this file — AuditLogRepo is
+// itself a Repository, so the import would be circular.
+setDeletionRecorder((collectionName, record, batch) => {
+  // Never audit the audit log: clearing an old entry would write a new one
+  // describing the entry it just removed, forever.
+  if (collectionName === "audit-log") return;
+  const entry = {
+    action: "delete" as const,
+    collection: collectionName,
+    recordId: record.id,
+    snapshot: record,
+    summary: describe(record) || undefined,
+    at: new Date().toISOString(),
+  };
+  // On the caller's batch when there is one, so the log and the deletion
+  // succeed or fail together.
+  if (batch) AuditLogRepo.addBatched(batch, entry);
+  else AuditLogRepo.add(entry);
+});
 
 export const CompanyRepo = {
   get(): Company {

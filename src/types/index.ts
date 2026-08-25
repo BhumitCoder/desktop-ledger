@@ -236,6 +236,42 @@ export interface Return {
 
 export type PrintFormat = "a4" | "a4-2up" | "thermal80" | "thermal58";
 
+/** Who touched a record, and when.
+ *
+ * Stamped centrally by Repository (see repositories/base.ts) rather than by
+ * each call site, because a call site that forgets is exactly the record you
+ * later need to account for. Every stored type carries these; they are
+ * optional only because records written before this existed do not have them.
+ */
+export interface Audited {
+  createdAt: string;
+  /** Email of the signed-in user. Absent for records written before this
+   *  existed, and on the server/SSR path where there is no session. */
+  createdBy?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+/** A deleted record, kept because the record itself is gone.
+ *
+ * Several staff have delete rights. Without this, "what happened to invoice
+ * 0047" has no answer at all — the row is simply not there any more. The
+ * whole record is kept, not a summary, so the answer includes what it said. */
+export interface AuditEntry {
+  id: ID;
+  action: "delete";
+  /** Firestore collection the record came from, e.g. "sales". */
+  collection: string;
+  recordId: ID;
+  /** What was deleted, as it stood. */
+  snapshot: Record<string, unknown>;
+  /** A line a human can read in a list, e.g. "INV-0047 · Ramesh · ₹1,000". */
+  summary?: string;
+  by?: string;
+  at: string;
+  createdAt: string;
+}
+
 export interface Company {
   name: string;
   gstin?: string;

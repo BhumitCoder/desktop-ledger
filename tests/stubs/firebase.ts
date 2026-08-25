@@ -11,4 +11,6 @@
 export const DATABASE_ID = "test-only-never-a-real-database";
 export const isBrowser = false;
 export const db = {} as never;
-export const auth = { currentUser: null } as never;
+// A signed-in user, so the audit stamps (createdBy/updatedBy) have something
+// to record and the tests can check they are actually written.
+export const auth = { currentUser: { email: "test@shop.local" } } as never;
