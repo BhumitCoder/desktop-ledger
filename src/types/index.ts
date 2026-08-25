@@ -160,6 +160,9 @@ export interface StockAdjustment {
 /** Manual cash-in-hand correction (counter counting, owner drawings…) */
 export interface CashAdjustment {
   id: ID;
+  /** Voucher reference, e.g. CV-0007. Absent on entries made before these
+   *  were issued. */
+  voucherNo?: string;
   date: string;
   type: "add" | "reduce";
   amount: number;
@@ -173,6 +176,9 @@ export interface CashAdjustment {
 
 export interface BankTxn {
   id: ID;
+  /** Voucher reference — BV-0007 for a deposit or withdrawal, and the SAME
+   *  TR-0007 on both legs of a transfer, because a transfer is one voucher. */
+  voucherNo?: string;
   bankId: ID;
   date: string;
   type: "deposit" | "withdraw" | "transfer";
@@ -289,6 +295,12 @@ export interface Company {
    * lagging behind). When turned off, such saves are blocked with an error
    * instead of just a warning. */
   allowNegativeStock?: boolean;
+  /** Nothing dated on or before this may be created, changed or deleted.
+   *
+   * Once GSTR-1 and 3B are filed for a month, that month is a statement made
+   * to the tax authority; a bill inside it that can still be edited means the
+   * books stop matching the filed return. Empty = no lock. */
+  booksLockedUpto?: string;
   /** Preferred print format, remembered from the invoice page */
   printFormat?: PrintFormat;
   /** Set once the owner has finished checking existing opening balances

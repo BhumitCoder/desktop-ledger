@@ -18,6 +18,8 @@ import { newBatch, commitBatch, genId } from "@/repositories/base";
 import { useRepoMemo } from "@/hooks/useRepoData";
 import { cashFlows } from "@/lib/ledger";
 import { transferLegsFor } from "@/lib/transferLegs";
+import { usePeriodLock } from "@/hooks/usePeriodLock";
+import { nextVoucherNo } from "@/repositories";
 import type { CashAdjustment } from "@/types";
 import { fmtMoney, today } from "@/lib/format";
 
@@ -108,6 +110,7 @@ export function CashBankTransferDialog({
   const [date, setDate] = useState(today());
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const { canPost } = usePeriodLock();
 
   // The legs of the transfer being edited, and which way it went. The cash
   // leg says the direction: cash OUT means cash was the source.
@@ -173,6 +176,9 @@ export function CashBankTransferDialog({
       toast.error("Enter a date");
       return;
     }
+    // Both dates: an edit that moves a transfer out of a closed month changes
+    // that month as surely as one made inside it.
+    if (!canPost(date, editing?.date)) return;
     // A warning, not a block: a shop counts its drawer at the end of the day,
     // and refusing the entry would only push the correction somewhere the
     // books cannot see it. Same rule the app already follows for stock.
@@ -187,6 +193,9 @@ export function CashBankTransferDialog({
     // Keep the pair's id across an edit, and give an older unstamped pair one
     // now, so the two legs stay recognisable as one movement afterwards.
     const transferId = editing?.transferId ?? genId();
+    // ONE reference on both legs, because a transfer is one voucher: the same
+    // number is quotable from the cash side and from the bank side.
+    const voucherNo = editing?.voucherNo ?? nextVoucherNo("TR-", BankTxnRepo.all());
 
     // An edit is "undo the old movement, make the new one" — both on this one
     // batch, so a correction can never land halfway and leave the books with
@@ -212,6 +221,7 @@ export function CashBankTransferDialog({
         amount: n,
         reason: note,
         transferId,
+        voucherNo,
       });
     } else {
       BankTxnRepo.addBatched(batch, {
@@ -220,6 +230,7 @@ export function CashBankTransferDialog({
         type: "withdraw",
         amount: n,
         notes: note,
+        voucherNo,
         transferId,
       });
       BankRepo.adjustFieldBatched(batch, from.id, "balance", -n);
@@ -232,6 +243,7 @@ export function CashBankTransferDialog({
         amount: n,
         reason: note,
         transferId,
+        voucherNo,
       });
     } else {
       BankTxnRepo.addBatched(batch, {
@@ -240,6 +252,7 @@ export function CashBankTransferDialog({
         type: "deposit",
         amount: n,
         notes: note,
+        voucherNo,
         transferId,
       });
       BankRepo.adjustFieldBatched(batch, to.id, "balance", n);

@@ -1,4 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { nextVoucherNo } from "@/repositories";
+import { usePeriodLock } from "@/hooks/usePeriodLock";
 import { matchesQuery } from "@/lib/search";
 import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
@@ -49,6 +51,7 @@ function CashPage() {
   const [transferOpen, setTransferOpen] = useState(false);
   const [editAdj, setEditAdj] = useState<CashAdjustment | null>(null);
   const [editTransfer, setEditTransfer] = useState<CashAdjustment | null>(null);
+  const { canPost } = usePeriodLock();
   const [q, setQ] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -81,6 +84,7 @@ function CashPage() {
     if (!id) return;
     const adj = CashAdjustmentRepo.get(id);
     if (!adj) return;
+    if (!canPost(adj.date)) return;
 
     const legs = transferLegsFor(adj, BankTxnRepo.all());
     const what = legs.length
@@ -492,6 +496,7 @@ function CashAdjustDialog({
   const [date, setDate] = useState(today());
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
+  const { canPost } = usePeriodLock();
 
   // Editing is the same form, opened over an existing row.
   const isOpen = open || !!editing;
@@ -525,6 +530,10 @@ function CashAdjustDialog({
       toast.error("Enter amount to adjust");
       return;
     }
+    // Both dates: where the entry is now, and where it is being moved to.
+    // Checking only one would let an entry be dragged into or out of a closed
+    // month, which changes that month's totals either way.
+    if (!canPost(date, editing?.date)) return;
     setSaving(true);
     if (editing) {
       CashAdjustmentRepo.update(editing.id, {
@@ -535,7 +544,13 @@ function CashAdjustDialog({
       });
       toast.success(`Cash entry updated: ${fmtMoney(n)}`);
     } else {
-      CashAdjustmentRepo.add({ date, type, amount: n, reason: reason.trim() || undefined });
+      CashAdjustmentRepo.add({
+        voucherNo: nextVoucherNo("CV-", CashAdjustmentRepo.all()),
+        date,
+        type,
+        amount: n,
+        reason: reason.trim() || undefined,
+      });
       toast.success(`Cash ${type === "add" ? "added" : "reduced"}: ${fmtMoney(n)}`);
     }
     onSaved();

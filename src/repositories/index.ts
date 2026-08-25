@@ -471,6 +471,29 @@ export async function migrateFromLocalStorage(): Promise<number> {
   return migrated;
 }
 
+/**
+ * The next reference in a series, e.g. CV-0008.
+ *
+ * Same rule as nextInvoiceNumber and for the same reason: read the trailing
+ * digits rather than stripping the current prefix, so numbers issued under an
+ * older prefix are still visible to the max() and cannot be reissued.
+ *
+ * Allocated from the cache at save time. Two cashiers saving in the same second
+ * could in principle land on the same number — which is why this is used for
+ * REFERENCES and never as a key. A duplicated reference is untidy; a duplicated
+ * key would be corruption.
+ */
+export function nextVoucherNo(prefix: string, existing: { voucherNo?: string }[]): string {
+  const nums = existing
+    .map((e) => {
+      const m = (e.voucherNo ?? "").match(/(\d+)\s*$/);
+      return m ? parseInt(m[1], 10) : NaN;
+    })
+    .filter((n) => !isNaN(n));
+  const next = nums.length ? Math.max(...nums) + 1 : 1;
+  return `${prefix}${String(next).padStart(4, "0")}`;
+}
+
 export function nextInvoiceNumber(prefix: string, existing: { number: string }[]): string {
   // Read the trailing digit run instead of stripping the CURRENT prefix —
   // if the prefix is ever changed in Settings, older numbers (saved under

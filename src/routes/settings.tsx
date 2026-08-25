@@ -14,15 +14,16 @@ import {
   SaleReturnRepo,
   PurchaseReturnRepo,
   StockAdjustmentRepo,
+  AuditLogRepo,
 } from "@/repositories";
 import { newBatch, commitBatch } from "@/repositories/base";
 import { planDataRepair, type DataRepairPlan, type DataRepairData } from "@/lib/dataRepair";
-import { useRepoData } from "@/hooks/useRepoData";
+import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 import { Field } from "@/components/Field";
 import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { today, fmtMoney } from "@/lib/format";
+import { today, fmtMoney, fmtDate } from "@/lib/format";
 import { APP_NAME, APP_VERSION } from "@/lib/version";
 import { auth, isBrowser } from "@/lib/firebase";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -45,6 +46,7 @@ import {
   MessageCircle,
   Landmark,
   AlertTriangle,
+  Lock,
 } from "lucide-react";
 
 export const Route = createFileRoute("/settings")({ component: SettingsPage });
@@ -159,6 +161,7 @@ function SettingsPage() {
   const teamRef = useRef<HTMLDivElement>(null);
   const whatsappRef = useRef<HTMLDivElement>(null);
   const bankRef = useRef<HTMLDivElement>(null);
+  const booksRef = useRef<HTMLDivElement>(null);
   const dataRef = useRef<HTMLDivElement>(null);
   const shortcutsRef = useRef<HTMLDivElement>(null);
 
@@ -170,10 +173,35 @@ function SettingsPage() {
       ? [{ key: "whatsapp", label: "WhatsApp", icon: MessageCircle, ref: whatsappRef }]
       : []),
     ...(isOwner ? [{ key: "banks", label: "Fix Calculations", icon: Landmark, ref: bankRef }] : []),
+    ...(isOwner ? [{ key: "books", label: "Close the Books", icon: Lock, ref: booksRef }] : []),
     { key: "data", label: "Account & Data", icon: Database, ref: dataRef },
     { key: "shortcuts", label: "Keyboard Shortcuts", icon: Keyboard, ref: shortcutsRef },
   ];
   const [activeSection, setActiveSection] = useState("company");
+
+  // The lock date, edited before it is applied — typing into a date box should
+  // not close the books on every keystroke.
+  const [lockDate, setLockDate] = useState(c.booksLockedUpto ?? "");
+  useEffect(() => {
+    setLockDate(c.booksLockedUpto ?? "");
+  }, [c.booksLockedUpto]);
+
+  /* Deleted records, newest first.
+   *
+   * Hydrated HERE rather than at login: the log only grows, nobody needs it to
+   * bill a customer, and loading it would slow every sign-in for a screen that
+   * is opened once a month. */
+  useEffect(() => {
+    if (!isOwner) return;
+    AuditLogRepo.hydrate().catch((err) => {
+      console.error("Could not load the deletion log", err);
+    });
+  }, [isOwner]);
+  const auditRows = useRepoMemo(() =>
+    AuditLogRepo.all()
+      .slice()
+      .sort((a, b) => (b.at ?? "").localeCompare(a.at ?? "")),
+  );
 
   useEffect(() => {
     const els = sections
@@ -675,6 +703,120 @@ function SettingsPage() {
                       </p>
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+
+            {isOwner && (
+              <div
+                ref={booksRef}
+                className="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden scroll-mt-6"
+              >
+                <SectionHeader
+                  icon={<Lock className="h-4 w-4" />}
+                  title="Close the Books"
+                  description="Stop a filed period from changing, and see what has been deleted"
+                />
+                <div className="p-5 space-y-6">
+                  {/* Period lock. The one control in the app that exists for an
+                      outside party: once GSTR-1 and 3B are filed for a month,
+                      that month is a statement to the tax authority, and a bill
+                      inside it that can still be edited means the books stop
+                      matching the return that was filed. */}
+                  <div>
+                    <p className="text-xs text-gray-500 mb-3">
+                      Nothing dated on or before this can be added, changed or deleted. Set it to
+                      the last day of the period you have filed GST for. Leave it empty while you
+                      are still working on the current month.
+                    </p>
+                    <div className="flex flex-col sm:flex-row items-start sm:items-end gap-3">
+                      <label className="flex flex-col gap-1 text-[12px]">
+                        <span className="font-semibold text-gray-600">Books locked up to</span>
+                        <input
+                          type="date"
+                          aria-label="Books locked up to"
+                          value={lockDate}
+                          onChange={(e) => setLockDate(e.target.value)}
+                          className="h-9 px-2 border border-gray-200 rounded-md bg-white text-sm focus:border-primary outline-none"
+                        />
+                      </label>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          CompanyRepo.save({
+                            ...CompanyRepo.get(),
+                            booksLockedUpto: lockDate || undefined,
+                          });
+                          toast.success(
+                            lockDate
+                              ? `Books locked up to ${fmtDate(lockDate)}`
+                              : "Books unlocked — every period can be changed again",
+                          );
+                        }}
+                      >
+                        {lockDate ? "Lock" : "Unlock"}
+                      </Button>
+                      {c.booksLockedUpto && (
+                        <p className="text-[12px] text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-md px-3 py-2">
+                          Currently locked up to{" "}
+                          <span className="font-semibold">{fmtDate(c.booksLockedUpto)}</span>
+                        </p>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-2">
+                      Fix Calculations above is deliberately exempt: it only corrects stored totals
+                      to match the documents that are already there, and never changes a document.
+                    </p>
+                  </div>
+
+                  {/* Deleted records. The record itself is gone; this is the
+                      only place its contents still exist. */}
+                  <div className="border-t border-gray-100 pt-5">
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <div>
+                        <p className="text-[13px] font-semibold text-gray-700">Deleted records</p>
+                        <p className="text-xs text-gray-500">
+                          Who deleted what, and what it said at the time
+                        </p>
+                      </div>
+                      <span className="text-[12px] text-gray-400 tabular-nums shrink-0">
+                        {auditRows.length} {auditRows.length === 1 ? "entry" : "entries"}
+                      </span>
+                    </div>
+                    {auditRows.length === 0 ? (
+                      <p className="text-xs text-gray-400 bg-gray-50 border rounded-md px-3 py-2.5">
+                        Nothing has been deleted since this started being recorded.
+                      </p>
+                    ) : (
+                      <div className="border rounded-md divide-y divide-gray-100 max-h-72 overflow-auto">
+                        {auditRows.map((e) => (
+                          <details key={e.id} className="group">
+                            <summary className="px-3 py-2 flex items-center gap-3 cursor-pointer hover:bg-gray-50 text-[12px]">
+                              <span className="tabular-nums text-gray-500 shrink-0">
+                                {fmtDate(e.at)}
+                              </span>
+                              <span className="font-medium text-gray-700 shrink-0">
+                                {e.collection}
+                              </span>
+                              <span className="truncate flex-1 text-gray-600">
+                                {e.summary ?? e.recordId}
+                              </span>
+                              <span className="text-gray-400 shrink-0 truncate max-w-[160px]">
+                                {e.by ?? "unknown"}
+                              </span>
+                            </summary>
+                            {/* The whole record as it stood — a summary answers
+                                "was it deleted", the contents answer "what did
+                                it say", which is the question that actually
+                                gets asked. */}
+                            <pre className="px-3 pb-3 text-[11px] text-gray-500 whitespace-pre-wrap break-all">
+                              {JSON.stringify(e.snapshot, null, 1)}
+                            </pre>
+                          </details>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}

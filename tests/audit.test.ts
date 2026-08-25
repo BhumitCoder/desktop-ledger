@@ -38,7 +38,8 @@ import { Repository } from "@/repositories/base";
 import { correctBankPaidAmount, planBankRepair } from "@/lib/bankRepair";
 import { planStockRepair } from "@/lib/dataRepair";
 import { transferLegsFor } from "@/lib/transferLegs";
-import { AuditLogRepo } from "@/repositories";
+import { AuditLogRepo, nextVoucherNo } from "@/repositories";
+import { isLocked, blockedDate, lockMessage } from "@/lib/periodLock";
 
 let passed = 0,
   failed = 0;
@@ -1570,6 +1571,77 @@ console.log(`\n═════════════════════�
       "T23: removing a log entry does not write a log entry about it",
     );
   }
+}
+
+/* ═══ TEST 24: a closed period stays closed ═══════════════════════════
+   Once GSTR-1 and 3B are filed for a month, that month is a statement made to
+   the tax authority. A bill inside it that can still be edited — or deleted —
+   means the books stop matching the filed return, and nobody finds out until
+   a notice arrives. Dates are ISO, which sort lexically, so the comparison is
+   a string compare; these pin the boundary and the both-dates rule. */
+{
+  const LOCK = "2026-07-31";
+
+  assert(isLocked("2026-07-15", LOCK), "T24: a date inside the closed period is locked");
+  assert(isLocked("2026-07-31", LOCK), "T24: the boundary day itself is INSIDE the lock");
+  assert(!isLocked("2026-08-01", LOCK), "T24: the day after is open");
+  assert(!isLocked("2026-07-15", undefined), "T24: with no lock set, nothing is locked");
+  assert(!isLocked(undefined, LOCK), "T24: a record with no date cannot be judged, so it passes");
+
+  // An EDIT has two dates that matter. Checking only the new one would let a
+  // bill be dragged OUT of a closed month; checking only the old one would let
+  // a new bill be posted INTO one. Both, always.
+  assert(
+    blockedDate(["2026-08-05", "2026-07-20"], LOCK) === "2026-07-20",
+    "T24: moving a record OUT of a closed period is refused",
+  );
+  assert(
+    blockedDate(["2026-07-20", "2026-08-05"], LOCK) === "2026-07-20",
+    "T24: and posting INTO one is refused",
+  );
+  assert(
+    blockedDate(["2026-08-05", "2026-08-09"], LOCK) === null,
+    "T24: two open dates are allowed",
+  );
+  assert(
+    blockedDate(["2026-08-05", undefined], LOCK) === null,
+    "T24: a missing second date (a new record) is not a reason to refuse",
+  );
+  assert(
+    blockedDate([], LOCK) === null && blockedDate(["2026-07-01"], undefined) === null,
+    "T24: nothing to check, or nothing locked, means allowed",
+  );
+  assert(
+    lockMessage("2026-07-20", LOCK).includes(LOCK),
+    "T24: the refusal says what it is locked to",
+  );
+}
+
+/* ═══ TEST 25: voucher references ═════════════════════════════════════
+   Cash and bank entries had no reference at all — nothing to quote on a slip,
+   nothing to search for, nothing to point at in a dispute. Same numbering
+   rule as invoice numbers, and for the same reason: read the trailing digits
+   rather than stripping the current prefix, so a number issued under an older
+   prefix is still visible to the max() and cannot be reissued. */
+{
+  assert(nextVoucherNo("CV-", []) === "CV-0001", "T25: the first reference in a series");
+  assert(
+    nextVoucherNo("CV-", [{ voucherNo: "CV-0001" }, { voucherNo: "CV-0002" }]) === "CV-0003",
+    "T25: then the next",
+  );
+  assert(
+    nextVoucherNo("CV-", [{ voucherNo: "CV-0009" }, { voucherNo: "CV-0002" }]) === "CV-0010",
+    "T25: the HIGHEST so far, not the count — a deleted entry must not be reissued",
+  );
+  assert(
+    nextVoucherNo("CV-", [{ voucherNo: "OLD-0042" }]) === "CV-0043",
+    "T25: a number under an older prefix is still counted",
+  );
+  assert(
+    nextVoucherNo("CV-", [{}, { voucherNo: undefined }, { voucherNo: "CV-0004" }]) === "CV-0005",
+    "T25: entries from before references existed are skipped, not treated as zero",
+  );
+  assert(nextVoucherNo("TR-", []) === "TR-0001", "T25: each series numbers independently");
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
