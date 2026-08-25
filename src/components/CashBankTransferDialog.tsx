@@ -17,6 +17,8 @@ import {
 import { newBatch, commitBatch, genId } from "@/repositories/base";
 import { useRepoMemo } from "@/hooks/useRepoData";
 import { cashFlows } from "@/lib/ledger";
+import { transferLegsFor } from "@/lib/transferLegs";
+import type { CashAdjustment } from "@/types";
 import { fmtMoney, today } from "@/lib/format";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -56,12 +58,25 @@ export function CashBankTransferDialog({
   onOpenChange,
   onSaved,
   initialBankId,
+  editing,
+  onEditingDone,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onSaved: () => void;
   /** Preselect the FROM account — set when opened from that account's page. */
   initialBankId?: string;
+  /** An existing transfer being corrected, identified by its CASH leg.
+   *
+   * Editing one side of a transfer on its own is the one thing that must not
+   * happen — the cash would move and the account would still say the old
+   * figure. So a transfer is edited HERE, as the whole thing it is, and the
+   * save below rewrites both legs together. Refusing the edit was the safe
+   * answer, not a good one: correcting a mistyped transfer meant deleting it
+   * and entering it again from memory. */
+  editing?: CashAdjustment | null;
+  /** Clear the caller's "editing" state when this closes. */
+  onEditingDone?: () => void;
 }) {
   const banks = useRepoMemo(() => BankRepo.all());
   const cashInHand = useRepoMemo(() =>
@@ -94,8 +109,29 @@ export function CashBankTransferDialog({
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // The legs of the transfer being edited, and which way it went. The cash
+  // leg says the direction: cash OUT means cash was the source.
+  const editLegs = useMemo(
+    () => (editing ? transferLegsFor(editing, BankTxnRepo.all()) : []),
+    [editing],
+  );
+  const isOpen = open || !!editing;
+
   useEffect(() => {
-    if (!open) return;
+    if (!isOpen) return;
+    if (editing) {
+      const bankLeg = editLegs[0];
+      const cashIsSource = editing.type === "reduce";
+      setFromId(cashIsSource ? CASH : (bankLeg?.bankId ?? CASH));
+      setToId(cashIsSource ? (bankLeg?.bankId ?? "") : CASH);
+      setAmount(editing.amount);
+      setDate(editing.date);
+      // Strip the "Transfer X → Y" prefix the save adds back, so the note the
+      // person actually typed is what they see in the box.
+      setNotes((editing.reason ?? "").replace(/^Transfer\b[^—]*—\s*/i, "").trim());
+      setSaving(false);
+      return;
+    }
     // Opened from an account's own page: that account is what you are moving
     // money OUT of, which is the common reason to be standing there.
     setFromId(initialBankId ?? CASH);
@@ -107,7 +143,7 @@ export function CashBankTransferDialog({
     // `banks` deliberately not a dependency: reopening resets the form, a
     // background sync must not wipe what is half-typed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialBankId]);
+  }, [isOpen, initialBankId, editing, editLegs]);
 
   const from = accounts.find((a) => a.id === fromId);
   const to = accounts.find((a) => a.id === toId);
@@ -148,9 +184,25 @@ export function CashBankTransferDialog({
     const label = `Transfer ${from.name} → ${to.name}`;
     const note = notes.trim() ? `${label} — ${notes.trim()}` : label;
     const batch = newBatch();
-    // One id on both legs, so deleting either takes the other with it rather
-    // than leaving the money half moved.
-    const transferId = genId();
+    // Keep the pair's id across an edit, and give an older unstamped pair one
+    // now, so the two legs stay recognisable as one movement afterwards.
+    const transferId = editing?.transferId ?? genId();
+
+    // An edit is "undo the old movement, make the new one" — both on this one
+    // batch, so a correction can never land halfway and leave the books with
+    // one and a half transfers in them.
+    if (editing) {
+      CashAdjustmentRepo.removeBatched(batch, editing.id);
+      for (const leg of editLegs) {
+        BankTxnRepo.removeBatched(batch, leg.id);
+        BankRepo.adjustFieldBatched(
+          batch,
+          leg.bankId,
+          "balance",
+          leg.type === "deposit" ? -leg.amount : leg.amount,
+        );
+      }
+    }
 
     // Out of the FROM account…
     if (from.id === CASH) {
@@ -199,17 +251,31 @@ export function CashBankTransferDialog({
         toast.error("The transfer did not reach the cloud — reload and check before repeating it");
         return;
       }
-      toast.success(`${fmtMoney(n)} moved from ${from.name} to ${to.name}`);
+      toast.success(
+        editing
+          ? `Transfer updated — ${fmtMoney(n)} from ${from.name} to ${to.name}`
+          : `${fmtMoney(n)} moved from ${from.name} to ${to.name}`,
+      );
       onSaved();
+      onEditingDone?.();
       onOpenChange(false);
     });
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !saving && onOpenChange(v)}>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(v) => {
+        if (saving) return;
+        if (!v) onEditingDone?.();
+        onOpenChange(v);
+      }}
+    >
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-base">Transfer Money</DialogTitle>
+          <DialogTitle className="text-base">
+            {editing ? "Edit Transfer" : "Transfer Money"}
+          </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-3.5">
@@ -296,7 +362,10 @@ export function CashBankTransferDialog({
               type="button"
               variant="outline"
               disabled={saving}
-              onClick={() => onOpenChange(false)}
+              onClick={() => {
+                onEditingDone?.();
+                onOpenChange(false);
+              }}
             >
               Cancel
             </Button>

@@ -30,6 +30,7 @@ import {
   X,
   SlidersHorizontal,
   ArrowLeftRight,
+  ArrowRight,
   Pencil,
   Trash2,
   ExternalLink,
@@ -47,6 +48,7 @@ function CashPage() {
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [editAdj, setEditAdj] = useState<CashAdjustment | null>(null);
+  const [editTransfer, setEditTransfer] = useState<CashAdjustment | null>(null);
   const [q, setQ] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -344,7 +346,17 @@ function CashPage() {
               label: "Action",
               width: "84px",
               align: "center",
-              render: (e) => <CashRowActions row={e} onEdit={setEditAdj} onDelete={deleteRow} />,
+              render: (e) => (
+                <CashRowActions
+                  row={e}
+                  onEdit={(adj) =>
+                    transferLegsFor(adj, BankTxnRepo.all()).length > 0
+                      ? setEditTransfer(adj)
+                      : setEditAdj(adj)
+                  }
+                  onDelete={deleteRow}
+                />
+              ),
             },
           ]}
           rows={filtered}
@@ -368,6 +380,8 @@ function CashPage() {
         open={transferOpen}
         onOpenChange={setTransferOpen}
         onSaved={refresh}
+        editing={editTransfer}
+        onEditingDone={() => setEditTransfer(null)}
       />
       <CashAdjustDialog
         editing={editAdj}
@@ -418,8 +432,8 @@ function CashRowActions({
       >
         <button
           onClick={() => adj && onEdit(adj)}
-          disabled={!adj || isTransfer}
-          title={isTransfer ? "Part of a transfer — delete it and enter it again" : "Edit entry"}
+          disabled={!adj}
+          title={isTransfer ? "Edit this transfer (both accounts)" : "Edit entry"}
           className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-transparent text-gray-400 transition hover:bg-primary-soft hover:text-primary hover:border-primary/25 disabled:opacity-30 disabled:pointer-events-none"
         >
           <Pencil className="h-3.5 w-3.5" />
@@ -497,6 +511,12 @@ function CashAdjustDialog({
   }, [isOpen, editing]);
 
   const n = amount;
+  const signed = (t: "add" | "reduce", amt: number) => (t === "add" ? amt : -amt);
+  const nextBalance =
+    Math.round(
+      (currentBalance - (editing ? signed(editing.type, editing.amount) : 0) + signed(type, n)) *
+        100,
+    ) / 100;
 
   const save = (e: React.FormEvent) => {
     e.preventDefault();
@@ -526,29 +546,51 @@ function CashAdjustDialog({
     <Dialog open={isOpen} onOpenChange={close}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{editing ? "Edit Cash Entry" : "Adjust Cash on Hand"}</DialogTitle>
+          <DialogTitle>{editing ? "Edit Cash Entry" : "Add Cash Entry"}</DialogTitle>
         </DialogHeader>
-        <form onSubmit={save} className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Current balance:{" "}
-            <span className="font-bold text-foreground">{fmtMoney(currentBalance)}</span>
-          </p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setType("add")}
-              className={`flex-1 h-9 rounded-md border text-sm font-semibold transition ${type === "add" ? "bg-success-soft text-success border-success" : "bg-background text-muted-foreground"}`}
+        <form onSubmit={save} className="space-y-3.5">
+          {/* "Cash In" and "Cash Out" — the words the table's own columns use.
+              This was two big buttons reading "+ Add Cash" / "− Reduce Cash",
+              which look like actions about to happen: fine on a blank form,
+              meaningless sitting on an entry that was made days ago, where
+              the only question is which way it already went. A labelled
+              two-state control answers that question instead of appearing to
+              offer two things to do. */}
+          <label className="block">
+            <span className="text-[12px] font-medium text-muted-foreground block mb-1">
+              Direction
+            </span>
+            <div
+              role="radiogroup"
+              aria-label="Direction"
+              className="grid grid-cols-2 rounded-md border border-input overflow-hidden"
             >
-              + Add Cash
-            </button>
-            <button
-              type="button"
-              onClick={() => setType("reduce")}
-              className={`flex-1 h-9 rounded-md border text-sm font-semibold transition ${type === "reduce" ? "bg-destructive/10 text-destructive border-destructive" : "bg-background text-muted-foreground"}`}
-            >
-              − Reduce Cash
-            </button>
-          </div>
+              {(
+                [
+                  ["add", "Cash In"],
+                  ["reduce", "Cash Out"],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  role="radio"
+                  aria-checked={type === key}
+                  onClick={() => setType(key)}
+                  className={`h-9 text-[13px] font-semibold transition ${
+                    type === key
+                      ? key === "add"
+                        ? "bg-emerald-600 text-white"
+                        : "bg-rose-600 text-white"
+                      : "bg-background text-muted-foreground hover:bg-accent"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </label>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <NumField label="Amount (₹) *" value={amount} onValue={setAmount} />
             <Field
@@ -564,17 +606,35 @@ function CashAdjustDialog({
             onChange={(e) => setReason(e.target.value)}
             placeholder="Opening cash, owner drawing, counting correction…"
           />
+
+          {/* What this will DO, not what the balance happens to be. On an edit
+              the useful number is where cash in hand ends up, which is the
+              current figure with the old entry swapped for the new one. */}
+          <div className="text-[12px] bg-muted/50 border rounded-md px-3 py-2 flex items-center justify-between gap-3">
+            <span className="text-muted-foreground">Cash in hand</span>
+            <span className="flex items-center gap-2">
+              <span className="tabular-nums">{fmtMoney(currentBalance)}</span>
+              {nextBalance !== currentBalance && (
+                <>
+                  <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                  <span
+                    className={`font-semibold tabular-nums ${
+                      nextBalance > currentBalance ? "text-emerald-700" : "text-rose-700"
+                    }`}
+                  >
+                    {fmtMoney(nextBalance)}
+                  </span>
+                </>
+              )}
+            </span>
+          </div>
+
           <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              disabled={saving}
-              onClick={() => onOpenChange(false)}
-            >
+            <Button type="button" variant="outline" disabled={saving} onClick={() => close(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={saving}>
-              {saving ? "Saving…" : editing ? "Save Changes" : "Adjust Cash"}
+              {saving ? "Saving…" : editing ? "Save Changes" : "Add Entry"}
             </Button>
           </div>
         </form>

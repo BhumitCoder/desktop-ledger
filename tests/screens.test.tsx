@@ -2740,22 +2740,25 @@ async function runAll(): Promise<Results> {
     );
   }
 
-  /* ── An OLD transfer leg is refused for edit, and deletes both sides ───
-     Transfers made before the two legs were stamped with a shared id were
-     treated as ordinary manual entries, so the pencil was live on them — the
-     client was shown the Edit Cash Entry dialog sitting on one half of a
-     ₹2,25,100 transfer. Editing it there would have moved the cash and left
-     the bank account saying something else. */
+  /* ── An old transfer is EDITED as a whole, and both legs follow ────────
+     Editing one side on its own must not happen — the cash would move and
+     the account would still say the old figure. Refusing the edit was the
+     safe answer but not a good one: correcting a mistyped transfer meant
+     deleting it and entering it again from memory. So the pencil opens the
+     TRANSFER, and saving rewrites both legs on one batch.
+
+     Seeded WITHOUT a shared id, exactly as transfers were written before
+     that field existed — those are the ones the client was being offered a
+     one-sided edit of. */
   {
     BankRepo.add({
       id: "OLDB",
       createdAt: "2026-01-01T00:00:00Z",
       name: "Legacy Transfer Bank",
       openingBalance: 0,
-      balance: 5000,
+      balance: 5000, // already includes the 1200 below
     } as never);
     const NOTE = "Transfer to Legacy Transfer Bank — OLD ENTRY";
-    // No transferId on either side: exactly how they were written before.
     CashAdjustmentRepo.add({
       id: "OLDCA",
       createdAt: "2026-01-01T00:00:00Z",
@@ -2775,24 +2778,97 @@ async function runAll(): Promise<Results> {
     } as never);
 
     await renderRoute("/cash");
-    const t = document.querySelector(".data-table table");
-    const legRow = Array.from(t?.querySelectorAll("tbody tr") ?? []).find((tr) =>
-      (tr.textContent ?? "").includes("OLD ENTRY"),
-    );
-    assert(!!legRow, "old transfer: the leg is listed on the Cash page");
+    const legRow = () =>
+      Array.from(
+        document.querySelector(".data-table table")?.querySelectorAll("tbody tr") ?? [],
+      ).find((tr) => (tr.textContent ?? "").includes("OLD ENTRY"));
+    assert(!!legRow(), "old transfer: the leg is listed on the Cash page");
 
-    const pencil = Array.from(legRow?.querySelectorAll("button") ?? []).find((b) =>
-      (b.getAttribute("title") ?? "").toLowerCase().includes("transfer"),
-    ) as HTMLButtonElement | undefined;
+    const pencil = legRow()?.querySelector(
+      '[title="Edit this transfer (both accounts)"]',
+    ) as HTMLButtonElement | null;
+    assert(!!pencil && !pencil.disabled, "old transfer: it CAN be edited, as a transfer");
+
+    await act(async () => {
+      pencil?.click();
+    });
+    await settleMs(150);
+    const dlg = currentDialog();
     assert(
-      !!pencil && pencil.disabled,
-      `old transfer: the edit button is refused — ${pencil ? "enabled" : "not found"}`,
+      (dlg.textContent ?? "").includes("Edit Transfer"),
+      `old transfer: the TRANSFER editor opens, not the cash form — ${JSON.stringify(
+        dlg.textContent?.slice(0, 80),
+      )}`,
+    );
+    // Pre-filled from the pair: cash out means cash was the source.
+    const sideText = (side: "From" | "To") =>
+      dlg.querySelector(`[role="combobox"][aria-label="${side} account"]`)?.textContent ?? "";
+    assert(
+      sideText("From").includes("Cash in Hand") && sideText("To").includes("Legacy Transfer Bank"),
+      `old transfer: both ends are worked out from the legs — From ${JSON.stringify(
+        sideText("From"),
+      )}, To ${JSON.stringify(sideText("To"))}`,
+    );
+    const amt = dlg.querySelector('input[aria-label="Transfer amount"]') as HTMLInputElement | null;
+    assert(amt?.value === "1200", `old transfer: and the amount — got ${amt?.value}`);
+
+    // Correct it to 900: BOTH legs and BOTH balances have to follow.
+    const cashBefore = cashFlows(
+      SalesRepo.all(),
+      PurchaseRepo.all(),
+      ExpenseRepo.all(),
+      PaymentRepo.all(),
+      CashAdjustmentRepo.all(),
+    ).reduce((s, e) => s + e.in - e.out, 0);
+    await act(async () => {
+      setInput(amt, "900");
+    });
+    await settleMs(60);
+    await act(async () => {
+      (
+        Array.from(dlg.querySelectorAll("button")).find(
+          (b) => (b.textContent ?? "").trim() === "Transfer",
+        ) as HTMLButtonElement
+      )?.click();
+    });
+    await settleMs(250);
+
+    const cashLegs = CashAdjustmentRepo.all().filter((a) => (a.reason ?? "").includes("OLD ENTRY"));
+    const bankLegs = BankTxnRepo.all().filter((t) => (t.notes ?? "").includes("OLD ENTRY"));
+    assert(
+      cashLegs.length === 1 && cashLegs[0].amount === 900,
+      `old transfer: the cash leg is now 900 — ${JSON.stringify(cashLegs.map((a) => a.amount))}`,
+    );
+    assert(
+      bankLegs.length === 1 && bankLegs[0].amount === 900,
+      `old transfer: and so is the bank leg — ${JSON.stringify(bankLegs.map((t) => t.amount))}`,
+    );
+    assert(
+      BankRepo.get("OLDB")?.balance === 4700,
+      `old transfer: the account moved by the DIFFERENCE only — ${BankRepo.get("OLDB")?.balance} (want 4700)`,
+    );
+    const cashAfter = cashFlows(
+      SalesRepo.all(),
+      PurchaseRepo.all(),
+      ExpenseRepo.all(),
+      PaymentRepo.all(),
+      CashAdjustmentRepo.all(),
+    ).reduce((s, e) => s + e.in - e.out, 0);
+    assert(
+      Math.abs(cashAfter - (cashBefore + 300)) < 0.01,
+      `old transfer: and cash keeps the 300 that is no longer being moved — ${cashAfter} (want ${cashBefore + 300})`,
+    );
+    // Both legs now share an id, so they stay a pair from here on.
+    assert(
+      !!cashLegs[0].transferId && cashLegs[0].transferId === bankLegs[0].transferId,
+      "old transfer: editing it also pairs the two legs properly",
     );
 
-    // And deleting it takes the bank side with it, putting the balance back.
-    const del = Array.from(legRow?.querySelectorAll("button") ?? []).find((b) =>
-      (b.getAttribute("title") ?? "").includes("both accounts"),
-    ) as HTMLButtonElement | undefined;
+    // Deleting still clears both sides and puts the balance back.
+    await renderRoute("/cash");
+    const del = legRow()?.querySelector(
+      '[title="Delete this transfer from both accounts"]',
+    ) as HTMLButtonElement | null;
     assert(!!del, "old transfer: delete says it will clear both accounts");
     const realConfirm = window.confirm;
     window.confirm = () => true;
@@ -2804,8 +2880,14 @@ async function runAll(): Promise<Results> {
     } finally {
       window.confirm = realConfirm;
     }
-    assert(!CashAdjustmentRepo.get("OLDCA"), "old transfer: the cash leg is removed");
-    assert(!BankTxnRepo.get("OLDBT"), "old transfer: AND the unstamped bank leg with it");
+    assert(
+      CashAdjustmentRepo.all().every((a) => !(a.reason ?? "").includes("OLD ENTRY")),
+      "old transfer: the cash leg is removed",
+    );
+    assert(
+      BankTxnRepo.all().every((t) => !(t.notes ?? "").includes("OLD ENTRY")),
+      "old transfer: AND the bank leg with it",
+    );
     assert(
       BankRepo.get("OLDB")?.balance === 3800,
       `old transfer: the account is put back — ${BankRepo.get("OLDB")?.balance} (want 3800)`,
