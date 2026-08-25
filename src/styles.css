@@ -242,7 +242,8 @@
     border-bottom: 1px solid var(--color-border);
     position: sticky;
     top: 0;
-    z-index: 1;
+    /* Above the footer and the pinned column — see the stacking note below. */
+    z-index: 3;
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -271,6 +272,14 @@
   & tfoot {
     position: sticky;
     bottom: 0;
+    /* Three things in this table are sticky and they DO overlap: the header
+       row, the footer row, and the pinned last column. Without a stated
+       order it falls out of DOM order and the body wins — a pinned body cell
+       (z-index 1) was painted straight over the totals strip, putting a
+       row's pencil and bin in the footer's Action corner. Bottom to top:
+       pinned body cells 1, footer 2, header 3, pinned corners on top of
+       their own row. */
+    z-index: 2;
   }
   /* A pinned last column — the Action buttons, which on a table wider than
      the panel otherwise sit past the right edge where nobody scrolls to.
@@ -284,7 +293,7 @@
     box-shadow: -8px 0 8px -8px rgb(0 0 0 / 0.14);
   }
   & table[data-pin-last] thead th:last-child {
-    z-index: 2;
+    z-index: 4;
   }
   & table[data-pin-last] tbody td:last-child {
     z-index: 1;
@@ -295,6 +304,10 @@
   }
   & table[data-pin-last] tbody tr[data-selected="true"] td:last-child {
     background: color-mix(in oklch, var(--color-primary) 12%, var(--color-card));
+  }
+  & table[data-pin-last] tfoot td:last-child {
+    z-index: 3;
+    background: color-mix(in oklch, var(--color-foreground) 6%, var(--color-background));
   }
 
   & tfoot td {

@@ -2602,6 +2602,97 @@ async function runAll(): Promise<Results> {
       );
     }
 
+    /* WHAT IS ON TOP, asked of the browser rather than inferred — and asked
+     * under the condition that actually produces the bug.
+     *
+     * Two earlier versions of this assertion were worthless. The first checked
+     * the footer cell's background COLOUR: right colour, but a pinned body
+     * cell was painted over it, so what a person saw in the footer's Action
+     * corner was a row's pencil and bin. The second asked elementFromPoint
+     * but on an UNSCROLLED table — nothing passes under a sticky footer until
+     * the content is taller than its container, so there was nothing to be
+     * covered by and the check could not fail.
+     *
+     * So: enough rows to overflow a short container, scrolled, then ask. */
+    {
+      const h3 = document.createElement("div");
+      h3.style.cssText = "position:fixed;left:0;top:0;width:640px;height:340px;display:flex;";
+      document.body.appendChild(h3);
+      const r3 = createRoot(h3);
+      await act(async () => {
+        r3.render(
+          <DataTable
+            columns={[
+              { key: "name", label: "Name", render: (r: { id: string }) => r.id },
+              { key: "amount", label: "Amount", render: () => "1,000" },
+              { key: "action", label: "Action", render: () => <button>edit</button> },
+            ]}
+            rows={Array.from({ length: 40 }, (_, i) => ({ id: `Row ${i}` }))}
+            rowKey={(r) => r.id}
+            footer={
+              <tr>
+                <td colSpan={2}>Total</td>
+              </tr>
+            }
+          />,
+        );
+      });
+      await settleMs(80);
+
+      const scroller = h3.querySelector(".data-table") as HTMLElement | null;
+      const table3 = h3.querySelector("table") as HTMLElement | null;
+      assert(!!scroller && !!table3, "stacking: the probe table mounted");
+      if (scroller && table3) {
+        assert(
+          scroller.scrollHeight > scroller.clientHeight + 20,
+          `stacking: the probe table really overflows — content ${scroller.scrollHeight} vs box ${scroller.clientHeight}`,
+        );
+        await act(async () => {
+          scroller.scrollTop = Math.floor(scroller.scrollHeight / 3);
+          scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+        });
+        await settleMs(60);
+
+        const foot = table3.querySelector("tfoot td:last-child") as HTMLElement | null;
+        assert(!!foot, "stacking: the pinned footer corner exists");
+        if (foot) {
+          const fr = foot.getBoundingClientRect();
+          const onTop = document.elementFromPoint(fr.left + fr.width / 2, fr.top + fr.height / 2);
+          assert(
+            !!onTop && !!onTop.closest("tfoot"),
+            `stacking: the FOOTER owns its own corner while rows scroll under it — found <${onTop?.tagName.toLowerCase()}> in ${
+              onTop?.closest("tfoot")
+                ? "tfoot"
+                : onTop?.closest("tbody")
+                  ? "tbody (a row is painted over the totals)"
+                  : "neither"
+            }`,
+          );
+        }
+
+        const head = table3.querySelector("thead th:last-child") as HTMLElement | null;
+        if (head) {
+          const hr = head.getBoundingClientRect();
+          const onTopHead = document.elementFromPoint(
+            hr.left + hr.width / 2,
+            hr.top + hr.height / 2,
+          );
+          assert(
+            !!onTopHead && !!onTopHead.closest("thead"),
+            `stacking: and the HEADER owns its corner too — found <${onTopHead?.tagName.toLowerCase()}> in ${
+              onTopHead?.closest("thead")
+                ? "thead"
+                : onTopHead?.closest("tbody")
+                  ? "tbody"
+                  : "neither"
+            }`,
+          );
+        }
+      }
+      r3.unmount();
+      h3.remove();
+    }
+
     // A footer that IS short gets padded out. Every screen's footer happens to
     // be right today, so nothing on a real page exercises this — but they are
     // counted by hand, and the next column added to any table would leave one
