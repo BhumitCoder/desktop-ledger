@@ -12,7 +12,8 @@
  * because real data drifts (lib/bankRepair.ts exists for exactly that reason).
  */
 
-import { Fragment, useMemo } from "react";
+import { Fragment, useMemo, useState } from "react";
+import { toast } from "sonner";
 import {
   BankRepo,
   BankTxnRepo,
@@ -26,10 +27,23 @@ import {
   SaleReturnRepo,
   SalesRepo,
   StockAdjustmentRepo,
+  LedgerEntryRepo,
 } from "@/repositories";
 import { useRepoMemo } from "@/hooks/useRepoData";
-import { fmtMoney, fmtDate } from "@/lib/format";
-import { GROUP_LABEL, accountsFor } from "@/lib/accounts";
+import { fmtMoney, fmtDate, today } from "@/lib/format";
+import { GROUP_LABEL, accountLabel, accountsFor } from "@/lib/accounts";
+import {
+  balanceSheet,
+  closingEntry,
+  closingEntryBalances,
+  financialYear,
+  plGaps,
+  planYearClose,
+  profitAndLoss,
+  type StatementLine,
+} from "@/lib/financials";
+import { usePeriodLock } from "@/hooks/usePeriodLock";
+import { Button } from "@/components/ui/button";
 import type { Book } from "@/lib/posting";
 import { buildJournal } from "@/lib/posting";
 import { groupTotals, reconcile, trialBalance } from "@/lib/trialBalance";
@@ -58,10 +72,12 @@ function useBook(): Book {
     cashAdjustments: CashAdjustmentRepo.all(),
     bankTxns: BankTxnRepo.all(),
     stockAdjustments: StockAdjustmentRepo.all(),
+    journalEntries: LedgerEntryRepo.all(),
   }));
 }
 
 const money = (n: number) => (n ? fmtMoney(n) : "—");
+const r2 = (n: number) => Math.round(n * 100) / 100;
 
 /* ── Trial Balance ────────────────────────────────────────────────────── */
 
@@ -292,6 +308,365 @@ export function ReconciliationReport() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ── Profit & Loss, off the ledger ────────────────────────────────────── */
+
+export function LedgerProfitLossReport({ from, to }: { from: string; to: string }) {
+  const book = useBook();
+  const { pl, gaps } = useMemo(() => {
+    const entries = buildJournal(book);
+    const accounts = accountsFor(book.banks, book.expenses);
+    const statement = profitAndLoss(entries, accounts, from, to);
+    return { pl: statement, gaps: plGaps(statement) };
+  }, [book, from, to]);
+
+  return (
+    <div className="max-w-2xl">
+      <div className="flex items-baseline justify-between gap-3 mb-1">
+        <h2 className="text-lg font-bold text-gray-800">Profit &amp; Loss (from the ledger)</h2>
+        <p className="text-[12px] text-gray-500">
+          {from ? fmtDate(from) : "the beginning"} to {to ? fmtDate(to) : "today"}
+        </p>
+      </div>
+      <p className="text-[12px] text-gray-500 mb-4">
+        Read off the same postings as the Trial Balance and the Balance Sheet, so the three cannot
+        disagree with each other. The existing Profit &amp; Loss report adds its figures up
+        separately — see the note at the bottom for what this one counts that it does not.
+      </p>
+
+      <div className="bg-white border rounded-lg shadow-sm overflow-hidden">
+        <SectionHead>Income</SectionHead>
+        {pl.income.length === 0 && <EmptyLine>Nothing earned in this period.</EmptyLine>}
+        {pl.income.map((l) => (
+          <StatementRow key={l.accountId} line={l} />
+        ))}
+        <TotalRow label="Total Income" value={pl.totalIncome} />
+
+        <SectionHead>Expenses</SectionHead>
+        {pl.expense.length === 0 && <EmptyLine>Nothing spent in this period.</EmptyLine>}
+        {pl.expense.map((l) => (
+          <StatementRow key={l.accountId} line={l} />
+        ))}
+        <TotalRow label="Total Expenses" value={pl.totalExpense} />
+
+        <div className="px-5 py-4 bg-primary/5 border-t-2 border-primary flex justify-between items-center">
+          <span className="text-base font-bold text-gray-800">
+            {pl.netProfit >= 0 ? "Net Profit" : "Net Loss"}
+          </span>
+          <span
+            className={`text-[20px] font-extrabold tabular-nums ${
+              pl.netProfit >= 0 ? "text-emerald-600" : "text-rose-600"
+            }`}
+          >
+            {fmtMoney(pl.netProfit)}
+          </span>
+        </div>
+      </div>
+
+      {/* Standing rule 5 of the plan: a behaviour change is flagged before it
+          reaches the shop. Switching the old report to this one would move the
+          profit figure the owner has been reading for months — so the amount
+          and the reason are on the statement, not buried in a commit. */}
+      {gaps.length > 0 && (
+        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+          <p className="text-[13px] font-semibold text-amber-900">
+            This includes {gaps.length === 1 ? "an account" : "accounts"} the old Profit &amp; Loss
+            report has never counted
+          </p>
+          <ul className="mt-1.5 space-y-0.5">
+            {gaps.map((l) => (
+              <li key={l.accountId} className="text-[12px] text-amber-800 flex justify-between">
+                <span>{l.name}</span>
+                <span className="tabular-nums font-semibold">{fmtMoney(l.amount)}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-[11px] text-amber-700 mt-1.5">
+            Stock written off and cash that moved with no stated reason are real costs, and the old
+            report leaves them out — which is why its profit reads higher. Nothing has changed on
+            that report; this is the difference between the two.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Balance Sheet ────────────────────────────────────────────────────── */
+
+export function BalanceSheetReport({ asAt }: { asAt: string }) {
+  const book = useBook();
+  const bs = useMemo(() => {
+    const entries = buildJournal(book);
+    return balanceSheet(entries, accountsFor(book.banks, book.expenses), asAt);
+  }, [book, asAt]);
+
+  return (
+    <div className="max-w-3xl">
+      <div className="flex items-baseline justify-between gap-3 mb-1">
+        <h2 className="text-lg font-bold text-gray-800">Balance Sheet</h2>
+        <p className="text-[12px] text-gray-500">as at {fmtDate(asAt)}</p>
+      </div>
+      <p className="text-[12px] text-gray-500 mb-4">
+        What the shop owns, what it owes, and what is left over. A position on a day — everything up
+        to the To date, opening balances included, so the From date does not apply.
+      </p>
+
+      {bs.drift !== 0 && (
+        <Banner
+          tone="bad"
+          title={`This does not balance — out by ${fmtMoney(Math.abs(bs.drift))}`}
+          body="What the shop owns must equal what it owes plus what is left over. A difference means a posting rule does not add up, which is a bug in the software rather than anything the shop can correct."
+        />
+      )}
+
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="bg-white border rounded-lg shadow-sm overflow-hidden self-start">
+          <SectionHead>Assets — what the shop owns</SectionHead>
+          {bs.assets.length === 0 && <EmptyLine>Nothing recorded.</EmptyLine>}
+          {bs.assets.map((l) => (
+            <StatementRow key={l.accountId} line={l} />
+          ))}
+          <TotalRow label="Total Assets" value={bs.totalAssets} strong />
+        </div>
+
+        <div className="space-y-4 self-start">
+          <div className="bg-white border rounded-lg shadow-sm overflow-hidden">
+            <SectionHead>Liabilities — what the shop owes</SectionHead>
+            {bs.liabilities.length === 0 && <EmptyLine>Nothing owed.</EmptyLine>}
+            {bs.liabilities.map((l) => (
+              <StatementRow key={l.accountId} line={l} />
+            ))}
+            <TotalRow label="Total Liabilities" value={bs.totalLiabilities} />
+          </div>
+
+          <div className="bg-white border rounded-lg shadow-sm overflow-hidden">
+            <SectionHead>Equity — what is left over</SectionHead>
+            {bs.equity.map((l) => (
+              <StatementRow key={l.accountId} line={l} />
+            ))}
+            {/* Profit that has not been closed into Retained Earnings yet.
+                Without this line the statement only balances on the day the
+                year is closed, which is no use for the other 364. */}
+            <StatementRow
+              line={{
+                accountId: "current-earnings",
+                code: "",
+                name: "Profit for the period (not yet closed)",
+                amount: bs.currentEarnings,
+              }}
+            />
+            <TotalRow
+              label="Total Liabilities + Equity"
+              value={r2(bs.totalLiabilities + bs.totalEquity)}
+              strong
+            />
+          </div>
+        </div>
+      </div>
+
+      <YearClosePanel book={book} />
+    </div>
+  );
+}
+
+/* ── The year close ───────────────────────────────────────────────────── */
+
+/**
+ * Closing a year is the least reversible thing in this application — every
+ * balance sheet after it is built on it — so it shows the exact entry first
+ * and posts nothing until asked, the same shape as planStockRepair and
+ * planBankRepair.
+ */
+function YearClosePanel({ book }: { book: Book }) {
+  const { canPost } = usePeriodLock();
+  const [busy, setBusy] = useState(false);
+
+  const { plan, accounts } = useMemo(() => {
+    const entries = buildJournal(book);
+    const chart = accountsFor(book.banks, book.expenses);
+    // The most recent year that has actually finished.
+    const thisYear = financialYear(today());
+    const lastYearEnd = financialYear(
+      `${Number(thisYear.start.slice(0, 4)) - 1}-${thisYear.start.slice(5)}`,
+    ).end;
+    return { plan: planYearClose(entries, chart, lastYearEnd, today()), accounts: chart };
+  }, [book]);
+
+  const nameOf = (id: string) => accountLabel(id, accounts);
+
+  const post = async () => {
+    if (plan.blocked) return;
+    // A closing entry is dated the last day of the year, which is very often
+    // inside a period the shop has locked after filing GST. It is allowed
+    // through, because it moves no account that appears in a filed return —
+    // only income, expenses and Retained Earnings. Undoing one is not: see
+    // the delete below.
+    const entry = closingEntry(plan);
+    if (!closingEntryBalances(entry)) {
+      toast.error("The closing entry does not balance — refusing to post it");
+      return;
+    }
+    setBusy(true);
+    try {
+      LedgerEntryRepo.add({
+        date: entry.date,
+        voucherType: entry.voucherType,
+        voucherNo: entry.voucherNo,
+        docKind: entry.docKind,
+        narration: entry.narration,
+        fyLabel: plan.fy.label,
+        lines: entry.lines,
+      } as never);
+      toast.success(`${plan.fy.label} closed — ${fmtMoney(plan.netProfit)} to Retained Earnings`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const reopen = async () => {
+    if (!plan.existingId) return;
+    const doc = LedgerEntryRepo.get(plan.existingId);
+    if (!doc) return;
+    // Reopening DOES need the lock, unlike closing: it changes a figure the
+    // shop has already been reading and reporting from.
+    if (!canPost(doc.date)) return;
+    if (
+      !window.confirm(
+        `Reopen ${plan.fy.label}? Every balance sheet after ${fmtDate(doc.date)} changes, because the year's profit goes back into the current period instead of Retained Earnings.`,
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      LedgerEntryRepo.remove(doc.id);
+      toast.success(`${plan.fy.label} reopened`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-6 bg-white border rounded-lg shadow-sm overflow-hidden">
+      <div className="px-5 py-3 bg-gray-50 border-b flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[13px] font-bold text-gray-800">Year close — {plan.fy.label}</p>
+          <p className="text-[11px] text-gray-500">
+            Empties every income and expense account into Retained Earnings, so the new year starts
+            from zero and the profit stays on the balance sheet.
+          </p>
+        </div>
+        {plan.existingId ? (
+          <Button size="sm" variant="outline" disabled={busy} onClick={reopen}>
+            Reopen {plan.fy.label}
+          </Button>
+        ) : (
+          <Button size="sm" disabled={busy || !!plan.blocked} onClick={post}>
+            {busy ? "Posting…" : `Close ${plan.fy.label}`}
+          </Button>
+        )}
+      </div>
+
+      {plan.blocked && (
+        <p className="px-5 py-3 text-[12px] text-gray-500 border-b">{plan.blocked}</p>
+      )}
+
+      {plan.lines.length > 0 && (
+        <>
+          <div className="px-5 py-2.5 grid grid-cols-3 gap-2 border-b text-[12px]">
+            <Figure label="Income" value={plan.totalIncome} />
+            <Figure label="Expenses" value={plan.totalExpense} />
+            <Figure
+              label={plan.netProfit >= 0 ? "To Retained Earnings" : "Loss to Retained Earnings"}
+              value={plan.netProfit}
+              strong
+            />
+          </div>
+          {/* The entry itself, before anything is written. Closing a year on
+              a figure nobody checked is how a wrong year becomes permanent. */}
+          <table className="w-full text-[12px]">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wide text-gray-400 border-b">
+                <th className="text-left font-semibold px-5 py-1.5">Account</th>
+                <th className="text-right font-semibold px-5 py-1.5 w-28">Debit</th>
+                <th className="text-right font-semibold px-5 py-1.5 w-28">Credit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {plan.lines.map((l, i) => (
+                <tr key={`${l.accountId}-${i}`} className="border-b border-gray-100 last:border-0">
+                  <td className="px-5 py-1.5 text-gray-700">{nameOf(l.accountId)}</td>
+                  <td className="px-5 py-1.5 text-right tabular-nums">{money(l.debit)}</td>
+                  <td className="px-5 py-1.5 text-right tabular-nums">{money(l.credit)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ── Shared statement furniture ───────────────────────────────────────── */
+
+function SectionHead({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="px-5 py-2.5 bg-gray-50 border-b">
+      <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">{children}</p>
+    </div>
+  );
+}
+
+function EmptyLine({ children }: { children: React.ReactNode }) {
+  return <p className="px-5 py-3 text-[12px] text-gray-400">{children}</p>;
+}
+
+function StatementRow({ line }: { line: StatementLine }) {
+  return (
+    <div className="px-5 py-2 flex justify-between items-center gap-3 border-b border-gray-100 text-[13px]">
+      <span className="text-gray-700 flex items-center gap-1.5">
+        {line.name}
+        {line.note && (
+          <span className="text-amber-500 inline-flex" title={line.note}>
+            <Info className="h-3.5 w-3.5" />
+          </span>
+        )}
+      </span>
+      <span className={`tabular-nums ${line.amount < 0 ? "text-rose-600" : "text-gray-800"}`}>
+        {fmtMoney(line.amount)}
+      </span>
+    </div>
+  );
+}
+
+function TotalRow({ label, value, strong }: { label: string; value: number; strong?: boolean }) {
+  return (
+    <div
+      className={`px-5 py-2.5 flex justify-between items-center gap-3 border-t ${
+        strong ? "bg-primary/5 border-t-2 border-primary" : "bg-gray-50/60"
+      }`}
+    >
+      <span className="text-[13px] font-bold text-gray-800">{label}</span>
+      <span className="text-[14px] font-bold tabular-nums text-gray-900">{fmtMoney(value)}</span>
+    </div>
+  );
+}
+
+function Figure({ label, value, strong }: { label: string; value: number; strong?: boolean }) {
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">{label}</p>
+      <p
+        className={`tabular-nums ${
+          strong ? "text-[15px] font-bold" : "text-[13px] font-semibold"
+        } ${value < 0 ? "text-rose-600" : "text-gray-800"}`}
+      >
+        {fmtMoney(value)}
+      </p>
     </div>
   );
 }

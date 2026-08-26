@@ -16,6 +16,7 @@ import type {
   Company,
   StockAdjustment,
   CashAdjustment,
+  JournalEntryDoc,
   AuditEntry,
   TeamUser,
   ModuleKey,
@@ -34,6 +35,15 @@ export const BankTxnRepo = new Repository<BankTxn>("bankTxns");
 export const PaymentRepo = new Repository<Payment>("payments");
 export const StockAdjustmentRepo = new Repository<StockAdjustment>("stock-adjustments");
 export const CashAdjustmentRepo = new Repository<CashAdjustment>("cash-adjustments");
+/**
+ * Journal entries that no document implies — today, year-end closing entries.
+ *
+ * Hydrated with everything else and included in backups, unlike the audit log:
+ * a closing entry exists nowhere but here, and every balance sheet after it
+ * depends on it. A backup without it would restore a shop whose years had
+ * silently re-opened.
+ */
+export const LedgerEntryRepo = new Repository<JournalEntryDoc>("ledger-entries");
 
 const defaultCompany: Company = {
   name: "My Company",
@@ -338,6 +348,7 @@ export const REPO_BY_KEY: Record<string, Repository<{ id: string }>> = {
   "bz.payments": PaymentRepo as Repository<{ id: string }>,
   "bz.stock-adjustments": StockAdjustmentRepo as Repository<{ id: string }>,
   "bz.cash-adjustments": CashAdjustmentRepo as Repository<{ id: string }>,
+  "bz.ledger-entries": LedgerEntryRepo as Repository<{ id: string }>,
 };
 
 const ALL_REPOS = Object.values(REPO_BY_KEY);
@@ -356,7 +367,9 @@ const MODULE_REPOS: Record<ModuleKey, Repository<{ id: string }>[]> = {
   cashBank: [BankRepo, BankTxnRepo, PaymentRepo, CashAdjustmentRepo] as Repository<{
     id: string;
   }>[],
-  reports: [],
+  // The only collection the reports module owns: closing entries are read by
+  // the balance sheet and written by the year close, both of which live there.
+  reports: [LedgerEntryRepo] as Repository<{ id: string }>[],
 };
 
 /**

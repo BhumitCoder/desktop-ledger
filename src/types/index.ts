@@ -245,6 +245,31 @@ export interface Return {
   createdAt: string;
 }
 
+/**
+ * A journal entry that no document implies, so it has to be written down.
+ *
+ * Everything else in the posting ledger is derived from the bills, payments
+ * and cash entries that caused it (see lib/posting.ts), which is why there is
+ * no collection of ledger lines. This is the exception: closing a financial
+ * year is a decision taken on a date by a person, not a consequence of a
+ * document, and next year's opening position is built on it — so it is stored,
+ * and it must not move once it is.
+ */
+export interface JournalEntryDoc extends Audited {
+  id: ID;
+  date: string;
+  /** "Closing Entry" today; manual journals will use their own. */
+  voucherType: string;
+  voucherNo?: string;
+  /** "year-close" — the value the P&L and balance sheet branch on. */
+  docKind: string;
+  narration: string;
+  lines: { accountId: string; debit: number; credit: number; partyId?: string }[];
+  /** The year this closes, as a shop says it: "2025-26". */
+  fyLabel?: string;
+  createdAt: string;
+}
+
 export type PrintFormat = "a4" | "a4-2up" | "thermal80" | "thermal58";
 
 /** Who touched a record, and when.
@@ -309,6 +334,10 @@ export interface Company {
    * to the tax authority; a bill inside it that can still be edited means the
    * books stop matching the filed return. Empty = no lock. */
   booksLockedUpto?: string;
+  /** First month of the financial year, 1–12. India runs April to March, so
+   * 4 — configurable rather than hardcoded so the code does not quietly
+   * pretend to be universal, but nothing in this shop will change it. */
+  fyStartMonth?: number;
   /** Preferred print format, remembered from the invoice page */
   printFormat?: PrintFormat;
   /** Set once the owner has finished checking existing opening balances

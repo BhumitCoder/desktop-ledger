@@ -29,7 +29,12 @@ import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { partyStatementSheet } from "@/lib/partySheet";
 import { PartyStatementRowBlock, PartyStatementCardBlock } from "./parties_.$id";
 import { fmtMode } from "@/lib/paymentMode";
-import { TrialBalanceReport, ReconciliationReport } from "@/components/LedgerReports";
+import {
+  TrialBalanceReport,
+  ReconciliationReport,
+  BalanceSheetReport,
+  LedgerProfitLossReport,
+} from "@/components/LedgerReports";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
@@ -51,6 +56,7 @@ import {
   Loader2,
   Scale,
   ShieldCheck,
+  Landmark,
 } from "lucide-react";
 
 export const Route = createFileRoute("/reports")({
@@ -66,6 +72,18 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 
 const REPORTS = [
   { key: "pl", label: "Profit & Loss", icon: BarChart3, desc: "Revenue, costs, net profit" },
+  {
+    key: "pl-ledger",
+    label: "Profit & Loss (ledger)",
+    icon: BarChart3,
+    desc: "The same postings as the Balance Sheet — they cannot disagree",
+  },
+  {
+    key: "balance-sheet",
+    label: "Balance Sheet",
+    icon: Landmark,
+    desc: "What the shop owns, owes and is worth — and the year close",
+  },
   {
     key: "trial-balance",
     label: "Trial Balance",
@@ -421,6 +439,8 @@ function ReportView({
       .sort((a, b) => a.party.name.localeCompare(b.party.name));
   }, [which, dateFrom, dateTo, parties]);
 
+  if (which === "pl-ledger") return <LedgerProfitLossReport from={dateFrom} to={dateTo} />;
+  if (which === "balance-sheet") return <BalanceSheetReport asAt={dateTo || today()} />;
   if (which === "trial-balance") return <TrialBalanceReport asAt={dateTo || today()} />;
   if (which === "reconcile") return <ReconciliationReport />;
 

@@ -26,6 +26,7 @@ import type { Account, AccountGroup } from "@/lib/accounts";
 import { GROUP_ORDER, NORMAL_BALANCE, accountsFor, bankAccountId } from "@/lib/accounts";
 import type { Book, JournalEntry } from "@/lib/posting";
 import { buildJournal, unbalancedEntries } from "@/lib/posting";
+import { profitAndLoss } from "@/lib/financials";
 import {
   bankFlows,
   cashFlows,
@@ -313,11 +314,13 @@ export function reconcile(book: Book): Reconciliation {
   /* 5. Profit. The Reports screen's P&L, against income minus expenses in the
         ledger — with the accounts that P&L has never included named
         explicitly rather than absorbed to make the row match. */
-  const income = r2(tb.rows.filter((x) => x.group === "income").reduce((s, x) => s + x.balance, 0));
-  const expense = r2(
-    tb.rows.filter((x) => x.group === "expense").reduce((s, x) => s + x.balance, 0),
-  );
-  const ledgerProfit = r2(income - expense);
+  /* Read through profitAndLoss rather than off the trial balance, because a
+     closed year has already had its income and expenses emptied into Retained
+     Earnings. Summing the accounts as they stand would compare the open
+     period against the app's all-time figure and report a gap the size of
+     every closed year — a false alarm on the one screen that must not cry
+     wolf. Closing entries are excluded; the documents behind them are not. */
+  const ledgerProfit = profitAndLoss(entries, accounts, "", "").netProfit;
 
   const appProfit = r2(
     valueExTax(book.sales) -

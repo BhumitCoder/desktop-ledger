@@ -49,6 +49,7 @@ import type {
   Expense,
   Invoice,
   Item,
+  JournalEntryDoc,
   LineItem,
   Party,
   Payment,
@@ -101,6 +102,14 @@ export interface Book {
   cashAdjustments: CashAdjustment[];
   bankTxns: BankTxn[];
   stockAdjustments: StockAdjustment[];
+  /**
+   * Entries that were written rather than derived — year-end closings.
+   *
+   * Optional so every existing caller and every test that predates them keeps
+   * working with none: a book with no closed years is the normal state, and
+   * the absent field must not read as "no ledger".
+   */
+  journalEntries?: JournalEntryDoc[];
 }
 
 /* ── Building blocks ──────────────────────────────────────────────────── */
@@ -648,6 +657,25 @@ export function buildJournal(book: Book): JournalEntry[] {
   for (const t of book.bankTxns) {
     if (usedBank.has(t.id)) continue;
     entries.push(postBankTxn(t, bankName.get(t.bankId) ?? "bank"));
+  }
+
+  /* The written entries, last. A closing entry is dated the last day of a
+     year and must sit after everything else on that day — the accounts it
+     empties have to be full when it lands. The sort below keys the same date
+     by id, and "je-close-…" is not reliably last alphabetically, so the flag
+     is what the statements branch on rather than position. */
+  for (const doc of book.journalEntries ?? []) {
+    entries.push({
+      id: `je-doc-${doc.id}`,
+      date: doc.date,
+      voucherType: doc.voucherType,
+      voucherNo: doc.voucherNo,
+      docKind: doc.docKind,
+      docId: doc.id,
+      narration: doc.narration,
+      periodKey: periodOf(doc.date),
+      lines: doc.lines ?? [],
+    });
   }
 
   entries.sort((a, b) =>

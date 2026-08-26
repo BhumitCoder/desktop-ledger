@@ -41,6 +41,15 @@ import { transferLegsFor } from "@/lib/transferLegs";
 import { AuditLogRepo, nextVoucherNo } from "@/repositories";
 import { isLocked, blockedDate, lockMessage } from "@/lib/periodLock";
 import { buildJournal, isBalanced, entryDrift, type Book } from "@/lib/posting";
+import {
+  financialYear,
+  profitAndLoss,
+  balanceSheet,
+  planYearClose,
+  closingEntry,
+  closingEntryBalances,
+} from "@/lib/financials";
+import { accountsFor } from "@/lib/accounts";
 import { reconcile, trialBalance, balanceOf, partyPositionsFromLedger } from "@/lib/trialBalance";
 import {
   CASH_PURPOSES,
@@ -59,7 +68,12 @@ function assert(cond: boolean, msg: string) {
     return;
   }
   failed++;
-  if (fails.length < 20) fails.push(msg);
+  /* One DISTINCT message per failing assertion, rather than the first 20 of
+     everything. A change that breaks a rule breaks it in hundreds of
+     generated scenarios, so a flat cap filled up with the same sentence
+     repeated and truncated away the other rules it also broke — which is
+     exactly the information needed to tell one broken rule from five. */
+  if (!fails.includes(msg) && fails.length < 60) fails.push(msg);
 }
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const approx = (a: number, b: number, eps = 0.02) => Math.abs(a - b) <= eps;
@@ -2602,6 +2616,490 @@ console.log(`\n═════════════════════�
         "T27: a liability reads as what is owed, not as a negative",
       );
     }
+  }
+}
+
+/* ═══ TEST 28: statements off the ledger, and closing a year ════════════
+   Phase 2 built the ledger and proved it agrees with the app. This is what it
+   was for. The Balance Sheet and the P&L are two views of the same postings,
+   so the interesting failures are not arithmetic — they are the three-way
+   rule about closing entries, which is easy to get backwards and makes every
+   statement confidently wrong when you do:
+
+     the P&L EXCLUDES them, the balance sheet INCLUDES them, and the close
+     itself includes every EARLIER close.
+
+   Every assertion below is about that, or about the identity a balance sheet
+   lives or dies by. */
+{
+  /* ── Which year a date belongs to ──────────────────────────────────── */
+  {
+    const fy = (d: string) => financialYear(d);
+    assert(
+      fy("2026-08-26").start === "2026-04-01" && fy("2026-08-26").end === "2027-03-31",
+      `T28: August is in the year that started in April — ${JSON.stringify(fy("2026-08-26"))}`,
+    );
+    assert(
+      fy("2026-03-31").start === "2025-04-01" && fy("2026-03-31").end === "2026-03-31",
+      "T28: 31 March is the LAST day of the year before, not the first of the next",
+    );
+    assert(
+      fy("2026-04-01").start === "2026-04-01",
+      "T28: and 1 April is the first day of the new one",
+    );
+    assert(
+      fy("2026-01-15").label === "2025-26",
+      `T28: January reads as 2025-26 — ${fy("2026-01-15").label}`,
+    );
+    assert(
+      fy("2026-05-15").label === "2026-27",
+      `T28: May reads as 2026-27 — ${fy("2026-05-15").label}`,
+    );
+    // A calendar-year shop: the end is 31 December, not 30 November.
+    assert(
+      financialYear("2026-05-15", 1).start === "2026-01-01" &&
+        financialYear("2026-05-15", 1).end === "2026-12-31",
+      `T28: a January start year ends on 31 December — ${JSON.stringify(financialYear("2026-05-15", 1))}`,
+    );
+  }
+
+  /* ── A whole small year, closed, and everything checked around it ──── */
+  {
+    const book: Book = {
+      parties: [{ id: "P1", name: "Cust", openingBalance: 0, createdAt: "2025-04-01T00:00:00Z" }],
+      items: [
+        {
+          id: "I1",
+          name: "Item",
+          purchasePrice: 100,
+          openingStock: 0,
+          createdAt: "2025-04-01T00:00:00Z",
+        },
+      ],
+      banks: [],
+      sales: [
+        {
+          id: "S1",
+          number: "INV-1",
+          date: "2025-06-10",
+          partyId: "P1",
+          partyName: "Cust",
+          gstEnabled: false,
+          lineItems: [{ itemId: "I1", qty: 3, price: 500, costPrice: 100 }],
+          subtotal: 1500,
+          discount: 0,
+          taxAmount: 0,
+          total: 1500,
+          paid: 1500,
+          paymentMode: "cash",
+          createdAt: "",
+        },
+      ],
+      purchases: [],
+      saleReturns: [],
+      purchaseReturns: [],
+      payments: [],
+      expenses: [
+        {
+          id: "E1",
+          date: "2025-07-01",
+          category: "Shop Rent",
+          amount: 400,
+          paymentMode: "cash",
+          createdAt: "",
+        },
+      ],
+      cashAdjustments: [],
+      bankTxns: [],
+      stockAdjustments: [],
+    } as unknown as Book;
+
+    const chart = () => accountsFor(book.banks, book.expenses);
+    const FY = financialYear("2025-06-10");
+    assert(
+      FY.label === "2025-26" && FY.end === "2026-03-31",
+      "T28: the year under test is 2025-26",
+    );
+
+    // Revenue 1500, cost of the goods 300, rent 400 → 800.
+    const before = profitAndLoss(buildJournal(book), chart(), FY.start, FY.end);
+    assert(
+      before.totalIncome === 1500,
+      `T28: income is the taxable value of the bill — ${before.totalIncome}`,
+    );
+    assert(
+      before.totalExpense === 700,
+      `T28: expenses are the goods' cost plus the rent — ${before.totalExpense}`,
+    );
+    assert(before.netProfit === 800, `T28: so the year made 800 — ${before.netProfit}`);
+
+    // The balance sheet balances BEFORE the year is closed. It has to: a
+    // statement that only balances on 31 March is no use on the other 364
+    // days, which is why unclosed profit is shown as equity.
+    const bs = balanceSheet(buildJournal(book), chart(), FY.end);
+    assert(bs.drift === 0, `T28: assets equal liabilities plus equity — out by ${bs.drift}`);
+    assert(
+      bs.currentEarnings === 800,
+      `T28: with the year's profit sitting in equity, unclosed — ${bs.currentEarnings}`,
+    );
+    assert(
+      bs.totalAssets === r2(bs.totalLiabilities + bs.totalEquity),
+      `T28: and the two sides are equal — ${bs.totalAssets} vs ${r2(bs.totalLiabilities + bs.totalEquity)}`,
+    );
+
+    /* ── The plan ─────────────────────────────────────────────────────── */
+    const plan = planYearClose(buildJournal(book), chart(), FY.end, "2026-06-01");
+    assert(!plan.blocked, `T28: a finished year can be closed — ${plan.blocked}`);
+    assert(
+      plan.netProfit === 800 && plan.totalIncome === 1500 && plan.totalExpense === 700,
+      `T28: the plan closes exactly what the P&L reported — ${plan.netProfit}`,
+    );
+    const entry = closingEntry(plan);
+    assert(
+      closingEntryBalances(entry),
+      `T28: the closing entry balances — out by ${entryDrift(entry)}`,
+    );
+    assert(
+      entry.lines.some((l) => l.accountId === "retained" && l.credit === 800),
+      `T28: the profit goes to Retained Earnings — ${JSON.stringify(entry.lines)}`,
+    );
+    /* It must touch NOTHING but income, expenses and Retained Earnings. This
+       is what lets a close post into a period the shop has locked after
+       filing GST: it moves no account that appears in a filed return. If that
+       ever stops being true, the exemption stops being honest. */
+    const allowed = new Set(
+      chart()
+        .filter((a) => a.group === "income" || a.group === "expense")
+        .map((a) => a.id)
+        .concat("retained"),
+    );
+    assert(
+      entry.lines.every((l) => allowed.has(l.accountId)),
+      `T28: a close touches only income, expenses and Retained Earnings — ${JSON.stringify(
+        entry.lines.filter((l) => !allowed.has(l.accountId)),
+      )}`,
+    );
+    assert(
+      !entry.lines.some((l) => l.accountId === "output-gst" || l.accountId === "input-gst"),
+      "T28: never a GST account — that is what makes posting into a filed period safe",
+    );
+
+    /* ── Posted ───────────────────────────────────────────────────────── */
+    book.journalEntries = [
+      {
+        id: "YC1",
+        date: entry.date,
+        voucherType: entry.voucherType,
+        voucherNo: entry.voucherNo,
+        docKind: entry.docKind,
+        narration: entry.narration,
+        fyLabel: plan.fy.label,
+        lines: entry.lines,
+        createdAt: "2026-06-01T00:00:00Z",
+      },
+    ] as never;
+
+    const closed = buildJournal(book);
+    // The year's own P&L must be UNCHANGED. This is the assertion that catches
+    // the mistake of letting closing entries into the statement: the year
+    // would report zero income, zero expenses and no profit at all.
+    const after = profitAndLoss(closed, chart(), FY.start, FY.end);
+    assert(
+      after.netProfit === 800 && after.totalIncome === 1500,
+      `T28: closing the year does not change what the year earned — ${after.netProfit} / ${after.totalIncome}`,
+    );
+
+    // The balance sheet, on the other hand, must now show it as Retained
+    // Earnings rather than as this period's profit — and still balance.
+    const bsAfter = balanceSheet(closed, chart(), FY.end);
+    assert(bsAfter.drift === 0, `T28: it still balances after the close — out by ${bsAfter.drift}`);
+    assert(
+      bsAfter.currentEarnings === 0,
+      `T28: nothing is left unclosed — ${bsAfter.currentEarnings}`,
+    );
+    assert(
+      bsAfter.equity.find((l) => l.accountId === "retained")?.amount === 800,
+      `T28: the profit is Retained Earnings now — ${JSON.stringify(bsAfter.equity)}`,
+    );
+    assert(
+      bsAfter.totalEquity === bs.totalEquity,
+      `T28: and the shop is worth exactly what it was worth a moment ago — ${bsAfter.totalEquity} vs ${bs.totalEquity}`,
+    );
+
+    // Every income and expense account is empty as at the year end.
+    const tb = trialBalance(
+      closed.filter((e) => e.date <= FY.end),
+      chart(),
+    );
+    assert(
+      tb.rows
+        .filter((rw) => rw.group === "income" || rw.group === "expense")
+        .every((rw) => rw.balance === 0),
+      `T28: the year's income and expense accounts are emptied — ${JSON.stringify(
+        tb.rows.filter((rw) => (rw.group === "income" || rw.group === "expense") && rw.balance),
+      )}`,
+    );
+    assert(tb.drift === 0, "T28: and the trial balance still balances");
+
+    /* ── Closing twice, and closing early ─────────────────────────────── */
+    const again = planYearClose(buildJournal(book), chart(), FY.end, "2026-06-01");
+    assert(
+      !!again.blocked && again.blocked.includes("already been closed"),
+      `T28: a year cannot be closed twice — ${again.blocked}`,
+    );
+    assert(!!again.existingId, "T28: and the existing close is found, so it can be reopened");
+
+    const early = planYearClose(buildJournal(book), chart(), "2027-03-31", "2026-06-01");
+    assert(
+      !!early.blocked && early.blocked.includes("not finished"),
+      `T28: a year that has not finished cannot be closed — ${early.blocked}`,
+    );
+
+    /* ── The second year: the close must take ONLY its own profit ─────
+       This is the assertion that proves the close-includes-earlier-closes
+       rule. Last year's close already removed last year's income, so what is
+       left standing is this year's — and if the rule were the other way
+       round, year two would carry year one's 800 all over again. */
+    book.sales.push({
+      id: "S2",
+      number: "INV-2",
+      date: "2026-09-15",
+      partyId: "P1",
+      partyName: "Cust",
+      gstEnabled: false,
+      lineItems: [{ itemId: "I1", qty: 1, price: 200, costPrice: 100 }],
+      subtotal: 200,
+      discount: 0,
+      taxAmount: 0,
+      total: 200,
+      paid: 200,
+      paymentMode: "cash",
+      createdAt: "",
+    } as never);
+
+    const FY2 = financialYear("2026-09-15");
+    assert(FY2.label === "2026-27", "T28: the second year is 2026-27");
+    const plan2 = planYearClose(buildJournal(book), chart(), FY2.end, "2027-06-01");
+    assert(
+      plan2.netProfit === 100,
+      `T28: year two closes its own 100, not last year's 800 as well — ${plan2.netProfit}`,
+    );
+    assert(plan2.totalIncome === 200, `T28: and sees only its own income — ${plan2.totalIncome}`);
+
+    // Retained Earnings after both closes is the two years added up.
+    book.journalEntries = [
+      ...(book.journalEntries ?? []),
+      {
+        id: "YC2",
+        date: FY2.end,
+        voucherType: "Closing Entry",
+        voucherNo: `YC-${FY2.label}`,
+        docKind: "year-close",
+        narration: "second",
+        fyLabel: FY2.label,
+        lines: closingEntry(plan2).lines,
+        createdAt: "2027-06-01T00:00:00Z",
+      },
+    ] as never;
+    const bothClosed = buildJournal(book);
+    assert(
+      balanceOf(bothClosed, "retained") === -900,
+      `T28: two closed years add up in Retained Earnings — ${balanceOf(bothClosed, "retained")}`,
+    );
+    assert(
+      balanceSheet(bothClosed, chart(), FY2.end).drift === 0,
+      "T28: and the balance sheet still balances",
+    );
+    assert(
+      profitAndLoss(bothClosed, chart(), FY.start, FY.end).netProfit === 800 &&
+        profitAndLoss(bothClosed, chart(), FY2.start, FY2.end).netProfit === 100,
+      "T28: each year still reports what IT earned, after both are closed",
+    );
+
+    /* The reconciliation must survive all of this. Its profit row compares
+       the ledger against the app's all-time P&L, and the app has no notion of
+       a closed year — so a row read off the accounts as they stand would be
+       short by every closed year's profit. That is a false alarm on the one
+       screen that must not cry wolf. */
+    const recon = reconcile(book);
+    const profitRow = recon.rows.find((rw) => rw.key === "profit");
+    assert(
+      profitRow?.ok,
+      `T28: closing a year does not make the reconciliation cry wolf — ledger ${profitRow?.ledger} vs app ${profitRow?.app}`,
+    );
+    assert(recon.unbalanced.length === 0, "T28: and every entry, closings included, balances");
+  }
+
+  /* ── A loss, which must go the other way ──────────────────────────── */
+  {
+    const book: Book = {
+      parties: [],
+      items: [],
+      banks: [],
+      sales: [],
+      purchases: [],
+      saleReturns: [],
+      purchaseReturns: [],
+      payments: [],
+      expenses: [
+        {
+          id: "E1",
+          date: "2025-07-01",
+          category: "Shop Rent",
+          amount: 5000,
+          paymentMode: "cash",
+          createdAt: "",
+        },
+      ],
+      cashAdjustments: [],
+      bankTxns: [],
+      stockAdjustments: [],
+    } as unknown as Book;
+    const chart = accountsFor(book.banks, book.expenses);
+    const plan = planYearClose(buildJournal(book), chart, "2026-03-31", "2026-06-01");
+    assert(plan.netProfit === -5000, `T28: a year of only rent is a loss — ${plan.netProfit}`);
+    const entry = closingEntry(plan);
+    assert(closingEntryBalances(entry), "T28: a loss closes just as evenly");
+    assert(
+      entry.lines.some((l) => l.accountId === "retained" && l.debit === 5000),
+      `T28: and a loss DEBITS Retained Earnings — ${JSON.stringify(entry.lines)}`,
+    );
+  }
+
+  /* ── The identity, over the randomised books ──────────────────────────
+     A balance sheet's whole claim is that what the shop owns equals what it
+     owes plus what is left over. Asserted over generated books rather than
+     one worked example, because the failure mode is an account group being
+     read the wrong way round, which a single tidy case can miss. */
+  for (let t = 0; t < 120; t++) {
+    const book: Book = {
+      parties: [],
+      items: [],
+      banks: [],
+      sales: [],
+      purchases: [],
+      saleReturns: [],
+      purchaseReturns: [],
+      payments: [],
+      expenses: [],
+      cashAdjustments: [],
+      bankTxns: [],
+      stockAdjustments: [],
+    } as unknown as Book;
+
+    const party = {
+      id: `bp${t}`,
+      name: "P",
+      openingBalance: r2((rnd() - 0.5) * 8000),
+      createdAt: "2025-04-01T00:00:00Z",
+    };
+    book.parties.push(party as never);
+    book.banks.push({
+      id: `bb${t}`,
+      name: "Bank",
+      openingBalance: r2(rnd() * 20000),
+      balance: 0,
+      createdAt: "2025-04-01T00:00:00Z",
+    } as never);
+    book.items.push({
+      id: `bi${t}`,
+      name: "Item",
+      purchasePrice: r2(10 + rnd() * 200),
+      openingStock: ri(20),
+      createdAt: "2025-04-01T00:00:00Z",
+    } as never);
+
+    for (let i = 0; i < 1 + ri(4); i++) {
+      const gst = ri(2) === 0;
+      const sub = r2(100 + rnd() * 5000);
+      const tax = gst ? r2(sub * 0.18) : 0;
+      const total = Math.round(sub + tax);
+      book.sales.push({
+        id: `bs${t}-${i}`,
+        number: `INV-${i}`,
+        date: `2025-${String(6 + ri(6)).padStart(2, "0")}-1${ri(9)}`,
+        partyId: party.id,
+        partyName: party.name,
+        gstEnabled: gst,
+        lineItems: [{ itemId: `bi${t}`, qty: 1 + ri(3), price: sub, costPrice: r2(sub * 0.6) }],
+        subtotal: sub,
+        discount: 0,
+        taxAmount: tax,
+        roundOff: r2(total - sub - tax),
+        total,
+        paid: ri(2) ? total : 0,
+        paymentMode: pick(["cash", "credit", "upi"] as PaymentMode[]),
+        createdAt: "",
+      } as never);
+    }
+    for (let i = 0; i < ri(3); i++)
+      book.expenses.push({
+        id: `be${t}-${i}`,
+        date: "2025-09-01",
+        category: pick(["Shop Rent", "Salary"]),
+        amount: r2(50 + rnd() * 2000),
+        paymentMode: "cash",
+        createdAt: "",
+      } as never);
+    for (let i = 0; i < ri(3); i++)
+      book.cashAdjustments.push({
+        id: `bc${t}-${i}`,
+        date: "2025-10-01",
+        type: ri(2) ? "add" : "reduce",
+        amount: r2(100 + rnd() * 3000),
+        purpose: pick(["opening", "owner-in", "owner-out", "short-over", undefined]),
+        createdAt: "",
+      } as never);
+
+    const chart = accountsFor(book.banks, book.expenses);
+    const FY = financialYear("2025-06-10");
+
+    const open = balanceSheet(buildJournal(book), chart, FY.end);
+    assert(open.drift === 0, `T28: an unclosed balance sheet balances — out by ${open.drift}`);
+    // Unclosed profit must be exactly what the P&L says for the same period,
+    // or the two statements are telling the shop different things.
+    const pl = profitAndLoss(buildJournal(book), chart, "", FY.end);
+    assert(
+      open.currentEarnings === pl.netProfit,
+      `T28: unclosed profit equals the P&L for the same period — ${open.currentEarnings} vs ${pl.netProfit}`,
+    );
+
+    const plan = planYearClose(buildJournal(book), chart, FY.end, "2026-06-01");
+    assert(
+      plan.netProfit === pl.netProfit,
+      `T28: and the close takes exactly that — ${plan.netProfit} vs ${pl.netProfit}`,
+    );
+    const entry = closingEntry(plan);
+    assert(
+      closingEntryBalances(entry),
+      `T28: every closing entry balances — out by ${entryDrift(entry)}`,
+    );
+
+    book.journalEntries = [
+      {
+        id: `yc${t}`,
+        date: entry.date,
+        voucherType: entry.voucherType,
+        docKind: entry.docKind,
+        narration: entry.narration,
+        lines: entry.lines,
+        createdAt: "",
+      },
+    ] as never;
+    const after = balanceSheet(buildJournal(book), chart, FY.end);
+    assert(after.drift === 0, `T28: and it still balances once closed — out by ${after.drift}`);
+    assert(
+      after.currentEarnings === 0,
+      `T28: with nothing left unclosed — ${after.currentEarnings}`,
+    );
+    assert(
+      after.totalEquity === open.totalEquity,
+      `T28: closing moves value between equity accounts and creates none — ${after.totalEquity} vs ${open.totalEquity}`,
+    );
+    assert(
+      profitAndLoss(buildJournal(book), chart, "", FY.end).netProfit === pl.netProfit,
+      "T28: and the year still reports what it earned",
+    );
   }
 }
 

@@ -46,6 +46,7 @@ import {
   ExpenseRepo,
   PayeeRepo,
   BankRepo,
+  LedgerEntryRepo,
   BankTxnRepo,
   PaymentRepo,
   CompanyRepo,
@@ -3376,6 +3377,181 @@ async function runAll(): Promise<Results> {
     assert(
       document.body.textContent?.includes("Something does not agree"),
       "reconcile: a balance no document explains is reported, not quietly accepted",
+    );
+  }
+
+  /* ── The Balance Sheet, and closing a year, on a real screen ──────────
+     The statement a business is measured by, and the one irreversible action
+     in this application. Driven against the book every block above has built
+     up, plus one bill dated inside the year being closed so there is
+     something real to close. */
+  {
+    // Inside financial year 2025-26 (April 2025 – March 2026), which is the
+    // most recent finished year, so it is the one the panel offers.
+    SalesRepo.add({
+      id: "FYSALE",
+      createdAt: "2025-12-15T00:00:00Z",
+      number: "INV-FY",
+      date: "2025-12-15",
+      partyId: "P1",
+      partyName: "Acme Traders",
+      gstEnabled: false,
+      lineItems: [],
+      subtotal: 9000,
+      discount: 0,
+      taxAmount: 0,
+      total: 9000,
+      paid: 0,
+      paymentMode: "credit",
+    } as never);
+
+    const page = await renderRoute("/reports?r=balance-sheet");
+    assert(page.includes("Balance Sheet"), "balance sheet: the report opened");
+    for (const section of [
+      "Assets — what the shop owns",
+      "Liabilities — what the shop owes",
+      "Equity — what is left over",
+    ]) {
+      assert(page.includes(section), `balance sheet: the ${section} section is there`);
+    }
+
+    /* The claim a balance sheet lives or dies by, read off the rendered
+       figures rather than recomputed — a total that is right in the library
+       and wrong on screen is still wrong on screen. */
+    const num = (s: string) => Number((s || "").replace(/[^\d.-]/g, ""));
+    const figureAfter = (label: string) => {
+      const el = Array.from(document.querySelectorAll("span")).find(
+        (s) => (s.textContent ?? "").trim() === label,
+      );
+      assert(!!el, `balance sheet: found the "${label}" line`);
+      const value = el?.parentElement?.querySelector("span:last-child");
+      return num((value?.textContent ?? "").trim());
+    };
+    const assets = figureAfter("Total Assets");
+    const bothSides = figureAfter("Total Liabilities + Equity");
+    assert(assets !== 0, `balance sheet: there are real figures on it — ${assets}`);
+    assert(
+      Math.abs(assets - bothSides) < 0.02,
+      `balance sheet: what the shop owns equals what it owes plus what is left — ${assets} vs ${bothSides}`,
+    );
+    assert(
+      !page.includes("This does not balance"),
+      "balance sheet: and it is not flagged as out of balance",
+    );
+    /* Profit that has not been closed shows as equity. Without that line the
+       statement would only balance on the day the year is closed. */
+    assert(
+      page.includes("Profit for the period (not yet closed)"),
+      "balance sheet: unclosed profit is shown as equity, not left out",
+    );
+
+    /* ── The year close ───────────────────────────────────────────────── */
+    assert(page.includes("Year close — 2025-26"), `balance sheet: the finished year is offered`);
+    const closeBtn = findButton(/^Close 2025-26$/);
+    assert(!!closeBtn && !closeBtn.disabled, "year close: the button is offered and enabled");
+
+    // The entry is shown BEFORE anything is written. Closing a year on a
+    // figure nobody checked is how a wrong year becomes permanent.
+    assert(
+      page.includes("To Retained Earnings") || page.includes("Loss to Retained Earnings"),
+      "year close: what will move, and where, is on screen first",
+    );
+    const beforeCount = LedgerEntryRepo.all().length;
+
+    await act(async () => {
+      closeBtn?.click();
+    });
+    await settleMs(250);
+
+    const closes = LedgerEntryRepo.all().filter((e) => e.docKind === "year-close");
+    assert(
+      LedgerEntryRepo.all().length === beforeCount + 1 && closes.length === 1,
+      `year close: exactly one closing entry was written — ${LedgerEntryRepo.all().length - beforeCount}`,
+    );
+    const doc = closes[0];
+    assert(doc.date === "2026-03-31", `year close: dated the last day of the year — ${doc.date}`);
+    assert(doc.fyLabel === "2025-26", `year close: and labelled with the year — ${doc.fyLabel}`);
+    assert(
+      Math.abs(
+        doc.lines.reduce((s, l) => s + l.debit, 0) - doc.lines.reduce((s, l) => s + l.credit, 0),
+      ) < 0.005,
+      "year close: the stored entry balances",
+    );
+    assert(
+      doc.lines.some((l) => l.accountId === "retained"),
+      `year close: and moves the year's result to Retained Earnings — ${JSON.stringify(doc.lines.map((l) => l.accountId))}`,
+    );
+    // Phase 0a: every write says who made it.
+    assert(!!doc.createdBy, "year close: the closing entry records who closed it");
+
+    const after = await readMounted();
+    assert(
+      after.includes("Reopen 2025-26"),
+      "year close: a closed year offers to be reopened, not closed again",
+    );
+    assert(!findButton(/^Close 2025-26$/), "year close: and cannot be closed a second time");
+    assert(
+      after.includes("Retained Earnings"),
+      "year close: the profit now shows on the balance sheet as Retained Earnings",
+    );
+    assert(
+      !after.includes("This does not balance"),
+      "year close: and the balance sheet still balances",
+    );
+
+    /* Reopening is the more dangerous direction — it changes a figure already
+       reported — so unlike closing it goes through the period lock. Here the
+       books are open, so it is allowed, and it must put everything back. */
+    const reopenBtn = findButton(/^Reopen 2025-26$/);
+    const realConfirm = window.confirm;
+    window.confirm = () => true;
+    try {
+      await act(async () => {
+        reopenBtn?.click();
+      });
+      await settleMs(250);
+    } finally {
+      window.confirm = realConfirm;
+    }
+    assert(
+      LedgerEntryRepo.all().filter((e) => e.docKind === "year-close").length === 0,
+      "year close: reopening removes the closing entry",
+    );
+    const reopened = await readMounted();
+    assert(
+      reopened.includes("Profit for the period (not yet closed)"),
+      "year close: and the profit goes back to being this period's",
+    );
+    assert(!reopened.includes("This does not balance"), "year close: still balancing either way");
+  }
+
+  /* ── Profit & Loss off the ledger ─────────────────────────────────────
+     The same postings as the Balance Sheet, so the two cannot disagree. What
+     matters on screen is the warning: switching the old report to this one
+     would move the profit figure the owner has been reading for months, and
+     standing rule 5 says that gets flagged before it reaches the shop. */
+  {
+    const page = await renderRoute("/reports?r=pl-ledger");
+    assert(page.includes("Profit & Loss (from the ledger)"), "ledger P&L: the report opened");
+    assert(
+      page.includes("Income") && page.includes("Expenses"),
+      "ledger P&L: both halves are there",
+    );
+    assert(
+      page.includes("Net Profit") || page.includes("Net Loss"),
+      "ledger P&L: and the figure they add up to",
+    );
+    /* The harness's book contains cash movements with no stated reason, which
+       land in Cash Short/Over — an account the old report has never counted.
+       The screen must say so with the amount, rather than quietly printing a
+       different profit than the report next to it. */
+    assert(
+      page.includes("the old Profit & Loss report has never counted"),
+      "ledger P&L: what this counts that the old report does not is stated on the statement",
+    );
+    assert(
+      page.includes("Cash Short/Over") || page.includes("Stock Written Off"),
+      `ledger P&L: and named — ${JSON.stringify(page.slice(page.indexOf("never counted"), page.indexOf("never counted") + 200))}`,
     );
   }
 

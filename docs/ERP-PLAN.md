@@ -265,12 +265,69 @@ field" kept a zero), and the trial balance's footer was only ever checked
 against itself — two totals computed the same wrong way agree perfectly. Both
 tests were fixed and the mutations then failed as they should.
 
-### 4.7 Balance Sheet + P&L from the ledger, and year close
+### 4.7 Balance Sheet + P&L from the ledger, and year close — **DONE (Phase 3)**
 - **Add** `/reports?r=balance-sheet`, `?r=trial-balance`; a Year Close action
   posting closing entries into Retained Earnings and carrying balances forward.
 - **Touches** reports only — it reads the ledger, writes nothing except the
   closing entry.
 - **Depends on** 4.6 being reconciled.
+
+**Built.** `src/lib/financials.ts` holds the statements and the close;
+`/reports?r=balance-sheet` and `?r=pl-ledger` are the screens. The Balance
+Sheet carries the year close, because that is where an owner is standing when
+they decide a year is finished.
+
+**The three-way rule about closing entries** is the whole difficulty of this
+phase, and getting any part of it backwards makes a statement confidently
+wrong rather than obviously broken:
+
+| | Closing entries |
+|---|---|
+| **P&L** | **excluded** — a year whose own statement included the entry emptying its accounts would report zero |
+| **Balance sheet / trial balance** | **included** — that is how profit reaches equity, and how a closed year stops being counted twice |
+| **The close itself** | **includes every earlier close** — which is what leaves only this year's income standing, and is why year two does not carry year one's profit again |
+
+Each row of that table is a mutation in the suite. All three were caught.
+
+**The first stored ledger entries.** Phase 2's postings are derived, and
+`docs/ERP-PLAN.md` §4.6 explains why. A closing entry is the exception the
+reasoning predicted: no document implies it, so it is a decision taken on a
+date by a person, and next year's opening position is built on it. Hence
+`JournalEntryDoc`, `LedgerEntryRepo` (collection `ledger-entries`), hydrated
+with everything else and **included in backups** — a backup without it would
+restore a shop whose years had silently reopened.
+
+**Two judgement calls worth recording.**
+1. **A close may post into a locked period; reopening may not.** A closing
+   entry is dated the last day of a year, which is usually inside a month the
+   shop locked after filing GST. It is allowed through because it moves no
+   account that appears in a filed return — only income, expenses and Retained
+   Earnings — and a test asserts exactly that, so the exemption stays honest.
+   Reopening goes through `canPost` like any other write, because it changes a
+   figure already reported.
+2. **The old P&L was left alone.** Standing rule 5. Switching Reports → Profit
+   & Loss to the ledger would move the number the owner has been reading for
+   months, by the stock write-offs and unexplained cash it has never counted.
+   The new statement names those accounts and their amounts on screen, so the
+   difference is visible before anyone is asked to accept it. The switch itself
+   is a separate decision for the shop.
+
+**One interaction found while testing.** `reconcile()`'s Net Profit row summed
+the income and expense accounts as they stood, which after a close is only the
+open period — so it would have reported a gap the size of every closed year,
+on the one screen that must not cry wolf. It now reads through
+`profitAndLoss()`, which excludes closing entries.
+
+**Proven by** 20 mutations, all caught: each row of the table above reversed,
+1 April pushed into the wrong year, the year mislabelled, the whole income sent
+to Retained Earnings instead of the profit, a profit debited instead of
+credited, expenses left out of the close, both guards (closed twice, closed
+early) removed, unclosed profit inverted, equity read as a debit balance, the
+reconciliation reading profit off the accounts as they stand, the panel
+offering the running year, a closed year offered again, unclosed profit dropped
+from the statement and dropped from its total, the behaviour-change warning
+suppressed, reopening leaving the entry behind, and the close written without
+its year label.
 
 ### 4.8 Unit conversion (box ↔ piece)
 - **Add** `Item.baseUnit`, `altUnit`, `altPerBase`; `LineItem.unitUsed` and
@@ -331,7 +388,7 @@ Dependency-driven, cheapest-safest first:
 | 0 | Audit trail · Period lock · Voucher numbers | — | **done** |
 | 1 | Reason categories on cash | 0 | **done** |
 | 2 | Posting ledger + reconciliation report + Trial Balance | 0 | **done** |
-| 3 | Balance Sheet · P&L from ledger · Year close | 2 reconciled | |
+| 3 | Balance Sheet · P&L from ledger · Year close | 2 reconciled | **done** |
 | 4 | Append-only corrections | 2 | |
 | 5 | Unit conversion | — | |
 | 6 | Serial / IMEI | 5 | |
