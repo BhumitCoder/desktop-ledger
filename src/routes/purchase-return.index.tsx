@@ -12,6 +12,9 @@ import { PageHeader } from "@/components/PageHeader";
 import { usePagination } from "@/hooks/usePagination";
 import { usePeriodLock } from "@/hooks/usePeriodLock";
 import { usePermissions } from "@/hooks/usePermissions";
+import { VoidDialog, VoidedBadge } from "@/components/VoidDialog";
+import { canDeleteOutright, isVoided, removalWord } from "@/lib/voiding";
+import { Ban } from "lucide-react";
 
 export const Route = createFileRoute("/purchase-return/")({ component: PurchaseReturnPage });
 
@@ -21,10 +24,19 @@ function PurchaseReturnPage() {
   const editAllowed = isOwner || canEdit("purchaseExpenses");
   const deleteAllowed = isOwner || canDelete("purchaseExpenses");
   const [rows, setRows] = useState<Return[]>([]);
+  // Cancelled returns stay on file; this only decides whether they are in the
+  // way.
+  const [showVoided, setShowVoided] = useState(false);
+  const [voiding, setVoiding] = useState<Return | null>(null);
+
   const refresh = () =>
-    setRows(PurchaseReturnRepo.all().sort((a, b) => b.date.localeCompare(a.date)));
+    setRows(
+      (showVoided ? PurchaseReturnRepo.allWithVoided() : PurchaseReturnRepo.all()).sort((a, b) =>
+        b.date.localeCompare(a.date),
+      ),
+    );
   const _repoV = useRepoData();
-  useEffect(refresh, [_repoV]);
+  useEffect(refresh, [_repoV, showVoided]);
 
   const { canPost } = usePeriodLock();
   const pg = usePagination(rows, "purchase-return");
@@ -51,13 +63,33 @@ function PurchaseReturnPage() {
     // previously these were separate calls, so a failure between them left
     // stock reversed with the return still present (or vice versa).
     const batch = newBatch();
-    for (const l of live.lineItems) {
-      if (ItemRepo.get(l.itemId)) ItemRepo.adjustFieldBatched(batch, l.itemId, "stock", l.qty);
-    }
+    undoReturnEffects(batch, live);
     PurchaseReturnRepo.removeBatched(batch, live.id);
     commitBatch(batch, "delete purchase return");
     refresh();
     toast.success("Purchase return deleted — stock adjusted");
+  };
+
+  /** The stock this return moved, put back. Shared by delete and void:
+   *  they owe the shop the same reversal, and two copies would drift. */
+  const undoReturnEffects = (batch: ReturnType<typeof newBatch>, live: Return) => {
+    for (const l of live.lineItems) {
+      if (ItemRepo.get(l.itemId)) ItemRepo.adjustFieldBatched(batch, l.itemId, "stock", l.qty);
+    }
+  };
+
+  const handleVoid = (live: Return, reason: string) => {
+    const batch = newBatch();
+    undoReturnEffects(batch, live);
+    if (!PurchaseReturnRepo.voidBatched(batch, live.id, reason)) {
+      toast.info(`${live.number} was already voided`);
+      setVoiding(null);
+      return;
+    }
+    commitBatch(batch, "void purchase return");
+    setVoiding(null);
+    refresh();
+    toast.success(`${live.number} voided — stock adjusted, and it stays on record`);
   };
 
   return (
@@ -67,14 +99,27 @@ function PurchaseReturnPage() {
         subtitle={`${rows.length} debit notes · Total: ${fmtMoney(totalDebit)}`}
         icon={<CornerUpLeft className="h-5 w-5" />}
         actions={
-          editAllowed && (
+          <>
             <button
-              onClick={() => navigate({ to: "/purchase-return/new" })}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 h-8 px-4 bg-primary text-primary-foreground rounded-md text-sm font-semibold hover:opacity-90 transition"
+              onClick={() => setShowVoided((v) => !v)}
+              className={`hidden sm:inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border text-xs transition ${
+                showVoided
+                  ? "border-rose-200 bg-rose-50 text-rose-700 font-semibold"
+                  : "border-gray-200 bg-gray-50/60 text-gray-500 hover:bg-gray-100"
+              }`}
+              title="Cancelled records stay on file — this decides whether they are in the way"
             >
-              <Plus className="h-4 w-4" /> New Purchase Return
+              <Ban className="h-3.5 w-3.5" /> Voided
             </button>
-          )
+            {editAllowed && (
+              <button
+                onClick={() => navigate({ to: "/purchase-return/new" })}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 h-8 px-4 bg-primary text-primary-foreground rounded-md text-sm font-semibold hover:opacity-90 transition"
+              >
+                <Plus className="h-4 w-4" /> New Purchase Return
+              </button>
+            )}
+          </>
         }
       />
 
@@ -100,7 +145,15 @@ function PurchaseReturnPage() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
                     <p className="font-semibold text-[13px] text-gray-800 truncate font-mono leading-tight">
-                      {r.number}
+                      <span className={isVoided(r) ? "line-through text-gray-400" : ""}>
+                        {r.number}
+                      </span>
+                      {isVoided(r) && (
+                        <>
+                          {" "}
+                          <VoidedBadge reason={r.voidReason} at={r.voidedAt} />
+                        </>
+                      )}
                     </p>
                     <p className="font-bold text-[13px] text-gray-800 tabular-nums shrink-0 leading-tight">
                       {fmtMoney(r.total)}
@@ -119,9 +172,13 @@ function PurchaseReturnPage() {
                       handleDelete(r);
                     }}
                     className="p-1.5 rounded hover:bg-rose-50 text-gray-300 hover:text-rose-500 transition shrink-0 -mr-1.5"
-                    title="Delete return"
+                    title={`${removalWord(r.date)} return`}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    {canDeleteOutright(r.date) ? (
+                      <Trash2 className="h-3.5 w-3.5" />
+                    ) : (
+                      <Ban className="h-3.5 w-3.5" />
+                    )}
                   </button>
                 )}
               </div>
@@ -139,7 +196,14 @@ function PurchaseReturnPage() {
             {
               key: "number",
               label: "Debit Note #",
-              render: (r) => <span className="font-mono">{r.number}</span>,
+              render: (r) => (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className={`font-mono ${isVoided(r) ? "line-through text-gray-400" : ""}`}>
+                    {r.number}
+                  </span>
+                  {isVoided(r) && <VoidedBadge reason={r.voidReason} at={r.voidedAt} />}
+                </span>
+              ),
               sortValue: (r) => r.number,
             },
             {
@@ -191,9 +255,13 @@ function PurchaseReturnPage() {
                       handleDelete(r);
                     }}
                     className="p-1 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"
-                    title="Delete return"
+                    title={`${removalWord(r.date)} return`}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    {canDeleteOutright(r.date) ? (
+                      <Trash2 className="h-3.5 w-3.5" />
+                    ) : (
+                      <Ban className="h-3.5 w-3.5" />
+                    )}
                   </button>
                 ),
             },
@@ -211,6 +279,14 @@ function PurchaseReturnPage() {
           }
         />
       </div>
+
+      <VoidDialog
+        open={!!voiding}
+        onOpenChange={(v) => !v && setVoiding(null)}
+        what={`${voiding?.number ?? ""}`}
+        effects={["Returned quantities go back into stock"]}
+        onConfirm={(reason) => voiding && handleVoid(voiding, reason)}
+      />
     </div>
   );
 }

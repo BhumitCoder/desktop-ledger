@@ -30,6 +30,9 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { usePermissions } from "@/hooks/usePermissions";
+import { VoidDialog, VoidedBadge } from "@/components/VoidDialog";
+import { canDeleteOutright, isVoided, removalWord } from "@/lib/voiding";
+import { Ban } from "lucide-react";
 import { toast } from "sonner";
 import { genId } from "@/repositories/base";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -95,9 +98,18 @@ function PaymentsPage() {
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const { canPost } = usePeriodLock();
 
-  const refresh = () => setRows(PaymentRepo.all().sort((a, b) => b.date.localeCompare(a.date)));
+  // Cancelled payments stay on file; this only decides whether they are in
+  // the way.
+  const [showVoided, setShowVoided] = useState(false);
+  const [voiding, setVoiding] = useState<Payment | null>(null);
+  const refresh = () =>
+    setRows(
+      (showVoided ? PaymentRepo.allWithVoided() : PaymentRepo.all()).sort((a, b) =>
+        b.date.localeCompare(a.date),
+      ),
+    );
   const _repoV = useRepoData();
-  useEffect(refresh, [_repoV]);
+  useEffect(refresh, [_repoV, showVoided]);
 
   const filtered = rows.filter((r) => {
     if (tab !== "all" && r.type !== tab) return false;
@@ -131,6 +143,22 @@ function PaymentsPage() {
       return;
     }
     if (!canPost(r.date)) return;
+    // Anything dated before today is cancelled, not destroyed — its month has
+    // already been counted. See lib/voiding.ts.
+    if (!canDeleteOutright(r.date)) {
+      const existing = PaymentRepo.get(r.id);
+      if (!existing) {
+        toast.info("This payment is no longer there");
+        refresh();
+        return;
+      }
+      if (isVoided(existing)) {
+        toast.info("This payment is already voided");
+        return;
+      }
+      setVoiding(existing);
+      return;
+    }
     if (!confirm("Delete this payment record? Amounts applied to invoices/bills will be reversed."))
       return;
     // Bail if another device already deleted this payment — the invoice-paid
@@ -142,10 +170,22 @@ function PaymentsPage() {
       refresh();
       return;
     }
-    const repo = live.type === "in" ? SalesRepo : PurchaseRepo;
-    // Invoice-paid reversal, bank-balance reversal, and the payment removal
-    // itself must all land together — a shared batch commits them atomically.
     const batch = newBatch();
+    undoPaymentEffects(batch, live);
+    PaymentRepo.removeBatched(batch, live.id);
+    commitBatch(batch, "delete payment");
+    refresh();
+    toast.success("Payment deleted");
+  };
+
+  /**
+   * What a payment did to the bills it settled and to a bank balance, undone.
+   *
+   * Shared by delete and void: they owe the shop exactly the same reversals,
+   * and a second copy would drift from this one silently.
+   */
+  const undoPaymentEffects = (batch: ReturnType<typeof newBatch>, live: Payment) => {
+    const repo = live.type === "in" ? SalesRepo : PurchaseRepo;
     if (live.allocations?.length) {
       for (const a of live.allocations) {
         // Cash plus any write-off — the same total that was added to `paid`.
@@ -155,9 +195,6 @@ function PaymentsPage() {
     } else if (live.ref) {
       reverseLegacyRefApplication(batch, repo, live.ref, live.amount);
     }
-    // Money that was moved onto a specific bank account when this payment
-    // was recorded must be moved back off it, or the account balance stays
-    // permanently wrong after the payment is deleted.
     if (live.mode === "bank" && live.bankId && BankRepo.get(live.bankId)) {
       BankRepo.adjustFieldBatched(
         batch,
@@ -166,10 +203,20 @@ function PaymentsPage() {
         live.type === "in" ? -live.amount : live.amount,
       );
     }
-    PaymentRepo.removeBatched(batch, live.id);
-    commitBatch(batch, "delete payment");
+  };
+
+  const handleVoid = (live: Payment, reason: string) => {
+    const batch = newBatch();
+    undoPaymentEffects(batch, live);
+    if (!PaymentRepo.voidBatched(batch, live.id, reason)) {
+      toast.info("This payment was already voided");
+      setVoiding(null);
+      return;
+    }
+    commitBatch(batch, "void payment");
+    setVoiding(null);
     refresh();
-    toast.success("Payment deleted");
+    toast.success("Payment voided — it stays on record");
   };
 
   const columns: Column<Payment>[] = [
@@ -264,9 +311,13 @@ function PaymentsPage() {
                 handleDelete(r);
               }}
               className="p-1 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"
-              title="Delete payment"
+              title={`${removalWord(r.date)} payment`}
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              {canDeleteOutright(r.date) ? (
+                <Trash2 className="h-3.5 w-3.5" />
+              ) : (
+                <Ban className="h-3.5 w-3.5" />
+              )}
             </button>
           )}
         </span>
@@ -294,6 +345,17 @@ function PaymentsPage() {
         }
         actions={
           <>
+            <button
+              onClick={() => setShowVoided((v) => !v)}
+              className={`hidden sm:inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border text-xs transition ${
+                showVoided
+                  ? "border-rose-200 bg-rose-50 text-rose-700 font-semibold"
+                  : "border-gray-200 bg-gray-50/60 text-gray-500 hover:bg-gray-100"
+              }`}
+              title="Cancelled records stay on file — this decides whether they are in the way"
+            >
+              <Ban className="h-3.5 w-3.5" /> Voided
+            </button>
             {/* Tabs — its own filter sheet on mobile (see Filters button
                 above); this inline row is desktop only. */}
             <div className="hidden sm:flex items-center gap-0.5 h-9 border border-gray-200 rounded-lg p-0.5 bg-gray-50/60">
@@ -469,9 +531,13 @@ function PaymentsPage() {
                             handleDelete(r);
                           }}
                           className="p-1.5 rounded hover:bg-rose-50 text-gray-300 hover:text-rose-500 transition"
-                          title="Delete payment"
+                          title={`${removalWord(r.date)} payment`}
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          {canDeleteOutright(r.date) ? (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          ) : (
+                            <Ban className="h-3.5 w-3.5" />
+                          )}
                         </button>
                       )}
                     </div>
@@ -519,6 +585,19 @@ function PaymentsPage() {
         type={formType}
         editing={editing}
         onSaved={refresh}
+      />
+
+      <VoidDialog
+        open={!!voiding}
+        onOpenChange={(v) => !v && setVoiding(null)}
+        what="this payment"
+        effects={[
+          "Amounts applied to bills go back to being unpaid",
+          ...(voiding?.mode === "bank" && voiding?.bankId
+            ? ["The bank account it moved is put back"]
+            : []),
+        ]}
+        onConfirm={(reason) => voiding && handleVoid(voiding, reason)}
       />
     </div>
   );

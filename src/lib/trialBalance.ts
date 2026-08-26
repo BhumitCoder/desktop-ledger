@@ -25,7 +25,7 @@
 import type { Account, AccountGroup } from "@/lib/accounts";
 import { GROUP_ORDER, NORMAL_BALANCE, accountsFor, bankAccountId } from "@/lib/accounts";
 import type { Book, JournalEntry } from "@/lib/posting";
-import { buildJournal, unbalancedEntries } from "@/lib/posting";
+import { buildJournal, liveOnly, unbalancedEntries } from "@/lib/posting";
 import { profitAndLoss } from "@/lib/financials";
 import {
   bankFlows,
@@ -193,6 +193,12 @@ export interface Reconciliation {
  */
 export function reconcile(book: Book): Reconciliation {
   const entries = buildJournal(book);
+  // The ledger sees everything, including what was cancelled — it reverses a
+  // void rather than forgetting it. Every other calculation in the app sees
+  // only live records. Each side of the comparison below is therefore given
+  // the book it actually reads; handing both the same one made a voided
+  // document count in full on one side and net to nothing on the other.
+  const app = liveOnly(book);
   const accounts = accountsFor(book.banks, book.expenses);
   const tb = trialBalance(entries, accounts);
   const rows: ReconRow[] = [];
@@ -229,12 +235,12 @@ export function reconcile(book: Book): Reconciliation {
   /* 2. Parties. Compared one at a time and then summed, because two parties
         wrong in opposite directions would cancel out in a total — which is
         how the original double-count hid. */
-  const appPositions = netPartyPositions(book.parties, {
-    sales: book.sales,
-    purchases: book.purchases,
-    saleReturns: book.saleReturns,
-    purchaseReturns: book.purchaseReturns,
-    payments: book.payments,
+  const appPositions = netPartyPositions(app.parties, {
+    sales: app.sales,
+    purchases: app.purchases,
+    saleReturns: app.saleReturns,
+    purchaseReturns: app.purchaseReturns,
+    payments: app.payments,
   });
   const ledgerPositions = partyPositionsFromLedger(entries);
   const nameOf = new Map(book.parties.map((p) => [p.id, p.name] as const));
@@ -280,7 +286,7 @@ export function reconcile(book: Book): Reconciliation {
   /* 3. Cash. `cashFlows` is the app's own answer, built from the payment
         modes on documents plus the manual adjustments. */
   const appCash = netFlow(
-    cashFlows(book.sales, book.purchases, book.expenses, book.payments, book.cashAdjustments),
+    cashFlows(app.sales, app.purchases, app.expenses, app.payments, app.cashAdjustments),
   );
   add(
     "cash",
@@ -307,7 +313,7 @@ export function reconcile(book: Book): Reconciliation {
     "bank-unattributed",
     "Bank (account not recorded)",
     balanceOf(entries, "bank-unattributed"),
-    netFlow(bankFlows(book.sales, book.purchases, book.expenses, book.payments)),
+    netFlow(bankFlows(app.sales, app.purchases, app.expenses, app.payments)),
     "Bank, UPI and cheque money never tied to a specific account, against bankFlows. Anything here sits outside every stored bank balance.",
   );
 
@@ -323,12 +329,12 @@ export function reconcile(book: Book): Reconciliation {
   const ledgerProfit = profitAndLoss(entries, accounts, "", "").netProfit;
 
   const appProfit = r2(
-    valueExTax(book.sales) -
-      valueExTax(book.saleReturns) -
-      computeCogs(book.sales, book.saleReturns, book.items) -
-      book.expenses.reduce((s, e) => s + (e.amount || 0), 0) -
-      totalSettlementDiscount(book.payments.filter((p) => p.type === "in")) +
-      totalSettlementDiscount(book.payments.filter((p) => p.type === "out")),
+    valueExTax(app.sales) -
+      valueExTax(app.saleReturns) -
+      computeCogs(app.sales, app.saleReturns, app.items) -
+      app.expenses.reduce((s, e) => s + (e.amount || 0), 0) -
+      totalSettlementDiscount(app.payments.filter((p) => p.type === "in")) +
+      totalSettlementDiscount(app.payments.filter((p) => p.type === "out")),
   );
   /* Three accounts exist in the ledger that the app's P&L has never counted:
      stock written off, unexplained cash, and other income. Those are real

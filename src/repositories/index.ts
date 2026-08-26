@@ -136,12 +136,12 @@ function describe(record: Record<string, unknown>): string {
 
 // Wire base.ts's deletion hook. It cannot import this file — AuditLogRepo is
 // itself a Repository, so the import would be circular.
-setDeletionRecorder((collectionName, record, batch) => {
+setDeletionRecorder((collectionName, record, batch, action) => {
   // Never audit the audit log: clearing an old entry would write a new one
   // describing the entry it just removed, forever.
   if (collectionName === "audit-log") return;
   const entry = {
-    action: "delete" as const,
+    action,
     collection: collectionName,
     recordId: record.id,
     snapshot: record,
@@ -497,6 +497,9 @@ export async function migrateFromLocalStorage(): Promise<number> {
  * key would be corruption.
  */
 export function nextVoucherNo(prefix: string, existing: { voucherNo?: string }[]): string {
+  // Callers pass allWithVoided(): a voided document's number is spent, not
+  // free. Two entries answering to CV-0007 is exactly what a voucher
+  // reference exists to prevent.
   const nums = existing
     .map((e) => {
       const m = (e.voucherNo ?? "").match(/(\d+)\s*$/);

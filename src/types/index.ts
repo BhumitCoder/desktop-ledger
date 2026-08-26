@@ -60,7 +60,7 @@ export interface LineItem {
 
 export type PaymentMode = "cash" | "bank" | "credit" | "upi" | "cheque";
 
-export interface Invoice {
+export interface Invoice extends Voidable {
   id: ID;
   number: string;
   date: string;
@@ -118,7 +118,7 @@ export interface Payee {
   createdAt: string;
 }
 
-export interface Expense {
+export interface Expense extends Voidable {
   id: ID;
   date: string;
   category: string;
@@ -158,7 +158,7 @@ export interface StockAdjustment {
 }
 
 /** Manual cash-in-hand correction (counter counting, owner drawings…) */
-export interface CashAdjustment {
+export interface CashAdjustment extends Voidable {
   id: ID;
   /** Why the cash moved, when no bill or payment explains it — the second
    * side of the entry. See lib/cashPurpose.ts. Absent on entries made before
@@ -179,7 +179,7 @@ export interface CashAdjustment {
   createdAt: string;
 }
 
-export interface BankTxn {
+export interface BankTxn extends Voidable {
   id: ID;
   /** Voucher reference — BV-0007 for a deposit or withdrawal, and the SAME
    *  TR-0007 on both legs of a transfer, because a transfer is one voucher. */
@@ -213,7 +213,7 @@ export interface PaymentAllocation {
   discount?: number;
 }
 
-export interface Payment {
+export interface Payment extends Voidable {
   id: ID;
   date: string;
   partyId: ID;
@@ -228,7 +228,7 @@ export interface Payment {
   createdAt: string;
 }
 
-export interface Return {
+export interface Return extends Voidable {
   id: ID;
   number: string;
   date: string;
@@ -282,6 +282,30 @@ export type PrintFormat = "a4" | "a4-2up" | "thermal80" | "thermal58";
 import type { CashPurpose } from "@/lib/cashPurpose";
 export type { CashPurpose };
 
+/**
+ * A document that was cancelled after the fact, and did not vanish.
+ *
+ * Deleting a bill that has already been reported on rewrites history: the
+ * month it was in quietly becomes a different month, and nothing on any screen
+ * says so. Voiding leaves the document where it is, stops every total counting
+ * it, and posts a reversal into the ledger on the day it was cancelled — so
+ * the books show both what happened and what undid it, which is what "the
+ * accounts are a record" means.
+ *
+ * Same-day mistakes are still deleted outright. Nothing has been reported on
+ * yet, there is nothing to preserve, and a shop that had to keep every
+ * mis-tapped bill would stop using the software.
+ */
+export interface Voidable {
+  /** When it was cancelled. Its absence is what makes a record live, so every
+   *  document written before this existed is live automatically. */
+  voidedAt?: string;
+  voidedBy?: string;
+  /** Why. Required by the screens, optional on the type so a restored backup
+   *  from before this existed still loads. */
+  voidReason?: string;
+}
+
 export interface Audited {
   createdAt: string;
   /** Email of the signed-in user. Absent for records written before this
@@ -298,7 +322,10 @@ export interface Audited {
  * whole record is kept, not a summary, so the answer includes what it said. */
 export interface AuditEntry {
   id: ID;
-  action: "delete";
+  /** "void" keeps the document; "delete" does not. Both are recorded the same
+   *  way, because to anyone reading the log they are the same event: someone
+   *  decided this should stop counting. */
+  action: "delete" | "void";
   /** Firestore collection the record came from, e.g. "sales". */
   collection: string;
   recordId: ID;

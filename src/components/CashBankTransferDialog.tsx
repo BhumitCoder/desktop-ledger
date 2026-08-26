@@ -195,7 +195,7 @@ export function CashBankTransferDialog({
     const transferId = editing?.transferId ?? genId();
     // ONE reference on both legs, because a transfer is one voucher: the same
     // number is quotable from the cash side and from the bank side.
-    const voucherNo = editing?.voucherNo ?? nextVoucherNo("TR-", BankTxnRepo.all());
+    const voucherNo = editing?.voucherNo ?? nextVoucherNo("TR-", BankTxnRepo.allWithVoided());
 
     // An edit is "undo the old movement, make the new one" — both on this one
     // batch, so a correction can never land halfway and leave the books with

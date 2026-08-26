@@ -25,6 +25,9 @@ import { fmtMoney, fmtDate, today } from "@/lib/format";
 import { Plus, Receipt, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { usePermissions } from "@/hooks/usePermissions";
+import { VoidDialog, VoidedBadge } from "@/components/VoidDialog";
+import { canDeleteOutright, isVoided, removalWord } from "@/lib/voiding";
+import { Ban } from "lucide-react";
 
 export const Route = createFileRoute("/expenses")({ component: ExpensesPage });
 
@@ -36,9 +39,13 @@ function ExpensesPage() {
   const { canPost } = usePeriodLock();
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<Expense | null>(null);
-  const refresh = () => setRows(ExpenseRepo.all());
+  // Cancelled expenses stay on file; this only decides whether they are in
+  // the way.
+  const [showVoided, setShowVoided] = useState(false);
+  const [voiding, setVoiding] = useState<Expense | null>(null);
+  const refresh = () => setRows(showVoided ? ExpenseRepo.allWithVoided() : ExpenseRepo.all());
   const _repoV = useRepoData();
-  useEffect(refresh, [_repoV]);
+  useEffect(refresh, [_repoV, showVoided]);
 
   const pg = usePagination(rows, "expenses");
 
@@ -61,6 +68,22 @@ function ExpensesPage() {
     ]
       .filter(Boolean)
       .join("\n");
+    // Anything dated before today is cancelled, not destroyed — its month has
+    // already been counted. See lib/voiding.ts.
+    if (!canDeleteOutright(r.date)) {
+      const existing = ExpenseRepo.get(r.id);
+      if (!existing) {
+        toast.info("This expense is no longer there");
+        refresh();
+        return;
+      }
+      if (isVoided(existing)) {
+        toast.info("This expense is already voided");
+        return;
+      }
+      setVoiding(existing);
+      return;
+    }
     if (confirm(msg)) {
       // Bail if another device already deleted it — the bank reversal below is
       // a blind atomic increment, so running it twice would add the money back
@@ -71,13 +94,8 @@ function ExpensesPage() {
         refresh();
         return;
       }
-      // Money that was taken off a specific bank account when this
-      // expense was recorded must be moved back on, or the account
-      // balance stays permanently wrong after the expense is gone.
       const batch = newBatch();
-      if (live.paymentMode === "bank" && live.bankId && BankRepo.get(live.bankId)) {
-        BankRepo.adjustFieldBatched(batch, live.bankId, "balance", live.amount);
-      }
+      undoExpenseEffects(batch, live);
       ExpenseRepo.removeBatched(batch, live.id);
       commitBatch(batch, "delete expense");
       refresh();
@@ -85,12 +103,42 @@ function ExpensesPage() {
     }
   };
 
+  /**
+   * Money taken off a specific bank account when the expense was recorded,
+   * moved back on. Shared by delete and void: they owe the shop the same
+   * reversal, and two copies would drift.
+   */
+  const undoExpenseEffects = (batch: ReturnType<typeof newBatch>, live: Expense) => {
+    if (live.paymentMode === "bank" && live.bankId && BankRepo.get(live.bankId)) {
+      BankRepo.adjustFieldBatched(batch, live.bankId, "balance", live.amount);
+    }
+  };
+
+  const handleVoid = (live: Expense, reason: string) => {
+    const batch = newBatch();
+    undoExpenseEffects(batch, live);
+    if (!ExpenseRepo.voidBatched(batch, live.id, reason)) {
+      toast.info("This expense was already voided");
+      setVoiding(null);
+      return;
+    }
+    commitBatch(batch, "void expense");
+    setVoiding(null);
+    refresh();
+    toast.success("Expense voided — it stays on record");
+  };
+
   const columns: Column<Expense>[] = [
     {
       key: "date",
       label: "Date",
       width: "120px",
-      render: (r) => fmtDate(r.date),
+      render: (r) => (
+        <span className="inline-flex items-center gap-1.5">
+          <span className={isVoided(r) ? "line-through text-gray-400" : ""}>{fmtDate(r.date)}</span>
+          {isVoided(r) && <VoidedBadge reason={r.voidReason} at={r.voidedAt} />}
+        </span>
+      ),
       sortValue: (r) => r.date,
     },
     { key: "category", label: "Category", width: "160px", render: (r) => r.category },
@@ -147,9 +195,13 @@ function ExpensesPage() {
                 handleDelete(r);
               }}
               className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-transparent text-gray-400 transition hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200"
-              title="Delete expense"
+              title={`${removalWord(r.date)} expense`}
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              {canDeleteOutright(r.date) ? (
+                <Trash2 className="h-3.5 w-3.5" />
+              ) : (
+                <Ban className="h-3.5 w-3.5" />
+              )}
             </button>
           )}
         </span>
@@ -165,18 +217,31 @@ function ExpensesPage() {
         icon={<Receipt className="h-5 w-5" />}
         iconClassName="text-warning"
         actions={
-          editAllowed && (
-            <Button
-              size="sm"
-              onClick={() => {
-                setEdit(null);
-                setOpen(true);
-              }}
-              className="w-full sm:w-auto"
+          <>
+            <button
+              onClick={() => setShowVoided((v) => !v)}
+              className={`hidden sm:inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border text-xs transition ${
+                showVoided
+                  ? "border-rose-200 bg-rose-50 text-rose-700 font-semibold"
+                  : "border-gray-200 bg-gray-50/60 text-gray-500 hover:bg-gray-100"
+              }`}
+              title="Cancelled records stay on file — this decides whether they are in the way"
             >
-              <Plus className="h-3.5 w-3.5" /> New Expense
-            </Button>
-          )
+              <Ban className="h-3.5 w-3.5" /> Voided
+            </button>
+            {editAllowed && (
+              <Button
+                size="sm"
+                onClick={() => {
+                  setEdit(null);
+                  setOpen(true);
+                }}
+                className="w-full sm:w-auto"
+              >
+                <Plus className="h-3.5 w-3.5" /> New Expense
+              </Button>
+            )}
+          </>
         }
       />
       {/* Mobile card list — a table of 6 columns doesn't fit a phone; this
@@ -238,9 +303,13 @@ function ExpensesPage() {
                       handleDelete(r);
                     }}
                     className="p-1.5 rounded hover:bg-rose-50 text-gray-300 hover:text-rose-500 transition shrink-0 -mr-1.5"
-                    title="Delete expense"
+                    title={`${removalWord(r.date)} expense`}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    {canDeleteOutright(r.date) ? (
+                      <Trash2 className="h-3.5 w-3.5" />
+                    ) : (
+                      <Ban className="h-3.5 w-3.5" />
+                    )}
                   </button>
                 )}
               </div>
@@ -269,6 +338,17 @@ function ExpensesPage() {
         />
       </div>
       <ExpenseDialog open={open} onOpenChange={setOpen} expense={edit} onSaved={refresh} />
+      <VoidDialog
+        open={!!voiding}
+        onOpenChange={(v) => !v && setVoiding(null)}
+        what="this expense"
+        effects={
+          voiding?.paymentMode === "bank" && voiding?.bankId
+            ? ["The amount is put back on the bank account it was paid from"]
+            : []
+        }
+        onConfirm={(reason) => voiding && handleVoid(voiding, reason)}
+      />
     </div>
   );
 }

@@ -80,6 +80,65 @@ const stubs = {
  * Add a new write path without a guard and this fails by name, on the next
  * run, before it reaches anyone's books.
  */
+/**
+ * Every screen that destroys a transaction document must also be able to
+ * cancel one.
+ *
+ * A source check rather than a rendered one, for the same reason the period
+ * lock has one: a path that quietly kept hard-deleting would pass every
+ * screen test in this file — nothing would fail, a document would simply
+ * cease to exist and the month it was in would become a different month.
+ * There is no assertion that catches an absence spread across seven screens;
+ * there is only this.
+ */
+function checkVoidCoverage() {
+  const DESTROYS =
+    /(Sales|Purchase|SaleReturn|PurchaseReturn|Payment|Expense|CashAdjustment|BankTxn)Repo[.]remove(Batched)?\s*\(/;
+  const EXEMPT = new Set([
+    // Writes both legs of a transfer as one edit: it removes the OLD pair and
+    // writes a new one in the same batch, which is a rewrite of a document
+    // the user is actively editing, not a correction to a filed one. The
+    // Cash screen owns cancelling a transfer, and does.
+    "src/components/CashBankTransferDialog.tsx",
+  ]);
+  const offenders = [];
+  for (const root of ["src/components", "src/routes"]) {
+    const dir = path.resolve(__dirname, "..", root);
+    if (!fs.existsSync(dir)) continue;
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith(".tsx") && !name.endsWith(".ts")) continue;
+      const rel = `${root}/${name}`;
+      if (EXEMPT.has(rel)) continue;
+      const src = fs.readFileSync(path.join(dir, name), "utf8");
+      // The CALL, not the name — the same lesson the lock check learned.
+      if (DESTROYS.test(src) && !/\bvoidBatched\s*\(/.test(src)) offenders.push(rel);
+    }
+  }
+  if (offenders.length) {
+    console.log("\n  APPEND-ONLY: these destroy a transaction but never offer to cancel one:");
+    offenders.forEach((f) => console.log("    x " + f));
+    console.log("  A document that has been counted must survive being corrected.\n");
+    return false;
+  }
+  console.log("  Append-only: every path that destroys a document can cancel one instead.");
+  return true;
+}
+
+/**
+ * A backup that drops cancelled documents restores a shop where voided bills
+ * have come back to life — and the ledger's reversals with them.
+ */
+function checkBackupKeepsVoided() {
+  const src = fs.readFileSync(path.resolve(__dirname, "../src/routes/settings.tsx"), "utf8");
+  if (/dump\[key\]\s*=\s*JSON\.stringify\(repo\.allWithVoided\(\)\)/.test(src)) {
+    console.log("  Backups include cancelled documents.");
+    return true;
+  }
+  console.log("\n  BACKUP: the export does not include cancelled documents — a restore would");
+  console.log("  bring voided bills back to life.\n");
+  return false;
+}
+
 function checkPeriodLockCoverage() {
   const roots = ["src/components", "src/routes"];
   // Writes that create or move money/stock with a date on them. Reads,
@@ -119,6 +178,8 @@ function checkPeriodLockCoverage() {
 
 async function main() {
   const lockOk = checkPeriodLockCoverage();
+  const voidOk = checkVoidCoverage();
+  const backupOk = checkBackupKeepsVoided();
   fs.mkdirSync(OUT_DIR, { recursive: true });
 
   fs.writeFileSync(
@@ -264,7 +325,7 @@ run().then((r) => { (window as any).__RESULT__ = r; })
     console.log("  ✅ ALL SCREENS RENDER REAL DATA");
   }
   console.log("══════════════════════════════════════\n");
-  process.exit(result.failed || pageErrors.length || !lockOk ? 1 : 0);
+  process.exit(result.failed || pageErrors.length || !lockOk || !voidOk || !backupOk ? 1 : 0);
 }
 
 main().catch((e) => {

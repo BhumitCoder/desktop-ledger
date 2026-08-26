@@ -19,6 +19,7 @@ import {
   X,
   ChevronDown,
   Trash2,
+  Ban,
   Pencil,
   FileText,
   SlidersHorizontal,
@@ -32,6 +33,8 @@ import { fmtMode } from "@/lib/paymentMode";
 import { PageHeader } from "@/components/PageHeader";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { usePermissions } from "@/hooks/usePermissions";
+import { VoidDialog, VoidedBadge } from "@/components/VoidDialog";
+import { canDeleteOutright, isVoided, removalWord } from "@/lib/voiding";
 
 export const Route = createFileRoute("/purchase/")({ component: PurchasePage });
 
@@ -68,12 +71,15 @@ function PurchasePage() {
   const [partyDropQ, setPartyDropQ] = useState("");
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
+  const [showVoided, setShowVoided] = useState(false);
+  const [voiding, setVoiding] = useState<Invoice | null>(null);
+
   const refresh = () => {
-    setRows(PurchaseRepo.all());
+    setRows(showVoided ? PurchaseRepo.allWithVoided() : PurchaseRepo.all());
     setParties(PartyRepo.all().map((p) => ({ id: p.id, name: p.name })));
   };
   const _repoV = useRepoData();
-  useEffect(refresh, [_repoV]);
+  useEffect(refresh, [_repoV, showVoided]);
 
   const filtered = useMemo(() => {
     return rows.filter((r) => {
@@ -152,6 +158,22 @@ function PurchasePage() {
       );
       return;
     }
+    // Anything dated before today is cancelled, not destroyed — its month has
+    // already been counted. See lib/voiding.ts.
+    if (!canDeleteOutright(r.date)) {
+      const existing = PurchaseRepo.get(r.id);
+      if (!existing) {
+        toast.info(`Bill ${r.number} is no longer there`);
+        refresh();
+        return;
+      }
+      if (isVoided(existing)) {
+        toast.info(`${r.number} is already voided`);
+        return;
+      }
+      setVoiding(existing);
+      return;
+    }
     if (
       !confirm(
         `Delete bill ${r.number}? Purchased quantities will be removed from stock, and any payments applied to it will become advance payments.`,
@@ -169,16 +191,25 @@ function PurchasePage() {
       refresh();
       return;
     }
-    // Stock restore, payment unlinking, and the bill delete must land
-    // together — a shared batch commits them as one atomic Firestore write.
     const batch = newBatch();
-    // Reverse the stock addition this purchase made
+    undoPurchaseEffects(batch, live);
+    PurchaseRepo.removeBatched(batch, live.id);
+    commitBatch(batch, "delete purchase");
+    refresh();
+    toast.success("Bill deleted — stock adjusted");
+  };
+
+  /**
+   * Everything a purchase did to a stored running total, put back.
+   *
+   * Shared by delete and void because they owe the shop exactly the same
+   * reversals. Two copies of this would drift, and the drift would be silent.
+   */
+  const undoPurchaseEffects = (batch: ReturnType<typeof newBatch>, live: Invoice) => {
     for (const l of live.lineItems) {
       const it = ItemRepo.get(l.itemId);
       if (it) ItemRepo.adjustFieldBatched(batch, it.id, "stock", -l.qty);
     }
-    // Payments applied to this bill: unlink them so the money stays
-    // counted as an advance instead of silently disappearing
     for (const p of PaymentRepo.all()) {
       if (p.allocations?.some((a) => a.invoiceId === live.id)) {
         const remaining = p.allocations.filter((a) => a.invoiceId !== live.id);
@@ -187,16 +218,23 @@ function PurchasePage() {
         });
       }
     }
-    // Undo whatever this bill moved out of a specific bank account at
-    // billing time, or that account's balance stays permanently wrong
-    // after delete.
     if (live.paymentMode === "bank" && live.bankId && (live.bankPaidAmount ?? 0) > 0) {
       BankRepo.adjustFieldBatched(batch, live.bankId, "balance", live.bankPaidAmount!);
     }
-    PurchaseRepo.removeBatched(batch, live.id);
-    commitBatch(batch, "delete purchase");
+  };
+
+  const handleVoid = (live: Invoice, reason: string) => {
+    const batch = newBatch();
+    undoPurchaseEffects(batch, live);
+    if (!PurchaseRepo.voidBatched(batch, live.id, reason)) {
+      toast.info(`Bill ${live.number} was already voided`);
+      setVoiding(null);
+      return;
+    }
+    commitBatch(batch, "void purchase");
+    setVoiding(null);
     refresh();
-    toast.success("Bill deleted — stock adjusted");
+    toast.success(`${live.number} voided — stock adjusted, and the bill stays on record`);
   };
 
   const STATUSES: { value: Status; label: string }[] = [
@@ -310,6 +348,18 @@ function PurchasePage() {
                 </button>
               ))}
             </div>
+
+            <button
+              onClick={() => setShowVoided((v) => !v)}
+              className={`hidden sm:inline-flex items-center gap-1.5 h-9 px-2.5 rounded-lg border text-xs transition ${
+                showVoided
+                  ? "border-rose-200 bg-rose-50 text-rose-700 font-semibold"
+                  : "border-gray-200 bg-gray-50/60 text-gray-500 hover:bg-gray-100"
+              }`}
+              title="Cancelled records stay on file — this decides whether they are in the way"
+            >
+              <Ban className="h-3.5 w-3.5" /> Voided
+            </button>
 
             {/* Search — the one filter kept inline on every screen size */}
             <div className="relative w-full sm:w-48">
@@ -497,7 +547,14 @@ function PurchasePage() {
                     </div>
                     <div className="flex items-center justify-between gap-2 mt-1">
                       <p className="text-[11px] text-gray-400 font-mono truncate">
-                        {r.number} · {fmtDate(r.date)} · {fmtMode(r.paymentMode)}
+                        <span className={isVoided(r) ? "line-through" : ""}>{r.number}</span> ·{" "}
+                        {fmtDate(r.date)} · {fmtMode(r.paymentMode)}
+                        {isVoided(r) && (
+                          <>
+                            {" "}
+                            <VoidedBadge reason={r.voidReason} at={r.voidedAt} />
+                          </>
+                        )}
                       </p>
                       {balance > 0 ? (
                         <span className="text-[11px] font-semibold text-rose-600 shrink-0">
@@ -531,9 +588,13 @@ function PurchasePage() {
                             handleDelete(r);
                           }}
                           className="p-1.5 rounded hover:bg-rose-50 text-gray-300 hover:text-rose-500 transition"
-                          title="Delete bill"
+                          title={`${removalWord(r.date)} bill`}
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          {canDeleteOutright(r.date) ? (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          ) : (
+                            <Ban className="h-3.5 w-3.5" />
+                          )}
                         </button>
                       )}
                     </div>
@@ -554,7 +615,14 @@ function PurchasePage() {
             {
               key: "number",
               label: "Bill #",
-              render: (r) => <span className="font-mono">{r.number}</span>,
+              render: (r) => (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className={`font-mono ${isVoided(r) ? "line-through text-gray-400" : ""}`}>
+                    {r.number}
+                  </span>
+                  {isVoided(r) && <VoidedBadge reason={r.voidReason} at={r.voidedAt} />}
+                </span>
+              ),
               sortValue: (r) => r.number,
             },
             {
@@ -644,9 +712,13 @@ function PurchasePage() {
                         handleDelete(r);
                       }}
                       className="p-1 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"
-                      title="Delete bill"
+                      title={`${removalWord(r.date)} bill`}
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
+                      {canDeleteOutright(r.date) ? (
+                        <Trash2 className="h-3.5 w-3.5" />
+                      ) : (
+                        <Ban className="h-3.5 w-3.5" />
+                      )}
                     </button>
                   )}
                 </span>
@@ -678,6 +750,22 @@ function PurchasePage() {
           onPageSize={pg.setPageSize}
         />
       </div>
+
+      <VoidDialog
+        open={!!voiding}
+        onOpenChange={(v) => !v && setVoiding(null)}
+        what={`bill ${voiding?.number ?? ""}`}
+        effects={[
+          "Purchased quantities come back out of stock",
+          "Payments applied to it become advances again",
+          ...(voiding?.paymentMode === "bank" &&
+          voiding?.bankId &&
+          (voiding?.bankPaidAmount ?? 0) > 0
+            ? ["The amount paid from the bank account is put back"]
+            : []),
+        ]}
+        onConfirm={(reason) => voiding && handleVoid(voiding, reason)}
+      />
     </div>
   );
 }

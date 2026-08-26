@@ -267,6 +267,12 @@ export interface FlowEntry {
   source?: { kind: "sale" | "purchase" | "expense" | "payment" | "adjustment"; id: string };
   /** For a manual cash entry: why it moved. See lib/cashPurpose.ts. */
   purpose?: string;
+  /**
+   * Cancelled, and shown only because the Cash page was asked to show
+   * cancelled entries. Every total on that page skips these — a voided row
+   * that still added to cash in hand would be worse than not showing it.
+   */
+  voided?: boolean;
 }
 
 /** Money movement for one payment mode (cash, bank, …). Amounts settled
@@ -367,6 +373,7 @@ export function cashFlows(
       out: a.type === "reduce" ? a.amount : 0,
       source: { kind: "adjustment", id: a.id },
       purpose: a.purpose,
+      voided: !!a.voidedAt,
     });
   }
   list.sort((a, b) => b.date.localeCompare(a.date));

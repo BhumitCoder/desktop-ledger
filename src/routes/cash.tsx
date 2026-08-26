@@ -1,6 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { nextVoucherNo } from "@/repositories";
 import { usePeriodLock } from "@/hooks/usePeriodLock";
+import { VoidDialog, VoidedBadge } from "@/components/VoidDialog";
+import { canDeleteOutright, isVoided, removalWord } from "@/lib/voiding";
 import { matchesQuery } from "@/lib/search";
 import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
@@ -13,7 +15,7 @@ import {
   BankTxnRepo,
   BankRepo,
 } from "@/repositories";
-import type { CashAdjustment } from "@/types";
+import type { BankTxn, CashAdjustment } from "@/types";
 import { newBatch, commitBatch } from "@/repositories/base";
 import { useRepoData } from "@/hooks/useRepoData";
 import { cashFlows, type FlowEntry } from "@/lib/ledger";
@@ -57,6 +59,7 @@ import {
   ArrowRight,
   Pencil,
   Trash2,
+  Ban,
   ExternalLink,
 } from "lucide-react";
 import { CashBankTransferDialog } from "@/components/CashBankTransferDialog";
@@ -75,6 +78,10 @@ function CashPage() {
   const [editTransfer, setEditTransfer] = useState<CashAdjustment | null>(null);
   const { canPost } = usePeriodLock();
   const [q, setQ] = useState("");
+  // Cancelled entries stay on file; this only decides whether they are in
+  // the way. Off by default, and they never count towards a total.
+  const [showVoided, setShowVoided] = useState(false);
+  const [voiding, setVoiding] = useState<CashAdjustment | null>(null);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
@@ -86,11 +93,13 @@ function CashPage() {
         PurchaseRepo.all(),
         ExpenseRepo.all(),
         PaymentRepo.all(),
-        CashAdjustmentRepo.all(),
+        // Cancelled entries are fetched only when asked for, and are stripped
+        // out of every total below — see `counting`.
+        showVoided ? CashAdjustmentRepo.allWithVoided() : CashAdjustmentRepo.all(),
       ),
     );
   const _repoV = useRepoData();
-  useEffect(refresh, [_repoV]);
+  useEffect(refresh, [_repoV, showVoided]);
 
   /**
    * Remove a manual cash entry — and everything that entry is half of.
@@ -114,20 +123,23 @@ function CashPage() {
           .map((t) => BankRepo.get(t.bankId)?.name ?? "the bank account")
           .join(", ")}.`
       : `Delete this cash entry of ${fmtMoney(adj.amount)}?`;
+    // Anything dated before today is cancelled, not destroyed — its month has
+    // already been counted. See lib/voiding.ts.
+    if (!canDeleteOutright(adj.date)) {
+      if (isVoided(adj)) {
+        toast.info("This entry is already voided");
+        return;
+      }
+      setVoiding(adj);
+      return;
+    }
     if (!confirm(what)) return;
 
     const batch = newBatch();
     CashAdjustmentRepo.removeBatched(batch, adj.id);
     for (const leg of legs) {
       BankTxnRepo.removeBatched(batch, leg.id);
-      // Put the account back where it was: a deposit added, so removing it
-      // subtracts, and the other way round.
-      BankRepo.adjustFieldBatched(
-        batch,
-        leg.bankId,
-        "balance",
-        leg.type === "deposit" ? -leg.amount : leg.amount,
-      );
+      undoLegOnBank(batch, leg);
     }
     commitBatch(batch, "delete cash entry").then((ok) => {
       if (!ok) {
@@ -139,9 +151,61 @@ function CashPage() {
     });
   };
 
+  /**
+   * The rows that count.
+   *
+   * A cancelled entry is on the list to be seen, not to be added up. Applied
+   * at every total on this page rather than at the list, because the two
+   * questions are genuinely different: what happened, and what the shop has.
+   */
+  const counting = (list: FlowEntry[]) => list.filter((e) => !e.voided);
+
+  /** Put a transfer's bank side back: a deposit added to the account, so
+   *  undoing it subtracts, and the other way round. */
+  const undoLegOnBank = (batch: ReturnType<typeof newBatch>, leg: BankTxn) => {
+    BankRepo.adjustFieldBatched(
+      batch,
+      leg.bankId,
+      "balance",
+      leg.type === "deposit" ? -leg.amount : leg.amount,
+    );
+  };
+
+  /**
+   * Cancel a cash entry older than today — and everything it is half of.
+   *
+   * A transfer's two legs are voided together for the same reason they are
+   * deleted together: cancelling one side alone leaves the money out of one
+   * account and never into the other.
+   */
+  const voidRow = (adj: CashAdjustment, reason: string) => {
+    const legs = transferLegsFor(adj, BankTxnRepo.allWithVoided());
+    const batch = newBatch();
+    if (!CashAdjustmentRepo.voidBatched(batch, adj.id, reason)) {
+      toast.info("This entry was already voided");
+      setVoiding(null);
+      return;
+    }
+    for (const leg of legs) {
+      BankTxnRepo.voidBatched(batch, leg.id, reason);
+      undoLegOnBank(batch, leg);
+    }
+    commitBatch(batch, "void cash entry").then((ok) => {
+      setVoiding(null);
+      if (!ok) {
+        toast.error("Could not void — reload and check before trying again");
+        return;
+      }
+      toast.success(
+        legs.length ? "Transfer voided on both accounts" : "Cash entry voided — it stays on record",
+      );
+      refresh();
+    });
+  };
+
   // Balance is the true running cash-in-hand as of now — it doesn't change
   // when a date range is applied, only the period's In/Out totals do.
-  const balance = entries.reduce((s, e) => s + e.in - e.out, 0);
+  const balance = counting(entries).reduce((s, e) => s + e.in - e.out, 0);
 
   const dateFiltered = useMemo(() => {
     if (!dateFrom && !dateTo) return entries;
@@ -158,15 +222,15 @@ function CashPage() {
 
   // Footer In/Out cover the filtered rows the table actually shows (date
   // range AND search) — `balance` above stays all-time by design.
-  const totalIn = filtered.reduce((s, e) => s + e.in, 0);
-  const totalOut = filtered.reduce((s, e) => s + e.out, 0);
+  const totalIn = counting(filtered).reduce((s, e) => s + e.in, 0);
+  const totalOut = counting(filtered).reduce((s, e) => s + e.out, 0);
 
   // Manual entries only: a sale's reason is its bill, and lumping those in
   // would drown the figures this is for.
   const purposeTotals = useMemo(
     () =>
       totalsByPurpose(
-        filtered
+        counting(filtered)
           .filter((e) => e.source?.kind === "adjustment")
           .map((e) => ({
             purpose: rowPurpose(e),
@@ -250,6 +314,15 @@ function CashPage() {
                   className="w-full sm:w-auto"
                 >
                   <ArrowLeftRight className="h-3.5 w-3.5" /> Transfer
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowVoided((v) => !v)}
+                  className={`w-full sm:w-auto ${showVoided ? "border-rose-200 bg-rose-50 text-rose-700" : ""}`}
+                  title="Cancelled entries stay on file, and never count towards a total"
+                >
+                  <Ban className="h-3.5 w-3.5" /> Voided
                 </Button>
                 <Button size="sm" onClick={() => setAdjustOpen(true)} className="w-full sm:w-auto">
                   <Banknote className="h-3.5 w-3.5" /> Adjust Cash
@@ -489,6 +562,18 @@ function CashPage() {
         editing={editTransfer}
         onEditingDone={() => setEditTransfer(null)}
       />
+      <VoidDialog
+        open={!!voiding}
+        onOpenChange={(v) => !v && setVoiding(null)}
+        what="this cash entry"
+        effects={
+          voiding && transferLegsFor(voiding, BankTxnRepo.allWithVoided()).length
+            ? ["The bank side of the transfer is voided with it, and the account put back"]
+            : []
+        }
+        onConfirm={(reason) => voiding && voidRow(voiding, reason)}
+      />
+
       <CashAdjustDialog
         editing={editAdj}
         onEditingChange={setEditAdj}
@@ -531,6 +616,9 @@ function CashRowActions({
     // shared id are refused too. Those are the ones that mattered: they were
     // being offered for edit.
     const isTransfer = !!adj && transferLegsFor(adj, BankTxnRepo.all()).length > 0;
+    if (isVoided(adj)) {
+      return <VoidedBadge reason={adj?.voidReason} at={adj?.voidedAt} />;
+    }
     return (
       <span
         className="inline-flex items-center justify-center gap-0.5"
@@ -546,10 +634,18 @@ function CashRowActions({
         </button>
         <button
           onClick={() => onDelete(row)}
-          title={isTransfer ? "Delete this transfer from both accounts" : "Delete entry"}
+          title={
+            isTransfer
+              ? `${removalWord(row.date)} this transfer on both accounts`
+              : `${removalWord(row.date)} entry`
+          }
           className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-transparent text-gray-400 transition hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200"
         >
-          <Trash2 className="h-3.5 w-3.5" />
+          {canDeleteOutright(row.date) ? (
+            <Trash2 className="h-3.5 w-3.5" />
+          ) : (
+            <Ban className="h-3.5 w-3.5" />
+          )}
         </button>
       </span>
     );
@@ -657,7 +753,7 @@ function CashAdjustDialog({
       toast.success(`Cash entry updated: ${fmtMoney(n)}`);
     } else {
       CashAdjustmentRepo.add({
-        voucherNo: nextVoucherNo("CV-", CashAdjustmentRepo.all()),
+        voucherNo: nextVoucherNo("CV-", CashAdjustmentRepo.allWithVoided()),
         date,
         type,
         amount: n,

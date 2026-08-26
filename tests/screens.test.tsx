@@ -30,7 +30,7 @@ import { PartyDialog } from "@/routes/parties";
 import { DataTable } from "@/components/DataTable";
 import { PrintableInvoice } from "@/components/PrintableInvoice";
 import { PrintableReturn } from "@/components/PrintableReturn";
-import { fmtMoney, ymd } from "@/lib/format";
+import { fmtMoney, today, ymd } from "@/lib/format";
 import { planStockRepair } from "@/lib/dataRepair";
 import { useEscapeToLeave } from "@/hooks/useFormKeys";
 import { useAppEscape } from "@/hooks/useGoBack";
@@ -2444,10 +2444,22 @@ async function runAll(): Promise<Results> {
       );
     const manual = rowFor("Counter float");
     assert(!!manual, "cash rows: found the manual row");
+    /* Dated earlier this month, so the destructive action is Void, not
+       Delete — its month has already been counted. The button says what it
+       will actually do; "Delete" on a control that cannot delete is the kind
+       of small lie that stops people trusting a screen. */
     assert(
       !!manual?.querySelector('[title="Edit entry"]') &&
-        !!manual?.querySelector('[title="Delete entry"]'),
-      "cash rows: a manual entry offers Edit and Delete",
+        !!manual?.querySelector('[title="Void entry"]'),
+      `cash rows: an older manual entry offers Edit and Void — ${Array.from(
+        manual?.querySelectorAll("[title]") ?? [],
+      )
+        .map((el) => el.getAttribute("title"))
+        .join(" / ")}`,
+    );
+    assert(
+      !manual?.querySelector('[title="Delete entry"]'),
+      "cash rows: and does NOT offer to delete something that has been counted",
     );
 
     const derived = Array.from(table?.querySelectorAll("tbody tr") ?? []).find((tr) =>
@@ -2464,35 +2476,103 @@ async function runAll(): Promise<Results> {
       );
     }
 
-    // Deleting the manual entry moves cash-in-hand by exactly its amount.
-    const cashBefore = cashFlows(
-      SalesRepo.all(),
-      PurchaseRepo.all(),
-      ExpenseRepo.all(),
-      PaymentRepo.all(),
-      CashAdjustmentRepo.all(),
-    ).reduce((s, e) => s + e.in - e.out, 0);
-    const realConfirm = window.confirm;
-    window.confirm = () => true;
-    try {
-      await act(async () => {
-        (manual?.querySelector('[title="Delete entry"]') as HTMLElement)?.click();
-      });
-      await settleMs(150);
-    } finally {
-      window.confirm = realConfirm;
-    }
-    assert(!CashAdjustmentRepo.get("CA1"), "cash rows: the entry is gone");
-    const cashAfter = cashFlows(
-      SalesRepo.all(),
-      PurchaseRepo.all(),
-      ExpenseRepo.all(),
-      PaymentRepo.all(),
-      CashAdjustmentRepo.all(),
-    ).reduce((s, e) => s + e.in - e.out, 0);
+    /* Voiding it moves cash-in-hand by exactly its amount — the same as a
+       delete would — while the entry itself stays on file. Both halves
+       matter: the money has to be right, and the record has to survive. */
+    const cashNow = () =>
+      cashFlows(
+        SalesRepo.all(),
+        PurchaseRepo.all(),
+        ExpenseRepo.all(),
+        PaymentRepo.all(),
+        CashAdjustmentRepo.all(),
+      ).reduce((s, e) => s + e.in - e.out, 0);
+    const cashBefore = cashNow();
+
+    await act(async () => {
+      (manual?.querySelector('[title="Void entry"]') as HTMLElement)?.click();
+    });
+    await settleMs(150);
+
+    /* A reason is required. Voiding without one would leave "why is this
+       entry cancelled" unanswerable, which is the question somebody asks six
+       months later and nothing else can answer. */
+    const dlg = currentDialog();
     assert(
-      Math.abs(cashAfter - (cashBefore - 700)) < 0.01,
-      `cash rows: and cash in hand drops by its amount — ${cashAfter} (want ${cashBefore - 700})`,
+      (dlg.textContent ?? "").includes("Void this cash entry"),
+      `cash rows: the void dialog opens — ${JSON.stringify(dlg.textContent?.slice(0, 80))}`,
+    );
+    const confirmBtn = Array.from(dlg.querySelectorAll("button")).find((b) =>
+      /^Void this cash entry$/.test((b.textContent ?? "").trim()),
+    ) as HTMLButtonElement | undefined;
+    assert(!!confirmBtn, "cash rows: found the confirm button");
+    assert(
+      confirmBtn?.disabled === true,
+      "cash rows: and it refuses to void until a reason is given",
+    );
+
+    const reasonBox = Array.from(dlg.querySelectorAll("input")).find((i) =>
+      (i.getAttribute("placeholder") ?? "").startsWith("Entered twice"),
+    ) as HTMLInputElement | undefined;
+    assert(!!reasonBox, "cash rows: there is somewhere to say why");
+    await act(async () => {
+      setInput(reasonBox, "Counted twice");
+    });
+    await settleMs(60);
+    await act(async () => {
+      confirmBtn?.click();
+    });
+    await settleMs(200);
+
+    // The record survives, marked, with the reason and the person on it.
+    const voided = CashAdjustmentRepo.allWithVoided().find((a) => a.id === "CA1");
+    assert(!!voided, "cash rows: the entry is still on file — that is the point");
+    assert(!!voided?.voidedAt, "cash rows: marked as voided");
+    assert(
+      voided?.voidReason === "Counted twice",
+      `cash rows: with the reason that was given — ${voided?.voidReason}`,
+    );
+    assert(!!voided?.voidedBy, "cash rows: and who cancelled it");
+    // ...but stops counting, everywhere, without any caller having to
+    // remember to filter it.
+    assert(
+      !CashAdjustmentRepo.all().some((a) => a.id === "CA1"),
+      "cash rows: and every ordinary read of the collection skips it",
+    );
+    assert(
+      Math.abs(cashNow() - (cashBefore - 700)) < 0.01,
+      `cash rows: cash in hand drops by its amount, exactly as a delete would — ${cashNow()} (want ${cashBefore - 700})`,
+    );
+
+    /* And the figure the PAGE prints, with the cancelled row on screen.
+       The check above recomputes cash from the repositories — it proves the
+       data is right and says nothing about the page, which keeps its own
+       running total and could happily add a voided row back into it. */
+    await renderRoute("/cash");
+    const voidToggle = Array.from(document.querySelectorAll("button")).find(
+      (b) => (b.textContent ?? "").trim() === "Voided",
+    ) as HTMLButtonElement | undefined;
+    assert(!!voidToggle, "cash rows: there is a way to see cancelled entries");
+    await act(async () => {
+      voidToggle?.click();
+    });
+    await settleMs(200);
+
+    const shownCash = await readMounted();
+    assert(
+      shownCash.includes("Counted twice") || shownCash.includes("Counter float"),
+      "cash rows: turning it on brings the cancelled entry back onto the list",
+    );
+    const foot = document.querySelector(".data-table table tfoot tr");
+    const footNum = (idx: number) =>
+      Number(
+        ((foot?.children[idx]?.textContent ?? "").match(/[\d,.-]+/g) ?? [])
+          .pop()
+          ?.replace(/,/g, "") ?? "NaN",
+      );
+    assert(
+      Math.abs(footNum(0) - cashNow()) < 0.01,
+      `cash rows: the page's own total still ignores the cancelled row it is showing — ${footNum(0)} (want ${cashNow()})`,
     );
   }
 
@@ -2541,23 +2621,53 @@ async function runAll(): Promise<Results> {
       "transfer delete: the row says it is part of a transfer",
     );
 
-    const realConfirm2 = window.confirm;
-    window.confirm = () => true;
-    try {
-      await act(async () => {
-        (
-          leg?.querySelector('[title="Delete this transfer from both accounts"]') as HTMLElement
-        )?.click();
-      });
-      await settleMs(200);
-    } finally {
-      window.confirm = realConfirm2;
-    }
-    assert(!CashAdjustmentRepo.get("XCA"), "transfer delete: the cash leg is removed");
-    assert(!BankTxnRepo.get("XBT"), "transfer delete: AND the bank leg with it");
+    /* Dated earlier this month, so it is voided rather than destroyed — and
+       BOTH legs go, because half a cancelled transfer is money out of one
+       account and never into the other. That is the same failure the pairing
+       exists to prevent, reappearing at the other end of the document's
+       life. */
+    await act(async () => {
+      (leg?.querySelector('[title="Void this transfer on both accounts"]') as HTMLElement)?.click();
+    });
+    await settleMs(200);
+    const tDlg = currentDialog();
+    const tReason = Array.from(tDlg.querySelectorAll("input")).find((i) =>
+      (i.getAttribute("placeholder") ?? "").startsWith("Entered twice"),
+    ) as HTMLInputElement | undefined;
+    assert(!!tReason, "transfer void: the dialog asks why");
+    assert(
+      (tDlg.textContent ?? "").includes("bank side of the transfer is voided with it"),
+      `transfer void: and says the bank side goes too — ${JSON.stringify(tDlg.textContent?.slice(0, 200))}`,
+    );
+    await act(async () => {
+      setInput(tReason, "Never happened");
+    });
+    await settleMs(60);
+    await act(async () => {
+      (
+        Array.from(tDlg.querySelectorAll("button")).find((b) =>
+          /^Void this cash entry$/.test((b.textContent ?? "").trim()),
+        ) as HTMLButtonElement | undefined
+      )?.click();
+    });
+    await settleMs(250);
+
+    assert(
+      !CashAdjustmentRepo.all().some((a) => a.id === "XCA"),
+      "transfer void: the cash leg stops counting",
+    );
+    assert(
+      !BankTxnRepo.all().some((t) => t.id === "XBT"),
+      "transfer void: AND the bank leg with it — never one without the other",
+    );
+    assert(
+      !!CashAdjustmentRepo.allWithVoided().find((a) => a.id === "XCA")?.voidedAt &&
+        !!BankTxnRepo.allWithVoided().find((t) => t.id === "XBT")?.voidedAt,
+      "transfer void: both are still on file, marked",
+    );
     assert(
       BankRepo.get("XB1")?.balance === 2000,
-      `transfer delete: the account balance is put back — ${BankRepo.get("XB1")?.balance} (want 2000)`,
+      `transfer void: the account balance is put back — ${BankRepo.get("XB1")?.balance} (want 2000)`,
     );
   }
 
@@ -2865,29 +2975,48 @@ async function runAll(): Promise<Results> {
       "old transfer: editing it also pairs the two legs properly",
     );
 
-    // Deleting still clears both sides and puts the balance back.
+    /* Cancelling it still clears both sides and puts the balance back — the
+       pair holds at the end of the document's life as well as during it. It
+       is dated in the past, so it voids rather than deletes. */
     await renderRoute("/cash");
     const del = legRow()?.querySelector(
-      '[title="Delete this transfer from both accounts"]',
+      '[title="Void this transfer on both accounts"]',
     ) as HTMLButtonElement | null;
-    assert(!!del, "old transfer: delete says it will clear both accounts");
-    const realConfirm = window.confirm;
-    window.confirm = () => true;
-    try {
-      await act(async () => {
-        del?.click();
-      });
-      await settleMs(200);
-    } finally {
-      window.confirm = realConfirm;
-    }
+    assert(!!del, "old transfer: the action says it will clear both accounts");
+    await act(async () => {
+      del?.click();
+    });
+    await settleMs(200);
+    const oDlg = currentDialog();
+    const oReason = Array.from(oDlg.querySelectorAll("input")).find((i) =>
+      (i.getAttribute("placeholder") ?? "").startsWith("Entered twice"),
+    ) as HTMLInputElement | undefined;
+    assert(!!oReason, "old transfer: the void dialog asks why");
+    await act(async () => {
+      setInput(oReason, "Wrong account");
+    });
+    await settleMs(60);
+    await act(async () => {
+      (
+        Array.from(oDlg.querySelectorAll("button")).find((b) =>
+          /^Void this cash entry$/.test((b.textContent ?? "").trim()),
+        ) as HTMLButtonElement | undefined
+      )?.click();
+    });
+    await settleMs(250);
     assert(
       CashAdjustmentRepo.all().every((a) => !(a.reason ?? "").includes("OLD ENTRY")),
-      "old transfer: the cash leg is removed",
+      "old transfer: the cash leg stops counting",
     );
     assert(
       BankTxnRepo.all().every((t) => !(t.notes ?? "").includes("OLD ENTRY")),
       "old transfer: AND the bank leg with it",
+    );
+    assert(
+      CashAdjustmentRepo.allWithVoided().some(
+        (a) => (a.reason ?? "").includes("OLD ENTRY") && !!a.voidedAt,
+      ),
+      "old transfer: and both are still on file, marked",
     );
     assert(
       BankRepo.get("OLDB")?.balance === 3800,
@@ -3553,6 +3682,185 @@ async function runAll(): Promise<Results> {
       page.includes("Cash Short/Over") || page.includes("Stock Written Off"),
       `ledger P&L: and named — ${JSON.stringify(page.slice(page.indexOf("never counted"), page.indexOf("never counted") + 200))}`,
     );
+  }
+
+  /* ── Correcting a bill that has already been counted ──────────────────
+     The behaviour change the shop will notice. A bill from an earlier day is
+     cancelled, not destroyed: it stays on its list, stops counting
+     everywhere, and the stock goes back exactly as a delete would have put
+     it back. Today's mistake is still deleted outright — nothing has been
+     reported on, and a shop forced to keep every mis-tap would stop using
+     the software. */
+  {
+    ItemRepo.add({
+      id: "VITEM",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "Void Test Item",
+      unit: "PCS",
+      gstRate: 0,
+      purchasePrice: 60,
+      salePrice: 100,
+      stock: 50,
+      openingStock: 50,
+    } as never);
+    const mkBill = (id: string, number: string, date: string, qty: number) =>
+      SalesRepo.add({
+        id,
+        createdAt: "2026-01-01T00:00:00Z",
+        number,
+        date,
+        partyId: "P1",
+        partyName: "Acme Traders",
+        gstEnabled: false,
+        lineItems: [
+          {
+            id: "L1",
+            itemId: "VITEM",
+            name: "Void Test Item",
+            qty,
+            unit: "PCS",
+            price: 100,
+            discountPct: 0,
+            gstRate: 0,
+            amount: qty * 100,
+          },
+        ],
+        subtotal: qty * 100,
+        discount: 0,
+        taxAmount: 0,
+        total: qty * 100,
+        paid: 0,
+        paymentMode: "credit",
+      } as never);
+    mkBill("VOLD", "INV-VOLD", D2, 4);
+    mkBill("VNEW", "INV-VNEW", today(), 3);
+
+    await renderRoute("/sales");
+    const table = document.querySelector(".data-table table");
+    const rowFor = (text: string) =>
+      Array.from(table?.querySelectorAll("tbody tr") ?? []).find((tr) =>
+        (tr.textContent ?? "").includes(text),
+      );
+
+    /* The action says what it will actually do. Two bills, two different
+       words, decided by nothing but the date. */
+    assert(
+      !!rowFor("INV-VOLD")?.querySelector('[title="Void invoice"]'),
+      "void sale: a bill from an earlier day offers Void",
+    );
+    assert(
+      !rowFor("INV-VOLD")?.querySelector('[title="Delete invoice"]'),
+      "void sale: and does not offer to delete it",
+    );
+    assert(
+      !!rowFor("INV-VNEW")?.querySelector('[title="Delete invoice"]'),
+      "void sale: today's bill can still be deleted outright",
+    );
+
+    const stockBefore = ItemRepo.get("VITEM")?.stock ?? 0;
+
+    await act(async () => {
+      (rowFor("INV-VOLD")?.querySelector('[title="Void invoice"]') as HTMLElement)?.click();
+    });
+    await settleMs(150);
+
+    assert(
+      !!document.querySelector('[role="dialog"]'),
+      "void sale: clicking Void asks for confirmation instead of destroying the bill",
+    );
+    const dlg = currentDialog();
+    assert(
+      (dlg.textContent ?? "").includes("Void invoice INV-VOLD"),
+      `void sale: the dialog names the bill — ${JSON.stringify(dlg.textContent?.slice(0, 80))}`,
+    );
+    /* It says what will happen before it happens — what survives, what stops
+       counting, and what gets put back. */
+    assert(
+      (dlg.textContent ?? "").includes("stays on the list"),
+      "void sale: it says the bill survives",
+    );
+    assert(
+      (dlg.textContent ?? "").includes("Sold quantities go back into stock"),
+      "void sale: and that the stock comes back",
+    );
+
+    const confirmBtn = Array.from(dlg.querySelectorAll("button")).find((b) =>
+      /^Void invoice INV-VOLD$/.test((b.textContent ?? "").trim()),
+    ) as HTMLButtonElement | undefined;
+    assert(!!confirmBtn, "void sale: found the confirm button");
+    assert(
+      confirmBtn?.disabled === true,
+      "void sale: which refuses until a reason is given — 'why is INV-VOLD voided' is the question nothing else can answer",
+    );
+
+    const reasonBox = Array.from(dlg.querySelectorAll("input")).find((i) =>
+      (i.getAttribute("placeholder") ?? "").startsWith("Entered twice"),
+    ) as HTMLInputElement | undefined;
+    await act(async () => {
+      setInput(reasonBox, "Billed to the wrong customer");
+    });
+    await settleMs(60);
+    assert(confirmBtn?.disabled === false, "void sale: with a reason, it will go through");
+    await act(async () => {
+      confirmBtn?.click();
+    });
+    await settleMs(250);
+
+    // The record survives, marked, with the reason and the person on it.
+    const voided = SalesRepo.allWithVoided().find((s) => s.id === "VOLD");
+    assert(!!voided?.voidedAt, "void sale: the bill is still on file, marked as voided");
+    assert(
+      voided?.voidReason === "Billed to the wrong customer",
+      `void sale: with the reason given — ${voided?.voidReason}`,
+    );
+    assert(!!voided?.voidedBy, "void sale: and who cancelled it");
+    // ...and stops counting, without any caller having to remember to filter.
+    assert(
+      !SalesRepo.all().some((s) => s.id === "VOLD"),
+      "void sale: every ordinary read of the collection skips it",
+    );
+    assert(
+      (ItemRepo.get("VITEM")?.stock ?? 0) === stockBefore + 4,
+      `void sale: and the stock goes back, exactly as a delete would have put it back — ${ItemRepo.get("VITEM")?.stock} (want ${stockBefore + 4})`,
+    );
+
+    // Off the list by default: cancelled bills never stop existing, but they
+    // are not in the way.
+    const afterList = await readMounted();
+    assert(!afterList.includes("INV-VOLD"), "void sale: the cancelled bill is off the list");
+    assert(afterList.includes("INV-VNEW"), "void sale: and the live one is still on it");
+
+    // ...and one click away, struck through and badged.
+    const toggle = Array.from(document.querySelectorAll("button")).find(
+      (b) => (b.textContent ?? "").trim() === "Voided",
+    ) as HTMLButtonElement | undefined;
+    assert(!!toggle, "void sale: there is a way to see cancelled bills");
+    await act(async () => {
+      toggle?.click();
+    });
+    await settleMs(200);
+    const shown = await readMounted();
+    assert(shown.includes("INV-VOLD"), "void sale: turning it on brings the cancelled bill back");
+    const voidedRow = Array.from(
+      document.querySelectorAll(".data-table table tbody tr") ?? [],
+    ).find((tr) => (tr.textContent ?? "").includes("INV-VOLD"));
+    assert(
+      (voidedRow?.textContent ?? "").includes("Voided"),
+      `void sale: marked as cancelled on the row — ${JSON.stringify(voidedRow?.textContent?.slice(0, 60))}`,
+    );
+    const numberCell = Array.from(voidedRow?.querySelectorAll("span") ?? []).find(
+      (sp) => (sp.textContent ?? "").trim() === "INV-VOLD",
+    ) as HTMLElement | undefined;
+    assert(
+      !!numberCell && getComputedStyle(numberCell).textDecorationLine.includes("line-through"),
+      `void sale: and struck through, so it cannot be mistaken for a live bill — ${
+        numberCell && getComputedStyle(numberCell).textDecorationLine
+      }`,
+    );
+    const badge = Array.from(voidedRow?.querySelectorAll("[title]") ?? []).find((el) =>
+      (el.getAttribute("title") ?? "").includes("Billed to the wrong customer"),
+    );
+    assert(!!badge, "void sale: hovering it says why, and when");
   }
 
   /* ── A closed period actually refuses, on a real screen ───────────────

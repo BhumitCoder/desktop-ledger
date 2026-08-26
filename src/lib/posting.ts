@@ -582,15 +582,41 @@ export function buildJournal(book: Book): JournalEntry[] {
   /** What a bill collected itself, as opposed to what payments settled on it. */
   const directOf = (inv: Invoice) => Math.max(0, r2((inv.paid || 0) - (applied.get(inv.id) ?? 0)));
 
+  /** docId → the day it was cancelled, for everything posted below. */
+  const voidedOn = new Map<string, string>();
+  const noteVoid = (docId: string, rec: { voidedAt?: string }) => {
+    if (rec.voidedAt) voidedOn.set(docId, rec.voidedAt.slice(0, 10));
+  };
+
   const entries: JournalEntry[] = [...postOpenings(book, costs)];
 
-  for (const s of book.sales) entries.push(postSale(s, directOf(s), costs));
-  for (const p of book.purchases) entries.push(postPurchase(p, directOf(p)));
-  for (const r of book.saleReturns) entries.push(postSaleReturn(r, costs));
-  for (const r of book.purchaseReturns) entries.push(postPurchaseReturn(r));
-  for (const p of book.payments) entries.push(postPayment(p));
-  for (const e of book.expenses) entries.push(postExpense(e));
+  for (const s of book.sales) {
+    entries.push(postSale(s, directOf(s), costs));
+    noteVoid(s.id, s);
+  }
+  for (const p of book.purchases) {
+    entries.push(postPurchase(p, directOf(p)));
+    noteVoid(p.id, p);
+  }
+  for (const r of book.saleReturns) {
+    entries.push(postSaleReturn(r, costs));
+    noteVoid(r.id, r);
+  }
+  for (const r of book.purchaseReturns) {
+    entries.push(postPurchaseReturn(r));
+    noteVoid(r.id, r);
+  }
+  for (const p of book.payments) {
+    entries.push(postPayment(p));
+    noteVoid(p.id, p);
+  }
+  for (const e of book.expenses) {
+    entries.push(postExpense(e));
+    noteVoid(e.id, e);
+  }
   for (const a of book.stockAdjustments) entries.push(postStockAdjustment(a, costs));
+  // Stock adjustments are not voidable — they are corrections in their own
+  // right, so cancelling one means making another.
 
   /* Transfers first, so neither leg is also posted on its own. A leg is
      recognised through the same helper the Cash screen's own pencil uses,
@@ -609,9 +635,16 @@ export function buildJournal(book: Book): JournalEntry[] {
     legs.forEach((l) => usedBank.add(l.id));
     const bank = bankAccountId(leg.bankId);
     const cashOut = adj.type === "reduce";
+    // A transfer is one voucher keyed by its transferId, so the void is
+    // recorded against that rather than against either leg's own id. Either
+    // side being cancelled cancels the whole movement — half a reversed
+    // transfer is money left in neither account.
+    const transferKey = adj.transferId || adj.id;
+    noteVoid(transferKey, adj);
+    if (leg.voidedAt) noteVoid(transferKey, leg);
     entries.push(
       postTransfer(
-        adj.transferId || adj.id,
+        transferKey,
         adj.date,
         adj.amount || 0,
         cashOut ? "cash" : bank,
@@ -636,6 +669,8 @@ export function buildJournal(book: Book): JournalEntry[] {
     if (!from || !to) continue; // a half-recorded pair; posted singly below
     usedBank.add(from.id);
     usedBank.add(to.id);
+    noteVoid(transferId, from);
+    noteVoid(transferId, to);
     entries.push(
       postTransfer(
         transferId,
@@ -653,10 +688,21 @@ export function buildJournal(book: Book): JournalEntry[] {
   for (const a of book.cashAdjustments) {
     if (usedCash.has(a.id)) continue;
     entries.push(postCashAdjustment(a));
+    noteVoid(a.id, a);
   }
   for (const t of book.bankTxns) {
     if (usedBank.has(t.id)) continue;
     entries.push(postBankTxn(t, bankName.get(t.bankId) ?? "bank"));
+    noteVoid(t.id, t);
+  }
+
+  /* Cancelled documents: the original stands, and a reversal follows it on
+     the day it was voided. Applied here, once, over whatever was posted above
+     — rather than inside each posting rule, where seven document types would
+     be seven chances to get a sign backwards. */
+  for (const e of [...entries]) {
+    const on = voidedOn.get(e.docId);
+    if (on) entries.push(reversalEntry(e, on));
   }
 
   /* The written entries, last. A closing entry is dated the last day of a
@@ -682,6 +728,60 @@ export function buildJournal(book: Book): JournalEntry[] {
     a.date === b.date ? a.id.localeCompare(b.id) : a.date.localeCompare(b.date),
   );
   return entries;
+}
+
+/**
+ * The same entry, backwards, on the day it was cancelled.
+ *
+ * This is what append-only means in practice: the original stays where it is,
+ * in the month it belonged to, and the cancellation lands on the day it was
+ * decided. A trial balance as at a date between the two shows the movement;
+ * one drawn after the void shows both and nets to nothing — which is the
+ * honest account of what happened, as opposed to a bill that was simply never
+ * there.
+ *
+ * One rule for every document type, because a per-type reversal is a per-type
+ * chance to get a sign wrong.
+ */
+export function reversalEntry(e: JournalEntry, date: string): JournalEntry {
+  return {
+    id: `${e.id}-void`,
+    date,
+    voucherType: `${e.voucherType} (voided)`,
+    voucherNo: e.voucherNo,
+    docKind: `${e.docKind}-void`,
+    docId: e.docId,
+    narration: `Voided: ${e.narration}`,
+    periodKey: periodOf(date),
+    lines: e.lines.map((l) => ({ ...l, debit: l.credit, credit: l.debit })),
+  };
+}
+
+/**
+ * The same book with the cancelled documents taken out.
+ *
+ * The ledger needs a voided document — it reverses one rather than forgetting
+ * it. Everything else in the app has already stopped seeing it, because
+ * Repository.all() filters it out. So a comparison between the two has to
+ * feed each side what it actually reads: the ledger the whole book, and the
+ * app's own calculations the live one. Handing both the same array made a
+ * voided entry count once on one side and net to nothing on the other, and
+ * the reconciliation reported a gap that was purely an artefact of the
+ * comparison.
+ */
+export function liveOnly(book: Book): Book {
+  const live = <R extends { voidedAt?: string }>(list: R[]) => list.filter((r) => !r.voidedAt);
+  return {
+    ...book,
+    sales: live(book.sales),
+    purchases: live(book.purchases),
+    saleReturns: live(book.saleReturns),
+    purchaseReturns: live(book.purchaseReturns),
+    payments: live(book.payments),
+    expenses: live(book.expenses),
+    cashAdjustments: live(book.cashAdjustments),
+    bankTxns: live(book.bankTxns),
+  };
 }
 
 /** Entries that do not balance. Empty, or there is a posting bug — and this

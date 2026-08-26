@@ -59,18 +59,21 @@ import { AlertTriangle, CheckCircle2, Info } from "lucide-react";
  * like a posting bug.
  */
 function useBook(): Book {
+  // allWithVoided, deliberately: the ledger reverses a cancelled document
+  // rather than pretending it never existed, so it needs to see it. Every
+  // other reader in the app gets the live-only view from all().
   return useRepoMemo(() => ({
     parties: PartyRepo.all(),
     items: ItemRepo.all(),
     banks: BankRepo.all(),
-    sales: SalesRepo.all(),
-    purchases: PurchaseRepo.all(),
-    saleReturns: SaleReturnRepo.all(),
-    purchaseReturns: PurchaseReturnRepo.all(),
-    payments: PaymentRepo.all(),
-    expenses: ExpenseRepo.all(),
-    cashAdjustments: CashAdjustmentRepo.all(),
-    bankTxns: BankTxnRepo.all(),
+    sales: SalesRepo.allWithVoided(),
+    purchases: PurchaseRepo.allWithVoided(),
+    saleReturns: SaleReturnRepo.allWithVoided(),
+    purchaseReturns: PurchaseReturnRepo.allWithVoided(),
+    payments: PaymentRepo.allWithVoided(),
+    expenses: ExpenseRepo.allWithVoided(),
+    cashAdjustments: CashAdjustmentRepo.allWithVoided(),
+    bankTxns: BankTxnRepo.allWithVoided(),
     stockAdjustments: StockAdjustmentRepo.all(),
     journalEntries: LedgerEntryRepo.all(),
   }));

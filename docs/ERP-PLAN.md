@@ -182,7 +182,7 @@ saved but not stored, a transfer leg written untagged, the amber flag painted
 like the rest, a reason pre-picked, and the transfer fallback removed — each
 caught by a named assertion.
 
-### 4.5 Append-only corrections
+### 4.5 Append-only corrections — **DONE (Phase 4)**
 - **Add** "Reverse this entry" on anything outside today; edit stays for same-day.
   A reversal is a new document with the opposite signs and `reversalOf` set.
 - **Touches** every delete/edit path — the four `*.index.tsx` deletes, payments,
@@ -191,6 +191,62 @@ caught by a named assertion.
   correction leaves two visible rows. Tell them before shipping it.
 - **Payoff** this is what retires the drift class permanently. Nothing mutates,
   so nothing can disagree with itself.
+
+**Built as voiding rather than as a reversing document.** The plan said the
+correction should be a new document with the opposite signs. On these
+collections that would mean negative invoices — a −₹4,000 sale in the sales
+list, in the party statement, in every report — and every screen in the app
+would need to learn what one means. The accounting outcome wanted is simply
+that the original stops counting and the books record when it stopped, and
+that is what a void does: the document stays where it is, marked, and
+`lib/posting.ts` emits a **reversing journal entry dated the day it was
+cancelled**. The reversing document exists exactly where it is useful — in the
+ledger — and nowhere it would be noise.
+
+**The line falls at today** (`lib/voiding.ts`). A bill entered wrongly two
+minutes ago has been reported to nobody and is deleted outright; a bill from
+last month is different in kind, because its month has been counted and quite
+possibly filed. The period lock is a stricter version of the same idea and
+still applies on top.
+
+**The one design decision that carries the feature:** `Repository.all()`
+filters cancelled records out, and the four callers that genuinely need them
+ask by name via `allWithVoided()` — the posting ledger, backups, voucher
+numbering, and the lists' own "show voided" view. There are 216 `.all()` call
+sites. "Remember to filter" is not a mechanism, and one forgotten total is the
+entire failure mode of this feature.
+
+**Three things the build settled that the plan did not say:**
+1. **A reason is required.** "Why is INV-0047 voided" is the question somebody
+   asks six months later, and nothing else can answer it.
+2. **A transfer's two legs are cancelled together**, for the same reason they
+   are deleted together — half a cancelled transfer is money out of one
+   account and never into the other.
+3. **Backups include cancelled documents.** A restore without them brings
+   voided bills back to life, and the ledger's reversals with them. There is a
+   source check in `tests/run-screens.cjs` asserting the export uses
+   `allWithVoided()`.
+
+**One interaction found by the suite.** `reconcile()` was handing the ledger
+and the app's own calculations the same array. Once documents could be voided
+those two need different books — the ledger reverses what was cancelled, the
+app has already stopped seeing it — and feeding both the same one made a
+voided document count once on one side and net to nothing on the other. It
+reported a 600-rupee gap that was purely an artefact of the comparison. Fixed
+with `liveOnly(book)`, and it is now a named assertion over 120 generated
+books with cancellations in them.
+
+**Coverage checks**, alongside the period lock's: every screen that destroys a
+transaction document must also be able to cancel one, and the backup must keep
+cancelled documents. Both are source checks, because a path that quietly kept
+hard-deleting would pass every rendered assertion — nothing would fail, a
+document would simply cease to exist.
+
+**Proven by** 21 mutations, all caught.
+
+**Still to tell the shop, before this merges:** correcting an older bill now
+leaves a voided row on the list instead of removing it, the row is hidden
+until the "Voided" button is pressed, and a reason has to be typed.
 
 ### 4.6 Posting ledger + Trial Balance — **DONE (Phase 2)**
 - **Add** the two collections above; `src/lib/posting.ts` builds the lines for a
@@ -389,7 +445,7 @@ Dependency-driven, cheapest-safest first:
 | 1 | Reason categories on cash | 0 | **done** |
 | 2 | Posting ledger + reconciliation report + Trial Balance | 0 | **done** |
 | 3 | Balance Sheet · P&L from ledger · Year close | 2 reconciled | **done** |
-| 4 | Append-only corrections | 2 | |
+| 4 | Append-only corrections | 2 | **done** |
 | 5 | Unit conversion | — | |
 | 6 | Serial / IMEI | 5 | |
 | 7 | Document workflow | — | |

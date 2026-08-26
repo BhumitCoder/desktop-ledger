@@ -20,6 +20,7 @@ import {
   ChevronDown,
   FileText,
   Trash2,
+  Ban,
   Pencil,
   Receipt,
   SlidersHorizontal,
@@ -33,6 +34,8 @@ import { fmtMode } from "@/lib/paymentMode";
 import { PageHeader } from "@/components/PageHeader";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { usePermissions } from "@/hooks/usePermissions";
+import { VoidDialog, VoidedBadge } from "@/components/VoidDialog";
+import { canDeleteOutright, isVoided, removalWord } from "@/lib/voiding";
 
 export const Route = createFileRoute("/sales/")({ component: SalesPage });
 
@@ -68,13 +71,17 @@ function SalesPage() {
   const [showPartyDrop, setShowPartyDrop] = useState(false);
   const [partyDropQ, setPartyDropQ] = useState("");
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  // Cancelled bills are off the list by default. They never stop existing —
+  // this only decides whether they are in the way.
+  const [showVoided, setShowVoided] = useState(false);
+  const [voiding, setVoiding] = useState<Invoice | null>(null);
 
   const refresh = () => {
-    setRows(SalesRepo.all());
+    setRows(showVoided ? SalesRepo.allWithVoided() : SalesRepo.all());
     setParties(PartyRepo.all().map((p) => ({ id: p.id, name: p.name })));
   };
   const _repoV = useRepoData();
-  useEffect(refresh, [_repoV]);
+  useEffect(refresh, [_repoV, showVoided]);
 
   const filtered = useMemo(() => {
     return rows.filter((r) => {
@@ -154,6 +161,22 @@ function SalesPage() {
       );
       return;
     }
+    // Anything dated before today is cancelled, not destroyed — its month
+    // has already been counted. See lib/voiding.ts.
+    if (!canDeleteOutright(r.date)) {
+      const live = SalesRepo.get(r.id);
+      if (!live) {
+        toast.info(`Invoice ${r.number} is no longer there`);
+        refresh();
+        return;
+      }
+      if (isVoided(live)) {
+        toast.info(`${r.number} is already voided`);
+        return;
+      }
+      setVoiding(live);
+      return;
+    }
     if (
       !confirm(
         `Delete invoice ${r.number}? Sold quantities will be added back to stock, and any payments applied to it will become advance payments.`,
@@ -171,16 +194,30 @@ function SalesPage() {
       refresh();
       return;
     }
-    // Stock restore, payment unlinking, and the invoice delete must land
-    // together — a shared batch commits them as one atomic Firestore write.
     const batch = newBatch();
-    // Reverse the stock deduction this sale made
+    undoSaleEffects(batch, live);
+    SalesRepo.removeBatched(batch, live.id);
+    commitBatch(batch, "delete sale");
+    refresh();
+    toast.success("Invoice deleted — stock restored");
+  };
+
+  /**
+   * Everything a sale did to a stored running total, put back.
+   *
+   * Shared by delete and void because they owe the shop exactly the same
+   * reversals — stock and a bank balance are the only two figures the app
+   * stores rather than derives, so they are the only two a cancelled bill
+   * cannot fix by itself. Written once: two copies would drift, and the drift
+   * would be silent.
+   */
+  const undoSaleEffects = (batch: ReturnType<typeof newBatch>, live: Invoice) => {
     for (const l of live.lineItems) {
       const it = ItemRepo.get(l.itemId);
       if (it) ItemRepo.adjustFieldBatched(batch, it.id, "stock", l.qty);
     }
     // Payments applied to this invoice: unlink them so the money stays
-    // counted as an advance instead of silently disappearing
+    // counted as an advance instead of silently disappearing.
     for (const p of PaymentRepo.all()) {
       if (p.allocations?.some((a) => a.invoiceId === live.id)) {
         const remaining = p.allocations.filter((a) => a.invoiceId !== live.id);
@@ -190,14 +227,25 @@ function SalesPage() {
       }
     }
     // Undo whatever this sale moved on a specific bank account at billing
-    // time, or that account's balance stays permanently wrong after delete.
+    // time, or that account's balance stays permanently wrong.
     if (live.paymentMode === "bank" && live.bankId && (live.bankPaidAmount ?? 0) > 0) {
       BankRepo.adjustFieldBatched(batch, live.bankId, "balance", -live.bankPaidAmount!);
     }
-    SalesRepo.removeBatched(batch, live.id);
-    commitBatch(batch, "delete sale");
+  };
+
+  /** Cancel a bill that is older than today. It stays; it stops counting. */
+  const handleVoid = (live: Invoice, reason: string) => {
+    const batch = newBatch();
+    undoSaleEffects(batch, live);
+    if (!SalesRepo.voidBatched(batch, live.id, reason)) {
+      toast.info(`Invoice ${live.number} was already voided`);
+      setVoiding(null);
+      return;
+    }
+    commitBatch(batch, "void sale");
+    setVoiding(null);
     refresh();
-    toast.success("Invoice deleted — stock restored");
+    toast.success(`${live.number} voided — stock restored, and the bill stays on record`);
   };
 
   const STATUSES: { value: Status; label: string }[] = [
@@ -311,6 +359,18 @@ function SalesPage() {
                 </button>
               ))}
             </div>
+
+            <button
+              onClick={() => setShowVoided((v) => !v)}
+              className={`hidden sm:inline-flex items-center gap-1.5 h-9 px-2.5 rounded-lg border text-xs transition ${
+                showVoided
+                  ? "border-rose-200 bg-rose-50 text-rose-700 font-semibold"
+                  : "border-gray-200 bg-gray-50/60 text-gray-500 hover:bg-gray-100"
+              }`}
+              title="Cancelled bills stay on record — this decides whether they are in the way"
+            >
+              <Ban className="h-3.5 w-3.5" /> Voided
+            </button>
 
             {/* Search — the one filter kept inline on every screen size */}
             <div className="relative w-full sm:w-48">
@@ -498,7 +558,14 @@ function SalesPage() {
                     </div>
                     <div className="flex items-center justify-between gap-2 mt-1">
                       <p className="text-[11px] text-gray-400 font-mono truncate">
-                        {r.number} · {fmtDate(r.date)} · {fmtMode(r.paymentMode)}
+                        <span className={isVoided(r) ? "line-through" : ""}>{r.number}</span> ·{" "}
+                        {fmtDate(r.date)} · {fmtMode(r.paymentMode)}
+                        {isVoided(r) && (
+                          <>
+                            {" "}
+                            <VoidedBadge reason={r.voidReason} at={r.voidedAt} />
+                          </>
+                        )}
                       </p>
                       {balance > 0 ? (
                         <span className="text-[11px] font-semibold text-rose-600 shrink-0">
@@ -532,9 +599,13 @@ function SalesPage() {
                             handleDelete(r);
                           }}
                           className="p-1.5 rounded hover:bg-rose-50 text-gray-300 hover:text-rose-500 transition"
-                          title="Delete invoice"
+                          title={`${removalWord(r.date)} invoice`}
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          {canDeleteOutright(r.date) ? (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          ) : (
+                            <Ban className="h-3.5 w-3.5" />
+                          )}
                         </button>
                       )}
                     </div>
@@ -555,7 +626,14 @@ function SalesPage() {
             {
               key: "number",
               label: "Invoice #",
-              render: (r) => <span className="font-mono">{r.number}</span>,
+              render: (r) => (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className={`font-mono ${isVoided(r) ? "line-through text-gray-400" : ""}`}>
+                    {r.number}
+                  </span>
+                  {isVoided(r) && <VoidedBadge reason={r.voidReason} at={r.voidedAt} />}
+                </span>
+              ),
               sortValue: (r) => r.number,
             },
             {
@@ -645,9 +723,13 @@ function SalesPage() {
                         handleDelete(r);
                       }}
                       className="p-1 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"
-                      title="Delete invoice"
+                      title={`${removalWord(r.date)} invoice`}
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
+                      {canDeleteOutright(r.date) ? (
+                        <Trash2 className="h-3.5 w-3.5" />
+                      ) : (
+                        <Ban className="h-3.5 w-3.5" />
+                      )}
                     </button>
                   )}
                 </span>
@@ -679,6 +761,22 @@ function SalesPage() {
           onPageSize={pg.setPageSize}
         />
       </div>
+
+      <VoidDialog
+        open={!!voiding}
+        onOpenChange={(v) => !v && setVoiding(null)}
+        what={`invoice ${voiding?.number ?? ""}`}
+        effects={[
+          "Sold quantities go back into stock",
+          "Payments applied to it become advances again",
+          ...(voiding?.paymentMode === "bank" &&
+          voiding?.bankId &&
+          (voiding?.bankPaidAmount ?? 0) > 0
+            ? ["The amount collected into the bank account is reversed"]
+            : []),
+        ]}
+        onConfirm={(reason) => voiding && handleVoid(voiding, reason)}
+      />
     </div>
   );
 }

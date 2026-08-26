@@ -40,7 +40,8 @@ import { planStockRepair } from "@/lib/dataRepair";
 import { transferLegsFor } from "@/lib/transferLegs";
 import { AuditLogRepo, nextVoucherNo } from "@/repositories";
 import { isLocked, blockedDate, lockMessage } from "@/lib/periodLock";
-import { buildJournal, isBalanced, entryDrift, type Book } from "@/lib/posting";
+import { buildJournal, isBalanced, entryDrift, liveOnly, type Book } from "@/lib/posting";
+import { canDeleteOutright, isVoided, removalWord } from "@/lib/voiding";
 import {
   financialYear,
   profitAndLoss,
@@ -3100,6 +3101,413 @@ console.log(`\n═════════════════════�
       profitAndLoss(buildJournal(book), chart, "", FY.end).netProfit === pl.netProfit,
       "T28: and the year still reports what it earned",
     );
+  }
+}
+
+/* ═══ TEST 29: corrections that leave a record ══════════════════════════
+   Deleting a bill that has already been counted rewrites history: the month
+   it was in quietly becomes a different month, and nothing on any screen says
+   so. From here, anything dated before today is VOIDED instead — it stays
+   where it is, stops counting everywhere, and the ledger posts a reversal on
+   the day it was cancelled.
+
+   Two properties carry the whole feature, and both are easy to lose:
+     1. A voided document stops counting in EVERY total, without any caller
+        having to remember to filter it.
+     2. The ledger reverses it rather than forgetting it — the original stays
+        in its own month, and the cancellation lands in the month it was
+        decided. */
+{
+  /* ── Where the line falls ─────────────────────────────────────────── */
+  {
+    const now = "2026-08-26";
+    assert(canDeleteOutright("2026-08-26", now), "T29: today's mistake can still be deleted");
+    assert(
+      canDeleteOutright("2026-09-01", now),
+      "T29: and so can a future-dated one — nobody has reported on it either",
+    );
+    assert(
+      !canDeleteOutright("2026-08-25", now),
+      "T29: yesterday's is voided instead — its day has been counted",
+    );
+    assert(!canDeleteOutright("", now), "T29: a document with no date is never destroyed");
+    assert(removalWord("2026-08-26", now) === "Delete", "T29: the action says Delete when it will");
+    assert(
+      removalWord("2026-08-25", now) === "Void",
+      "T29: and says Void when it will — a button that lies about what it does is worse than no button",
+    );
+    assert(isVoided({ voidedAt: "2026-08-26T00:00:00Z" }), "T29: a cancelled record reads as one");
+    assert(!isVoided({}) && !isVoided(undefined), "T29: and a live one does not");
+  }
+
+  /* ── The write layer, directly ─────────────────────────────────────────
+     Filtering happens in Repository.all() rather than at the two hundred-odd
+     places that call it, because "remember to filter" is not a mechanism and
+     one forgotten total is the entire failure mode of this feature. */
+  {
+    const repo = new Repository<{ id: string; name: string; voidedAt?: string }>("void-test");
+    repo.add({ id: "A", name: "live" } as never);
+    repo.add({ id: "B", name: "to cancel" } as never);
+
+    assert(repo.all().length === 2, "T29: both records are live to begin with");
+
+    const logBefore = AuditLogRepo.all().length;
+    const result = repo.voidBatched(null, "B", "Entered twice");
+    assert(!!result, "T29: voiding returns the record it cancelled");
+    assert(
+      repo.all().length === 1 && repo.all()[0].id === "A",
+      "T29: an ordinary read no longer sees it",
+    );
+    assert(repo.allWithVoided().length === 2, "T29: and the one read that asks for it still does");
+    assert(
+      !!repo.get("B"),
+      "T29: a direct link to it still opens — it exists, it just does not count",
+    );
+
+    /* Voiding twice must be refused. Everything a caller does around this —
+       restoring stock, reversing a bank balance — is a blind atomic
+       increment, so a second pass would move the shop's real figures twice.
+       Returning nothing is what tells the caller to stop. */
+    const again = repo.voidBatched(null, "B", "again");
+    assert(!again, "T29: voiding an already-cancelled record does nothing and says so");
+    const missing = repo.voidBatched(null, "NOPE", "reason");
+    assert(!missing, "T29: and neither does voiding one that is not there");
+
+    /* It is recorded the same way a deletion is, and labelled as what it was.
+       A log that called this a delete would send someone looking for a
+       document that is still sitting on the list. */
+    const logged = AuditLogRepo.all().slice(0, AuditLogRepo.all().length - logBefore);
+    const entry = logged.find((e) => e.recordId === "B");
+    assert(!!entry, "T29: cancelling a record is written to the audit log");
+    assert(entry?.action === "void", `T29: as a void, not as a delete — ${entry?.action}`);
+    assert(
+      !!entry?.snapshot && (entry.snapshot as { name?: string }).name === "to cancel",
+      "T29: with the record as it stood",
+    );
+  }
+
+  /* ── The ledger reverses; it does not forget ──────────────────────── */
+  {
+    const b: Book = {
+      parties: [{ id: "P1", name: "Cust", openingBalance: 0, createdAt: "" }],
+      items: [{ id: "I1", name: "Item", purchasePrice: 100, openingStock: 0, createdAt: "" }],
+      banks: [],
+      sales: [
+        {
+          id: "S1",
+          number: "INV-1",
+          date: "2026-05-10",
+          partyId: "P1",
+          partyName: "Cust",
+          gstEnabled: false,
+          lineItems: [{ itemId: "I1", qty: 2, price: 500, costPrice: 100 }],
+          subtotal: 1000,
+          discount: 0,
+          taxAmount: 0,
+          total: 1000,
+          paid: 1000,
+          paymentMode: "cash",
+          createdAt: "",
+          // Cancelled two months after it was billed.
+          voidedAt: "2026-07-20T10:00:00Z",
+          voidedBy: "someone@shop",
+          voidReason: "Entered twice",
+        },
+      ],
+      purchases: [],
+      saleReturns: [],
+      purchaseReturns: [],
+      payments: [],
+      expenses: [],
+      cashAdjustments: [],
+      bankTxns: [],
+      stockAdjustments: [],
+    } as unknown as Book;
+
+    const entries = buildJournal(b);
+    const original = entries.find((e) => e.docKind === "sale");
+    const reversal = entries.find((e) => e.docKind === "sale-void");
+    assert(!!original, "T29: the original sale is still posted");
+    assert(!!reversal, "T29: and a reversal follows it");
+    assert(
+      original?.date === "2026-05-10",
+      `T29: the original keeps its own date — ${original?.date}`,
+    );
+    assert(
+      reversal?.date === "2026-07-20",
+      `T29: the reversal lands on the day it was cancelled, not the day of the bill — ${reversal?.date}`,
+    );
+    /* Guarded, not asserted with a "!". Without the reversal these lines
+       throw on a missing value, and this harness has no per-block catch — so
+       one broken rule killed the whole run and reported nothing at all,
+       instead of failing by name and letting the other 109,000 assertions
+       finish. */
+    if (reversal) {
+      assert(isBalanced(reversal), "T29: and it balances");
+      assert(
+        reversal.narration.startsWith("Voided:"),
+        `T29: it says what it is — ${reversal.narration}`,
+      );
+    }
+
+    // Every account nets to nothing once both are in.
+    for (const account of ["ar", "cash", "sales", "cogs", "inventory"]) {
+      assert(
+        balanceOf(entries, account) === 0,
+        `T29: ${account} nets to nothing across the pair — ${balanceOf(entries, account)}`,
+      );
+    }
+
+    /* This is the point of dating the reversal when it happened. A trial
+       balance drawn in June still shows the sale, because in June it was
+       real — that is what "the accounts are a record" means, and it is
+       exactly what deleting the bill would have destroyed. */
+    const inJune = entries.filter((e) => e.date <= "2026-06-30");
+    assert(
+      balanceOf(inJune, "sales") === -1000,
+      `T29: a statement drawn before the void still shows the sale — ${balanceOf(inJune, "sales")}`,
+    );
+    const afterward = entries.filter((e) => e.date <= "2026-07-31");
+    assert(
+      balanceOf(afterward, "sales") === 0,
+      `T29: one drawn after it shows both, netting to nothing — ${balanceOf(afterward, "sales")}`,
+    );
+  }
+
+  /* ── Both sides of a cancelled transfer ───────────────────────────── */
+  {
+    const b: Book = {
+      parties: [],
+      items: [],
+      banks: [{ id: "B1", name: "Bank", openingBalance: 0, balance: 0, createdAt: "" }],
+      sales: [],
+      purchases: [],
+      saleReturns: [],
+      purchaseReturns: [],
+      payments: [],
+      expenses: [],
+      cashAdjustments: [
+        {
+          id: "CA1",
+          date: "2026-05-05",
+          type: "reduce",
+          amount: 5000,
+          reason: "Transfer",
+          transferId: "TR1",
+          createdAt: "",
+          voidedAt: "2026-06-01T00:00:00Z",
+        },
+      ],
+      bankTxns: [
+        {
+          id: "BT1",
+          bankId: "B1",
+          date: "2026-05-05",
+          type: "deposit",
+          amount: 5000,
+          notes: "Transfer",
+          transferId: "TR1",
+          createdAt: "",
+          voidedAt: "2026-06-01T00:00:00Z",
+        },
+      ],
+      stockAdjustments: [],
+    } as unknown as Book;
+
+    const entries = buildJournal(b);
+    assert(
+      entries.filter((e) => e.docKind === "transfer").length === 1 &&
+        entries.filter((e) => e.docKind === "transfer-void").length === 1,
+      `T29: one transfer, one reversal — ${JSON.stringify(entries.map((e) => e.docKind))}`,
+    );
+    assert(
+      balanceOf(entries, "cash") === 0 && balanceOf(entries, "bank:B1") === 0,
+      `T29: and both ends come back — cash ${balanceOf(entries, "cash")}, bank ${balanceOf(entries, "bank:B1")}`,
+    );
+  }
+
+  /* ── liveOnly strips exactly the transaction documents ────────────── */
+  {
+    const b: Book = {
+      parties: [{ id: "P1", name: "P", openingBalance: 0, createdAt: "" }],
+      items: [{ id: "I1", name: "I", purchasePrice: 1, openingStock: 0, createdAt: "" }],
+      banks: [{ id: "B1", name: "B", openingBalance: 0, balance: 0, createdAt: "" }],
+      sales: [
+        { id: "S1", date: "2026-01-01", total: 1, lineItems: [], voidedAt: "2026-02-01" },
+        { id: "S2", date: "2026-01-01", total: 1, lineItems: [] },
+      ],
+      purchases: [{ id: "PB1", date: "2026-01-01", total: 1, lineItems: [], voidedAt: "x" }],
+      saleReturns: [{ id: "R1", date: "2026-01-01", total: 1, lineItems: [], voidedAt: "x" }],
+      purchaseReturns: [{ id: "R2", date: "2026-01-01", total: 1, lineItems: [], voidedAt: "x" }],
+      payments: [{ id: "PAY1", date: "2026-01-01", amount: 1, voidedAt: "x" }],
+      expenses: [{ id: "E1", date: "2026-01-01", amount: 1, voidedAt: "x" }],
+      cashAdjustments: [{ id: "C1", date: "2026-01-01", amount: 1, voidedAt: "x" }],
+      bankTxns: [{ id: "T1", date: "2026-01-01", amount: 1, voidedAt: "x" }],
+      stockAdjustments: [],
+    } as unknown as Book;
+    const live = liveOnly(b);
+    assert(
+      live.sales.length === 1 && live.sales[0].id === "S2",
+      "T29: the cancelled sale is dropped and the live one kept",
+    );
+    for (const [name, list] of [
+      ["purchases", live.purchases],
+      ["sale returns", live.saleReturns],
+      ["purchase returns", live.purchaseReturns],
+      ["payments", live.payments],
+      ["expenses", live.expenses],
+      ["cash entries", live.cashAdjustments],
+      ["bank entries", live.bankTxns],
+    ] as const) {
+      assert(list.length === 0, `T29: cancelled ${name} are dropped too — ${list.length} left`);
+    }
+    // Master data is not a record of something that happened, so it is not
+    // voidable and must come through untouched.
+    assert(
+      live.parties.length === 1 && live.items.length === 1 && live.banks.length === 1,
+      "T29: parties, items and bank accounts are left alone",
+    );
+    assert(b.sales.length === 2, "T29: and the original book is not modified");
+  }
+
+  /* ── The reconciliation still holds, over books with cancellations ──
+     The one that matters. Each side of that comparison reads a different
+     book — the ledger sees everything and reverses, the app's own
+     calculations see only what is live — and if those two are not fed the
+     right book each, a voided document counts once on one side and nets to
+     nothing on the other. That mismatch is invisible in any single figure
+     and shows up only here. */
+  for (let t = 0; t < 120; t++) {
+    const book: Book = {
+      parties: [],
+      items: [],
+      banks: [],
+      sales: [],
+      purchases: [],
+      saleReturns: [],
+      purchaseReturns: [],
+      payments: [],
+      expenses: [],
+      cashAdjustments: [],
+      bankTxns: [],
+      stockAdjustments: [],
+    } as unknown as Book;
+
+    const party = { id: `vp${t}`, name: "Party", openingBalance: 0, createdAt: "" };
+    book.parties.push(party as never);
+    const bank = {
+      id: `vb${t}`,
+      name: "Bank",
+      openingBalance: 10000,
+      balance: 10000,
+      createdAt: "",
+    };
+    book.banks.push(bank as never);
+    book.items.push({
+      id: `vi${t}`,
+      name: "Item",
+      purchasePrice: 100,
+      openingStock: 0,
+      createdAt: "",
+    } as never);
+
+    /** Cancel a document the way the screens do: mark it, and put back
+     *  whatever it moved on a stored running total. */
+    const voidIt = (doc: { voidedAt?: string }, undoBank = 0) => {
+      doc.voidedAt = "2026-08-01T00:00:00Z";
+      bank.balance = r2(bank.balance + undoBank);
+    };
+
+    for (let i = 0; i < 1 + ri(4); i++) {
+      const total = Math.round(100 + rnd() * 4000);
+      const mode = pick(["cash", "bank", "credit"] as PaymentMode[]);
+      const useBank = mode === "bank" && ri(2) === 0;
+      const paid = ri(2) ? total : 0;
+      const sale = {
+        id: `vs${t}-${i}`,
+        number: `INV-${i}`,
+        date: `2026-0${1 + ri(5)}-1${ri(9)}`,
+        partyId: party.id,
+        partyName: party.name,
+        gstEnabled: false,
+        lineItems: [{ itemId: `vi${t}`, qty: 1, price: total, costPrice: 60 }],
+        subtotal: total,
+        discount: 0,
+        taxAmount: 0,
+        total,
+        paid,
+        paymentMode: mode,
+        ...(useBank ? { bankId: bank.id, bankPaidAmount: paid } : {}),
+        createdAt: "",
+      } as unknown as Invoice & { voidedAt?: string };
+      if (useBank && paid) bank.balance = r2(bank.balance + paid);
+      book.sales.push(sale);
+      // A third of them get cancelled, with the bank side put back exactly
+      // as the Sales screen puts it back.
+      if (ri(3) === 0) voidIt(sale, useBank && paid ? -paid : 0);
+    }
+
+    for (let i = 0; i < ri(4); i++) {
+      const amount = r2(50 + rnd() * 1500);
+      const useBank = ri(2) === 0;
+      if (useBank) bank.balance = r2(bank.balance - amount);
+      const exp = {
+        id: `ve${t}-${i}`,
+        date: "2026-06-15",
+        category: "Shop Rent",
+        amount,
+        paymentMode: useBank ? "bank" : "cash",
+        ...(useBank ? { bankId: bank.id } : {}),
+        createdAt: "",
+      } as unknown as Expense & { voidedAt?: string };
+      book.expenses.push(exp);
+      if (ri(3) === 0) voidIt(exp, useBank ? amount : 0);
+    }
+
+    for (let i = 0; i < ri(4); i++) {
+      const adj = {
+        id: `vc${t}-${i}`,
+        date: "2026-06-20",
+        type: ri(2) ? "add" : "reduce",
+        amount: r2(100 + rnd() * 2000),
+        purpose: pick(["owner-in", "owner-out", "short-over", undefined]),
+        createdAt: "",
+      } as unknown as CashAdjustment & { voidedAt?: string };
+      book.cashAdjustments.push(adj);
+      if (ri(3) === 0) voidIt(adj);
+    }
+
+    const recon = reconcile(book);
+    for (const row of recon.rows) {
+      assert(
+        row.ok,
+        `T29: with cancelled documents in the book, ${row.label} still agrees — ledger ${row.ledger} vs app ${row.app}, out by ${row.diff}`,
+      );
+    }
+    assert(
+      recon.partyGaps.length === 0,
+      `T29: and every party's position too — ${JSON.stringify(recon.partyGaps[0])}`,
+    );
+    assert(recon.unbalanced.length === 0, "T29: every entry, reversals included, balances");
+
+    /* And the reversals really are there — a book where voiding simply
+       dropped the documents would pass every assertion above while quietly
+       destroying the record, which is the failure this whole test exists to
+       catch. */
+    const cancelled = [...book.sales, ...book.expenses, ...book.cashAdjustments].filter(
+      (d) => (d as { voidedAt?: string }).voidedAt,
+    );
+    if (cancelled.length) {
+      const reversals = recon.entries.filter((e) => e.docKind.endsWith("-void"));
+      assert(
+        reversals.length === cancelled.length,
+        `T29: one reversal per cancelled document — ${reversals.length} for ${cancelled.length}`,
+      );
+      assert(
+        reversals.every((e) => e.date === "2026-08-01"),
+        "T29: every one of them dated the day of the cancellation",
+      );
+    }
   }
 }
 

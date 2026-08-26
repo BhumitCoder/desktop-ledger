@@ -268,7 +268,9 @@ function SettingsPage() {
     }
     const dump: Record<string, string> = {};
     for (const [key, repo] of Object.entries(REPO_BY_KEY)) {
-      dump[key] = JSON.stringify(repo.all());
+      // Cancelled documents included, or a restored backup would bring
+      // voided bills back to life — and the ledger's reversals with them.
+      dump[key] = JSON.stringify(repo.allWithVoided());
     }
     dump["bz.company"] = JSON.stringify(CompanyRepo.get());
     const blob = new Blob([JSON.stringify(dump, null, 2)], { type: "application/json" });

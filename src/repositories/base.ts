@@ -155,6 +155,9 @@ type DeletionRecorder = (
   collection: string,
   record: { id: string } & Record<string, unknown>,
   batch: WriteBatch | null,
+  /** Whether the document survived. Both are the same event to a reader of
+   *  the log: someone decided this should stop counting. */
+  action: "delete" | "void",
 ) => void;
 let deletionRecorder: DeletionRecorder | null = null;
 export function setDeletionRecorder(fn: DeletionRecorder) {
@@ -210,7 +213,29 @@ export class Repository<T extends { id: string }> {
     emitRepoChange();
   }
 
+  /**
+   * Every LIVE record.
+   *
+   * Voided documents are filtered out here rather than at each of the two
+   * hundred-odd call sites, and that is the whole design: a voided invoice
+   * still counted in one forgotten total is the entire failure mode of this
+   * feature, and "remember to filter" is not a mechanism. The handful of
+   * callers that genuinely need the cancelled ones ask for them by name.
+   */
   all(): T[] {
+    return this.cache.filter((i) => !(i as Record<string, unknown>).voidedAt);
+  }
+
+  /**
+   * Everything, cancelled documents included.
+   *
+   * Four callers need this and no others should: the posting ledger, which
+   * reverses a void rather than forgetting it; backups, which would otherwise
+   * restore a shop where cancelled bills had come back to life; voucher
+   * numbering, which must never reuse a cancelled number; and the lists' own
+   * "show voided" view.
+   */
+  allWithVoided(): T[] {
     return [...this.cache];
   }
 
@@ -402,11 +427,34 @@ export class Repository<T extends { id: string }> {
 
   /** Keep what is about to stop existing. Called before the record leaves the
    *  cache, because afterwards there is nothing left to describe. */
-  private noteDeletion(id: string, batch: WriteBatch | null) {
+  private noteDeletion(id: string, batch: WriteBatch | null, action: "delete" | "void" = "delete") {
     if (!deletionRecorder) return;
     const gone = this.cache.find((i) => i.id === id);
     if (!gone) return;
-    deletionRecorder(this.name, gone as { id: string } & Record<string, unknown>, batch);
+    deletionRecorder(this.name, gone as { id: string } & Record<string, unknown>, batch, action);
+  }
+
+  /**
+   * Cancel a document without destroying it.
+   *
+   * Returns undefined when there is nothing to void — the record is gone, or
+   * another device voided it already. Callers MUST check: everything they do
+   * around this (restoring stock, reversing a bank balance) is a blind atomic
+   * increment, so running it twice moves the shop's real figures twice. This
+   * is the same guard the delete paths already make by re-reading the live
+   * document first.
+   */
+  voidBatched(batch: WriteBatch | null, id: string, reason: string): T | undefined {
+    const live = this.cache.find((i) => i.id === id) as (T & { voidedAt?: string }) | undefined;
+    if (!live || live.voidedAt) return undefined;
+    // Logged as its own action, on the caller's batch, exactly as a deletion
+    // is — the snapshot is what makes the log worth keeping.
+    this.noteDeletion(id, batch, "void");
+    return this.updateBatched(batch, id, {
+      voidedAt: new Date().toISOString(),
+      voidedBy: actor(),
+      voidReason: reason,
+    } as unknown as Partial<T>);
   }
 
   remove(id: string) {
