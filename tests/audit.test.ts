@@ -3682,6 +3682,86 @@ console.log(`\n═════════════════════�
   );
 }
 
+/* ═══ TEST 32: the repair tools read LIVE documents, and must ═══════════
+   The delete guards had to be taught to count cancelled documents. This is
+   the same question with the opposite answer, which is why it is written
+   down: voiding a sale already puts its stock back, so a repair tool that
+   also counted the cancelled sale would compute a stock figure that is short
+   by the very quantity the void restored — and then "repair" the shop's real
+   stock to it.
+
+   Both readings are one word apart at the call site, and the wrong one is
+   the plausible-looking one after seeing the delete-guard fix. */
+{
+  const item = {
+    id: "RI",
+    name: "Repair Item",
+    unit: "PCS",
+    gstRate: 0,
+    purchasePrice: 100,
+    salePrice: 200,
+    openingStock: 100,
+    // Voiding the sale below restored its 10, so the stored figure is back
+    // where it started. This is the state the shop is actually in.
+    stock: 100,
+    createdAt: "",
+  } as unknown as Item;
+
+  const soldThenVoided = {
+    id: "RS",
+    number: "INV-R",
+    date: "2026-05-01",
+    partyId: "P",
+    partyName: "P",
+    lineItems: [
+      {
+        id: "l",
+        itemId: "RI",
+        name: "Repair Item",
+        qty: 10,
+        unit: "PCS",
+        price: 200,
+        discountPct: 0,
+        gstRate: 0,
+        amount: 2000,
+      },
+    ],
+    subtotal: 2000,
+    discount: 0,
+    taxAmount: 0,
+    total: 2000,
+    paid: 0,
+    paymentMode: "credit",
+    createdAt: "",
+    voidedAt: "2026-07-01T00:00:00Z",
+  } as unknown as Invoice;
+
+  const base = {
+    items: [item],
+    purchases: [] as Invoice[],
+    saleReturns: [] as Return[],
+    purchaseReturns: [] as Return[],
+    stockAdjustments: [] as StockAdjustment[],
+  };
+
+  // What the screen actually passes: SalesRepo.all(), which skips the
+  // cancelled bill.
+  const live = planStockRepair({ ...base, sales: [] });
+  assert(
+    live.length === 0,
+    `T32: with the cancelled sale excluded, stock already agrees and nothing is "repaired" — ${JSON.stringify(live)}`,
+  );
+
+  // And what would happen if someone changed that call to allWithVoided by
+  // analogy with the delete guards: the tool would decide the shop is 10
+  // short and write that figure onto real stock.
+  const withVoided = planStockRepair({ ...base, sales: [soldThenVoided] });
+  assert(
+    withVoided.length === 1 && withVoided[0].correct === 90,
+    `T32: counting it would silently take 10 off the real stock — ${JSON.stringify(withVoided)}`,
+  );
+}
+
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
 if (fails.length) {
   console.log(`\nFailures:`);
