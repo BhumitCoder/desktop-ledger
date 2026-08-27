@@ -43,6 +43,7 @@ import {
   type StatementLine,
 } from "@/lib/financials";
 import { usePeriodLock } from "@/hooks/usePeriodLock";
+import { newBatch, commitBatch } from "@/repositories/base";
 import { Button } from "@/components/ui/button";
 import type { Book } from "@/lib/posting";
 import { buildJournal } from "@/lib/posting";
@@ -75,7 +76,7 @@ function useBook(): Book {
     cashAdjustments: CashAdjustmentRepo.allWithVoided(),
     bankTxns: BankTxnRepo.allWithVoided(),
     stockAdjustments: StockAdjustmentRepo.all(),
-    journalEntries: LedgerEntryRepo.all(),
+    journalEntries: LedgerEntryRepo.allWithVoided(),
   }));
 }
 
@@ -539,14 +540,27 @@ function YearClosePanel({ book }: { book: Book }) {
     if (!canPost(doc.date)) return;
     if (
       !window.confirm(
-        `Reopen ${plan.fy.label}? Every balance sheet after ${fmtDate(doc.date)} changes, because the year's profit goes back into the current period instead of Retained Earnings.`,
+        `Reopen ${plan.fy.label}? Every balance sheet after ${fmtDate(doc.date)} changes, because the year's profit goes back into the current period instead of Retained Earnings. The closing entry is not deleted — it stays on record with a reversal against it.`,
       )
     )
       return;
     setBusy(true);
     try {
-      LedgerEntryRepo.remove(doc.id);
-      toast.success(`${plan.fy.label} reopened`);
+      // Reversed, not deleted. Every other correction in this application
+      // leaves the original where it is; a year close is the last document
+      // that should be an exception to that, because next year's opening
+      // position was built on it.
+      const batch = newBatch();
+      if (!LedgerEntryRepo.voidBatched(batch, doc.id, `Reopened ${plan.fy.label}`)) {
+        toast.info(`${plan.fy.label} was already reopened`);
+        return;
+      }
+      const ok = await commitBatch(batch, "reopen year");
+      if (!ok) {
+        toast.error("Could not reopen — reload and check before trying again");
+        return;
+      }
+      toast.success(`${plan.fy.label} reopened — the closing entry stays on record, reversed`);
     } finally {
       setBusy(false);
     }

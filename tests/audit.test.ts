@@ -41,7 +41,13 @@ import { transferLegsFor } from "@/lib/transferLegs";
 import { AuditLogRepo, nextVoucherNo } from "@/repositories";
 import { isLocked, blockedDate, lockMessage } from "@/lib/periodLock";
 import { buildJournal, isBalanced, entryDrift, liveOnly, type Book } from "@/lib/posting";
-import { canDeleteOutright, isVoided, removalWord } from "@/lib/voiding";
+import {
+  canDeleteOutright,
+  canEditInPlace,
+  editRefusalMessage,
+  isVoided,
+  removalWord,
+} from "@/lib/voiding";
 import {
   financialYear,
   profitAndLoss,
@@ -3509,6 +3515,171 @@ console.log(`\n═════════════════════�
       );
     }
   }
+}
+
+/* ═══ TEST 30: the other half of the door ═══════════════════════════════
+   Phase 4 stopped an older document being deleted. It said nothing about
+   editing one, which left the rule half-applied: you could not remove last
+   month's bill, but you could open it and change the total to anything, and
+   that month became a different month with no record that anything had
+   happened. An edit leaves less trace than a deletion does — the audit log at
+   least keeps a snapshot of what was deleted.
+
+   So the same line governs both, and corrections to an older document are
+   made by voiding it and issuing a new one. */
+{
+  const now = "2026-08-26";
+  assert(canEditInPlace("2026-08-26", now), "T30: today's document can still be edited");
+  assert(
+    canEditInPlace("2026-09-01", now),
+    "T30: and a future-dated one — nothing has been counted yet either way",
+  );
+  assert(!canEditInPlace("2026-08-25", now), "T30: yesterday's cannot — its day has been counted");
+  assert(!canEditInPlace("", now), "T30: and neither can one with no date at all");
+
+  /* The same line as deletion, deliberately. Two rules a day apart would be
+     a bill that cannot be deleted but can be edited to zero, which is the
+     same outcome by a quieter route. */
+  for (const d of ["2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", ""]) {
+    assert(
+      canEditInPlace(d, now) === canDeleteOutright(d, now),
+      `T30: editing and deleting are allowed on exactly the same days — ${JSON.stringify(d)}`,
+    );
+  }
+
+  assert(
+    editRefusalMessage("invoice").includes("Void it and issue a new one"),
+    "T30: and the refusal says what to do instead — a screen that only refuses gets worked around",
+  );
+}
+
+/* ═══ TEST 31: reopening a year reverses the close ══════════════════════
+   Everything else in this application leaves the original where it is and
+   posts a reversal. A year close was the exception: reopening deleted it. Of
+   all the documents to make an exception of, that is the worst one — next
+   year's opening position is built on it, and a deleted close leaves no
+   record that the year was ever closed. */
+{
+  const book: Book = {
+    parties: [],
+    items: [],
+    banks: [],
+    sales: [],
+    purchases: [],
+    saleReturns: [],
+    purchaseReturns: [],
+    payments: [],
+    expenses: [
+      {
+        id: "E1",
+        date: "2025-07-01",
+        category: "Shop Rent",
+        amount: 400,
+        paymentMode: "cash",
+        createdAt: "",
+      },
+    ],
+    cashAdjustments: [],
+    bankTxns: [],
+    stockAdjustments: [],
+  } as unknown as Book;
+  const chart = accountsFor(book.banks, book.expenses);
+  const FY = financialYear("2025-07-01");
+
+  const plan = planYearClose(buildJournal(book), chart, FY.end, "2026-06-01");
+  assert(plan.netProfit === -400, `T31: the year lost 400 — ${plan.netProfit}`);
+  const entry = closingEntry(plan);
+
+  book.journalEntries = [
+    {
+      id: "YC1",
+      date: entry.date,
+      voucherType: entry.voucherType,
+      docKind: entry.docKind,
+      narration: entry.narration,
+      fyLabel: plan.fy.label,
+      lines: entry.lines,
+      createdAt: "2026-06-01T00:00:00Z",
+    },
+  ] as never;
+
+  assert(
+    !!planYearClose(buildJournal(book), chart, FY.end, "2026-06-01").blocked,
+    "T31: once closed, it cannot be closed again",
+  );
+  assert(
+    balanceOf(buildJournal(book), "retained") === 400,
+    `T31: and the loss sits in Retained Earnings — ${balanceOf(buildJournal(book), "retained")}`,
+  );
+
+  /* Reopen it — the way the screen now does, by cancelling the entry rather
+     than destroying it. */
+  (book.journalEntries as unknown as { voidedAt?: string }[])[0].voidedAt = "2026-09-15T00:00:00Z";
+  const reopened = buildJournal(book);
+
+  assert(
+    reopened.some((e) => e.docKind === "year-close"),
+    "T31: the closing entry is STILL on record — that is the whole point",
+  );
+  assert(
+    reopened.some((e) => e.docKind === "year-close-void"),
+    `T31: with a reversal against it — ${JSON.stringify(reopened.map((e) => e.docKind))}`,
+  );
+  /* Dated the year end, NOT the day it was reopened — the one deliberate
+     exception to how every other reversal is dated.
+
+     A bill is an event: it happened in its month, and undoing it is a second
+     event in another. A closing entry is not an event, it is a boundary. A
+     reversal dated three months later would leave the year closed as at 31
+     March and open afterwards, which is not a state a year can be in — and
+     the year could then never be closed again, because nothing would be left
+     in the accounts to close. */
+  assert(
+    reopened.find((e) => e.docKind === "year-close-void")?.date === FY.end,
+    `T31: the reversal lands on the year end, where the close itself is — ${
+      reopened.find((e) => e.docKind === "year-close-void")?.date
+    }`,
+  );
+  assert(
+    !!(book.journalEntries as unknown as { voidedAt?: string }[])[0].voidedAt,
+    "T31: while the record still says WHEN it was reopened",
+  );
+  assert(
+    balanceOf(reopened, "retained") === 0,
+    `T31: Retained Earnings is back where it was — ${balanceOf(reopened, "retained")}`,
+  );
+
+  const plan2 = planYearClose(reopened, chart, FY.end, "2026-10-01");
+  assert(
+    !plan2.blocked,
+    `T31: and the year can be closed again — a reversed close is not a close (${plan2.blocked})`,
+  );
+  assert(
+    plan2.netProfit === -400,
+    `T31: for the same amount it lost the first time — ${plan2.netProfit}`,
+  );
+
+  /* The P&L never moved through any of this. It excludes closing entries AND
+     their reversals: counting the close would report zero, and counting the
+     reversal would report double. */
+  for (const [label, es] of [
+    ["before closing", buildJournal({ ...book, journalEntries: [] })],
+    ["after reopening", reopened],
+  ] as const) {
+    assert(
+      profitAndLoss(es, chart, FY.start, FY.end).netProfit === -400,
+      `T31: the year still reports what it lost, ${label} — ${profitAndLoss(es, chart, FY.start, FY.end).netProfit}`,
+    );
+  }
+
+  assert(
+    balanceSheet(reopened, chart, FY.end).drift === 0,
+    "T31: and the balance sheet still balances with both entries on it",
+  );
+  assert(
+    balanceSheet(reopened, chart, FY.end).currentEarnings === -400,
+    `T31: with the loss back in the open period — ${balanceSheet(reopened, chart, FY.end).currentEarnings}`,
+  );
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);

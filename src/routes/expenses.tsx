@@ -26,7 +26,13 @@ import { Plus, Receipt, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { usePermissions } from "@/hooks/usePermissions";
 import { VoidDialog, VoidedBadge } from "@/components/VoidDialog";
-import { canDeleteOutright, isVoided, removalWord } from "@/lib/voiding";
+import {
+  canDeleteOutright,
+  canEditInPlace,
+  editRefusalMessage,
+  isVoided,
+  removalWord,
+} from "@/lib/voiding";
 import { Ban } from "lucide-react";
 
 export const Route = createFileRoute("/expenses")({ component: ExpensesPage });
@@ -128,6 +134,18 @@ function ExpensesPage() {
     toast.success("Expense voided — it stays on record");
   };
 
+  /** The one door into the editor — the pencil, the row, and the mobile
+   *  card all come through here, so the rule cannot be bypassed by whichever
+   *  one somebody forgets. */
+  const openEdit = (r: Expense) => {
+    if (!canEditInPlace(r.date)) {
+      toast.error(editRefusalMessage("expense"), { duration: 7000 });
+      return;
+    }
+    setEdit(r);
+    setOpen(true);
+  };
+
   const columns: Column<Expense>[] = [
     {
       key: "date",
@@ -179,11 +197,10 @@ function ExpensesPage() {
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                setEdit(r);
-                setOpen(true);
+                openEdit(r);
               }}
               className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-transparent text-gray-400 transition hover:bg-primary-soft hover:text-primary hover:border-primary/25"
-              title="Edit expense"
+              title={canEditInPlace(r.date) ? "Edit expense" : editRefusalMessage("expense")}
             >
               <Pencil className="h-3.5 w-3.5" />
             </button>
@@ -259,8 +276,7 @@ function ExpensesPage() {
                 key={r.id}
                 onClick={() => {
                   if (!editAllowed) return;
-                  setEdit(r);
-                  setOpen(true);
+                  openEdit(r);
                 }}
                 className={`bg-white px-4 py-3 flex items-center gap-3 ${editAllowed ? "active:bg-gray-50 cursor-pointer" : ""}`}
               >

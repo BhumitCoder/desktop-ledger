@@ -2450,9 +2450,8 @@ async function runAll(): Promise<Results> {
        will actually do; "Delete" on a control that cannot delete is the kind
        of small lie that stops people trusting a screen. */
     assert(
-      !!manual?.querySelector('[title="Edit entry"]') &&
-        !!manual?.querySelector('[title="Void entry"]'),
-      `cash rows: an older manual entry offers Edit and Void — ${Array.from(
+      !!manual?.querySelector('[title="Void entry"]'),
+      `cash rows: an older manual entry offers Void — ${Array.from(
         manual?.querySelectorAll("[title]") ?? [],
       )
         .map((el) => el.getAttribute("title"))
@@ -2461,6 +2460,32 @@ async function runAll(): Promise<Results> {
     assert(
       !manual?.querySelector('[title="Delete entry"]'),
       "cash rows: and does NOT offer to delete something that has been counted",
+    );
+    /* Nor to edit it. Voiding an older entry while leaving it editable would
+       be a door and a way round the door: change the amount instead and the
+       month changes with no record that anything happened. */
+    assert(
+      !manual?.querySelector('[title="Edit entry"]'),
+      "cash rows: and does NOT offer to edit it either — that is the same door",
+    );
+    assert(
+      !!manual?.querySelector('[title*="can no longer be changed"]'),
+      `cash rows: the pencil says why instead — ${Array.from(
+        manual?.querySelectorAll("[title]") ?? [],
+      )
+        .map((el) => el.getAttribute("title"))
+        .join(" / ")}`,
+    );
+    /* And pressing it does nothing. The tooltip is a courtesy; the guard is
+       what happens on the click, and a test that only reads hover text would
+       pass with the rule switched off entirely. */
+    await act(async () => {
+      (manual?.querySelector('[title*="can no longer be changed"]') as HTMLElement)?.click();
+    });
+    await settleMs(150);
+    assert(
+      !document.querySelector('[role="dialog"]'),
+      "cash rows: pressing the pencil on an older entry opens nothing — the tooltip is a courtesy, this is the guard",
     );
 
     const derived = Array.from(table?.querySelectorAll("tbody tr") ?? []).find((tr) =>
@@ -2617,9 +2642,16 @@ async function runAll(): Promise<Results> {
     );
     assert(!!leg, "transfer delete: the cash leg is on the Cash page");
     // A transfer leg cannot be edited on its own — the two ends would disagree.
+    // By name, not by position: the first [title] on the row is the pencil,
+    // whose text changes with the edit rule. A positional selector quietly
+    // starts asserting something else the moment a control is added.
     assert(
-      (leg?.querySelector("[title]") as HTMLElement)?.getAttribute("title")?.includes("transfer"),
-      "transfer delete: the row says it is part of a transfer",
+      !!leg?.querySelector('[title*="transfer on both accounts"]'),
+      `transfer delete: the row's action says it covers both accounts — ${Array.from(
+        leg?.querySelectorAll("[title]") ?? [],
+      )
+        .map((el) => el.getAttribute("title"))
+        .join(" / ")}`,
     );
 
     /* Dated earlier this month, so it is voided rather than destroyed — and
@@ -2873,8 +2905,10 @@ async function runAll(): Promise<Results> {
     const NOTE = "Transfer to Legacy Transfer Bank — OLD ENTRY";
     CashAdjustmentRepo.add({
       id: "OLDCA",
+      // Dated today: this block is about recognising an unstamped PAIR, not
+      // about the edit-window rule, which is asserted separately below.
       createdAt: "2026-01-01T00:00:00Z",
-      date: D2,
+      date: today(),
       type: "reduce",
       amount: 1200,
       reason: NOTE,
@@ -2883,7 +2917,8 @@ async function runAll(): Promise<Results> {
       id: "OLDBT",
       createdAt: "2026-01-01T00:00:00Z",
       bankId: "OLDB",
-      date: D2,
+      // Same date as its cash leg — a pair with mismatched dates is not one.
+      date: today(),
       type: "deposit",
       amount: 1200,
       notes: NOTE,
@@ -2977,47 +3012,31 @@ async function runAll(): Promise<Results> {
     );
 
     /* Cancelling it still clears both sides and puts the balance back — the
-       pair holds at the end of the document's life as well as during it. It
-       is dated in the past, so it voids rather than deletes. */
+       pair holds at the end of the document's life as well as during it.
+       Dated today, so removing it is an outright delete — an OLDER transfer
+       being voided instead is covered by its own block above. */
     await renderRoute("/cash");
     const del = legRow()?.querySelector(
-      '[title="Void this transfer on both accounts"]',
+      '[title="Delete this transfer on both accounts"]',
     ) as HTMLButtonElement | null;
     assert(!!del, "old transfer: the action says it will clear both accounts");
-    await act(async () => {
-      del?.click();
-    });
-    await settleMs(200);
-    const oDlg = currentDialog();
-    const oReason = Array.from(oDlg.querySelectorAll("input")).find((i) =>
-      (i.getAttribute("placeholder") ?? "").startsWith("Entered twice"),
-    ) as HTMLInputElement | undefined;
-    assert(!!oReason, "old transfer: the void dialog asks why");
-    await act(async () => {
-      setInput(oReason, "Wrong account");
-    });
-    await settleMs(60);
-    await act(async () => {
-      (
-        Array.from(oDlg.querySelectorAll("button")).find((b) =>
-          /^Void this cash entry$/.test((b.textContent ?? "").trim()),
-        ) as HTMLButtonElement | undefined
-      )?.click();
-    });
-    await settleMs(250);
+    const realConfirm = window.confirm;
+    window.confirm = () => true;
+    try {
+      await act(async () => {
+        del?.click();
+      });
+      await settleMs(250);
+    } finally {
+      window.confirm = realConfirm;
+    }
     assert(
-      CashAdjustmentRepo.all().every((a) => !(a.reason ?? "").includes("OLD ENTRY")),
-      "old transfer: the cash leg stops counting",
+      CashAdjustmentRepo.allWithVoided().every((a) => !(a.reason ?? "").includes("OLD ENTRY")),
+      "old transfer: the cash leg is gone",
     );
     assert(
-      BankTxnRepo.all().every((t) => !(t.notes ?? "").includes("OLD ENTRY")),
+      BankTxnRepo.allWithVoided().every((t) => !(t.notes ?? "").includes("OLD ENTRY")),
       "old transfer: AND the bank leg with it",
-    );
-    assert(
-      CashAdjustmentRepo.allWithVoided().some(
-        (a) => (a.reason ?? "").includes("OLD ENTRY") && !!a.voidedAt,
-      ),
-      "old transfer: and both are still on file, marked",
     );
     assert(
       BankRepo.get("OLDB")?.balance === 3800,
@@ -3030,7 +3049,9 @@ async function runAll(): Promise<Results> {
     CashAdjustmentRepo.add({
       id: "PLAINCA",
       createdAt: "2026-01-01T00:00:00Z",
-      date: D2,
+      // Today: this block is about the dialog's wording, and only today's
+      // entries can be opened for editing at all.
+      date: today(),
       type: "add",
       amount: 500,
       reason: "Till top-up",
@@ -3643,9 +3664,26 @@ async function runAll(): Promise<Results> {
     } finally {
       window.confirm = realConfirm;
     }
+    /* Reopening CANCELS the closing entry; it does not destroy it. Of every
+       document in this application, a year close is the last one to make an
+       exception of — next year opening position was built on it, and a
+       deleted close leaves no record that the year was ever closed.
+
+       Asserted against allWithVoided, because all() hides a cancelled entry
+       just as thoroughly as a delete would: the previous version of this
+       check passed whichever way it was implemented. */
     assert(
       LedgerEntryRepo.all().filter((e) => e.docKind === "year-close").length === 0,
-      "year close: reopening removes the closing entry",
+      "year close: reopening takes the closing entry out of the books",
+    );
+    const keptClose = LedgerEntryRepo.allWithVoided().find((e) => e.docKind === "year-close");
+    assert(
+      !!keptClose,
+      "year close: but the entry is still on file — reopening reverses it, it does not delete it",
+    );
+    assert(
+      !!keptClose?.voidedAt && !!keptClose?.voidReason,
+      `year close: marked with when and why — ${keptClose?.voidReason}`,
     );
     const reopened = await readMounted();
     assert(
@@ -3943,6 +3981,64 @@ async function runAll(): Promise<Results> {
     } finally {
       globalThis.__TEST_IS_OWNER__ = wasOwner;
     }
+  }
+
+  /* ── An older bill cannot be rewritten ────────────────────────────────
+     The other half of the same door. Stopping last month's bill being
+     deleted while leaving it freely editable is not a rule — change the total
+     instead and the month changes just the same, and an edit leaves even less
+     trace than a delete does, because the audit log at least keeps a snapshot
+     of what was removed.
+
+     Checked on the ROUTE, not on the button that leads to it: a typed URL or
+     an old bookmark reaches the edit form too, and a guard on the button
+     would be a lock on the front door of a building with no back wall. */
+  {
+    SalesRepo.add({
+      id: "EDITOLD",
+      createdAt: "2026-01-01T00:00:00Z",
+      number: "INV-EDITOLD",
+      date: D2,
+      partyId: "P1",
+      partyName: "Acme Traders",
+      gstEnabled: false,
+      lineItems: [],
+      subtotal: 700,
+      discount: 0,
+      taxAmount: 0,
+      total: 700,
+      paid: 0,
+      paymentMode: "credit",
+    } as never);
+
+    const page = await renderRoute("/sales/edit/EDITOLD");
+    assert(
+      page.includes("can no longer be changed"),
+      `void edit: an older bill cannot be opened for editing — ${JSON.stringify(page.slice(0, 140))}`,
+    );
+    assert(page.includes("INV-EDITOLD"), "void edit: and the notice names the bill it is refusing");
+    /* A screen that only refuses gets worked around. This one says what to do
+       instead, in the same words the toast on the list screens uses. */
+    assert(
+      page.includes("void this invoice and issue a new one"),
+      `void edit: it says what to do instead — ${JSON.stringify(page.slice(0, 400))}`,
+    );
+    // And the form itself must not be there — a disabled-looking form that is
+    // actually live is worse than no guard at all.
+    assert(
+      !document.querySelector('input[placeholder*="Search item"]') &&
+        !Array.from(document.querySelectorAll("button")).some((b) =>
+          /^(Save|Update)/.test((b.textContent ?? "").trim()),
+        ),
+      "void edit: the edit form is not rendered at all, not merely hidden",
+    );
+
+    // Today's bill still opens normally — the rule is a date, not a ban.
+    const todayPage = await renderRoute("/sales/edit/VNEW");
+    assert(
+      !todayPage.includes("can no longer be changed"),
+      "void edit: today's bill still opens for editing",
+    );
   }
 
   /* ── A test deployment says so, on every screen ───────────────────────
