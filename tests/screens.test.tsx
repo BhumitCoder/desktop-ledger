@@ -4041,6 +4041,222 @@ async function runAll(): Promise<Results> {
     );
   }
 
+  /* ── A figure you can open ────────────────────────────────────────────
+     A trial balance is a list of claims until you can ask one of them what it
+     is made of. That is the first question anyone puts to a number they
+     doubt, and the back-pointers to do it have been on every entry since the
+     ledger was built. */
+  {
+    await renderRoute("/reports?r=trial-balance");
+    const table = document.querySelector(".data-table table") ?? document.querySelector("table");
+    const arRow = Array.from(table?.querySelectorAll("tbody tr") ?? []).find((tr) =>
+      (tr.textContent ?? "").includes("Accounts Receivable"),
+    );
+    assert(!!arRow, "drill-down: Accounts Receivable is on the trial balance");
+    assert(
+      !!arRow?.getAttribute("title"),
+      "drill-down: and the row says it can be opened, rather than leaving it to be discovered",
+    );
+
+    await act(async () => {
+      (arRow as HTMLElement)?.click();
+    });
+    await settleMs(150);
+
+    const page = await readMounted();
+    assert(
+      page.includes("oldest first"),
+      `drill-down: clicking it opens what the figure is made of — ${JSON.stringify(page.slice(0, 120))}`,
+    );
+
+    /* The panel's closing balance must be the same number that was clicked.
+       A drill-down that does not add up to the figure above it is worse than
+       none: it turns one number nobody can check into two that disagree. */
+    const panel = Array.from(document.querySelectorAll("table")).find((t) =>
+      (t.querySelector("thead")?.textContent ?? "").includes("Balance"),
+    );
+    assert(!!panel, "drill-down: the entries are listed in their own table");
+    const num = (s: string) => Number((s || "").replace(/[^\d.-]/g, ""));
+    const panelFoot = Array.from(panel?.querySelectorAll("tfoot td") ?? []).map((td) =>
+      (td.textContent ?? "").trim(),
+    );
+    const rowCells = Array.from(arRow?.querySelectorAll("td") ?? []).map((td) =>
+      (td.textContent ?? "").trim(),
+    );
+    // Trial balance row: code | account | debit | credit
+    const rowNet = num(rowCells[2]) - num(rowCells[3]);
+    assert(
+      Math.abs(num(panelFoot[panelFoot.length - 1]) - rowNet) < 0.02,
+      `drill-down: and they add up to exactly the figure that was clicked — ${panelFoot[panelFoot.length - 1]} vs ${rowNet}`,
+    );
+    assert(
+      (panel?.querySelectorAll("tbody tr").length ?? 0) > 0,
+      "drill-down: with the entries themselves listed, not just a total",
+    );
+
+    // Clicking the same row again puts it away.
+    await act(async () => {
+      (arRow as HTMLElement)?.click();
+    });
+    await settleMs(120);
+    assert(
+      !(await readMounted()).includes("oldest first"),
+      "drill-down: clicking it again closes it",
+    );
+  }
+
+  /* ── Inventory is on the reconciliation, as information ───────────────
+     It was the one account the reconciliation never mentioned, so its figure
+     went unexamined. It is shown now — and marked, because the ledger's cost
+     basis and the stock report's valuation answer different questions and
+     separate whenever a purchase price moves. A screen that must only cry
+     wolf cannot go red over ordinary trading. */
+  {
+    const page = await renderRoute("/reports?r=reconcile");
+    assert(page.includes("Inventory"), "inventory row: it is on the reconciliation at all");
+    assert(
+      page.includes("for information"),
+      "inventory row: marked as information rather than as a pass or a fail",
+    );
+    const table = document.querySelector("table");
+    const invRow = Array.from(table?.querySelectorAll("tbody tr") ?? []).find((tr) =>
+      (tr.textContent ?? "").includes("Inventory"),
+    );
+    assert(
+      (invRow?.textContent ?? "").includes("purchase prices move"),
+      `inventory row: with the reason it can differ, on the row — ${JSON.stringify(invRow?.textContent?.slice(0, 120))}`,
+    );
+  }
+
+  /* ── Correcting a stock adjustment ────────────────────────────────────
+     These have never been deletable, which is the right answer and is why
+     this exists rather than a void action: the correction is a second entry,
+     so the shelf count and the reason for both stay on the record. What was
+     missing was any way to make it without working out the opposite quantity
+     by hand — arithmetic asked of somebody at the exact moment they are
+     already unsure about a stock figure. */
+  {
+    ItemRepo.add({
+      id: "RVITEM",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "Reverse Test Item",
+      unit: "PCS",
+      gstRate: 0,
+      purchasePrice: 50,
+      salePrice: 90,
+      stock: 40,
+      openingStock: 40,
+    } as never);
+    StockAdjustmentRepo.add({
+      id: "RVADJ",
+      createdAt: "2026-01-01T00:00:00Z",
+      itemId: "RVITEM",
+      itemName: "Reverse Test Item",
+      date: D2,
+      type: "reduce",
+      qty: 6,
+      reason: "Damaged in transit",
+    } as never);
+
+    // A bill for the same item, so the row that must NOT offer reversal is
+    // actually on the page. The first version of this guarded with
+    // `if (billRow)` and the item had no bills — so it asserted nothing.
+    SalesRepo.add({
+      id: "RVSALE",
+      createdAt: "2026-01-01T00:00:00Z",
+      number: "INV-RV",
+      date: D3,
+      partyId: "P1",
+      partyName: "Acme Traders",
+      gstEnabled: false,
+      lineItems: [
+        {
+          id: "l",
+          itemId: "RVITEM",
+          name: "Reverse Test Item",
+          qty: 2,
+          unit: "PCS",
+          price: 90,
+          discountPct: 0,
+          gstRate: 0,
+          amount: 180,
+        },
+      ],
+      subtotal: 180,
+      discount: 0,
+      taxAmount: 0,
+      total: 180,
+      paid: 0,
+      paymentMode: "credit",
+    } as never);
+
+    await renderRoute("/items/RVITEM");
+    const table = document.querySelector("table");
+    const adjRow = Array.from(table?.querySelectorAll("tbody tr") ?? []).find((tr) =>
+      (tr.textContent ?? "").includes("Damaged in transit"),
+    );
+    assert(!!adjRow, "reverse stock: the adjustment is on the item's history");
+
+    const btn = adjRow?.querySelector(
+      '[title*="Reverse this adjustment"]',
+    ) as HTMLButtonElement | null;
+    assert(!!btn, "reverse stock: and offers to reverse it");
+
+    /* A row that belongs to a bill must NOT offer this — that document owns
+       its own correction, and reversing the stock underneath it would leave
+       the bill saying one thing and the shelf another. */
+    const billRow = Array.from(table?.querySelectorAll("tbody tr") ?? []).find((tr) =>
+      (tr.textContent ?? "").includes("INV-RV"),
+    );
+    assert(!!billRow, "reverse stock: the bill is on the history too");
+    assert(
+      !billRow?.querySelector('[title*="Reverse this adjustment"]'),
+      "reverse stock: a row that belongs to a bill does not offer it",
+    );
+
+    const before = ItemRepo.get("RVITEM")?.stock ?? 0;
+    const countBefore = StockAdjustmentRepo.all().filter((a) => a.itemId === "RVITEM").length;
+
+    const realConfirm = window.confirm;
+    window.confirm = () => true;
+    try {
+      await act(async () => {
+        btn?.click();
+      });
+      await settleMs(250);
+    } finally {
+      window.confirm = realConfirm;
+    }
+
+    const after = StockAdjustmentRepo.all().filter((a) => a.itemId === "RVITEM");
+    assert(
+      after.length === countBefore + 1,
+      `reverse stock: a second entry is added — ${after.length - countBefore}`,
+    );
+    assert(
+      !!StockAdjustmentRepo.get("RVADJ"),
+      "reverse stock: and the original stays exactly where it was — the correction is a record, not an erasure",
+    );
+
+    const made = after.find((a) => a.id !== "RVADJ");
+    assert(
+      made?.type === "add" && made?.qty === 6,
+      `reverse stock: the opposite direction, same quantity — ${made?.type} ${made?.qty}`,
+    );
+    assert(
+      made?.date === today(),
+      `reverse stock: dated today, because that is when the correction was made — ${made?.date}`,
+    );
+    assert(
+      (made?.reason ?? "").includes("Reversal of"),
+      `reverse stock: and says what it reverses — ${made?.reason}`,
+    );
+    assert(
+      (ItemRepo.get("RVITEM")?.stock ?? 0) === before + 6,
+      `reverse stock: the shelf count moves back by exactly the quantity — ${ItemRepo.get("RVITEM")?.stock} (want ${before + 6})`,
+    );
+  }
+
   /* ── A test deployment says so, on every screen ───────────────────────
      The test site and the real one are the same application. The person in
      front of them is a shopkeeper part-way through a sale, not somebody who

@@ -45,9 +45,9 @@ import {
 import { usePeriodLock } from "@/hooks/usePeriodLock";
 import { newBatch, commitBatch } from "@/repositories/base";
 import { Button } from "@/components/ui/button";
-import type { Book } from "@/lib/posting";
+import type { Book, JournalEntry } from "@/lib/posting";
 import { buildJournal } from "@/lib/posting";
-import { groupTotals, reconcile, trialBalance } from "@/lib/trialBalance";
+import { accountLedger, groupTotals, reconcile, trialBalance } from "@/lib/trialBalance";
 import { AlertTriangle, CheckCircle2, Info } from "lucide-react";
 
 /**
@@ -87,15 +87,17 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 
 export function TrialBalanceReport({ asAt }: { asAt: string }) {
   const book = useBook();
+  /** Which account the reader is asking about. */
+  const [openAccount, setOpenAccount] = useState<string | null>(null);
 
-  const { rows, totalDebit, totalCredit, drift, orphans, groups } = useMemo(() => {
+  const { rows, totalDebit, totalCredit, drift, orphans, groups, entries } = useMemo(() => {
     const upto = (d: string) => !asAt || d <= asAt;
     // Filtered on the ENTRY, after posting, rather than on the documents
     // before it: a transfer's two legs can carry different dates, and
     // dropping one of them at the boundary would leave the money half moved.
     const entries = buildJournal(book).filter((e) => upto(e.date));
     const tb = trialBalance(entries, accountsFor(book.banks, book.expenses));
-    return { ...tb, groups: groupTotals(tb.rows) };
+    return { ...tb, groups: groupTotals(tb.rows), entries };
   }, [book, asAt]);
 
   return (
@@ -156,7 +158,15 @@ export function TrialBalanceReport({ asAt }: { asAt: string }) {
                       </td>
                     </tr>
                   )}
-                  <tr className="border-b border-gray-100 last:border-0">
+                  <tr
+                    className={`border-b border-gray-100 last:border-0 cursor-pointer transition ${
+                      openAccount === r.accountId ? "bg-primary/5" : "hover:bg-gray-50"
+                    }`}
+                    onClick={() =>
+                      setOpenAccount((cur) => (cur === r.accountId ? null : r.accountId))
+                    }
+                    title="Show what this figure is made of"
+                  >
                     <td className="px-4 py-2 text-gray-400 tabular-nums">{r.code}</td>
                     <td className="px-4 py-2 text-gray-800">
                       {r.name}
@@ -188,6 +198,15 @@ export function TrialBalanceReport({ asAt }: { asAt: string }) {
         </table>
       </div>
 
+      {openAccount && (
+        <AccountLedgerPanel
+          accountId={openAccount}
+          name={rows.find((r) => r.accountId === openAccount)?.name ?? openAccount}
+          entries={entries}
+          onClose={() => setOpenAccount(null)}
+        />
+      )}
+
       {groups.length > 0 && (
         <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
           {groups.map((g) => (
@@ -202,6 +221,92 @@ export function TrialBalanceReport({ asAt }: { asAt: string }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * What one account's figure is made of.
+ *
+ * Oldest first with a running balance, because that is how a person checks a
+ * total: start where it started and follow it. Every row names the document
+ * behind it, so "why is receivable 4,12,300" ends at a bill with a number on
+ * it rather than at a shrug.
+ */
+function AccountLedgerPanel({
+  accountId,
+  name,
+  entries,
+  onClose,
+}: {
+  accountId: string;
+  name: string;
+  entries: JournalEntry[];
+  onClose: () => void;
+}) {
+  const { rows, debit, credit, closing } = useMemo(
+    () => accountLedger(entries, accountId),
+    [entries, accountId],
+  );
+  return (
+    <div className="mt-4 bg-white border rounded-lg shadow-sm overflow-hidden">
+      <div className="px-4 py-2.5 bg-gray-50 border-b flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[13px] font-bold text-gray-800">{name}</p>
+          <p className="text-[11px] text-gray-500">
+            {rows.length} {rows.length === 1 ? "entry" : "entries"}, oldest first
+          </p>
+        </div>
+        <Button size="sm" variant="outline" onClick={onClose}>
+          Close
+        </Button>
+      </div>
+      <div className="max-h-80 overflow-auto">
+        <table className="w-full text-[12px]">
+          <thead className="sticky top-0 bg-white">
+            <tr className="border-b text-[10px] uppercase tracking-wide text-gray-400">
+              <th className="text-left font-semibold px-4 py-1.5 w-24">Date</th>
+              <th className="text-left font-semibold px-4 py-1.5">What</th>
+              <th className="text-right font-semibold px-4 py-1.5 w-24">Debit</th>
+              <th className="text-right font-semibold px-4 py-1.5 w-24">Credit</th>
+              <th className="text-right font-semibold px-4 py-1.5 w-28">Balance</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-6 text-center text-gray-400">
+                  Nothing has moved through this account.
+                </td>
+              </tr>
+            )}
+            {rows.map((r, i) => (
+              <tr key={`${r.docId}-${i}`} className="border-b border-gray-100 last:border-0">
+                <td className="px-4 py-1.5 text-gray-500 tabular-nums">{fmtDate(r.date)}</td>
+                <td className="px-4 py-1.5 text-gray-700">
+                  <span className="text-gray-400">{r.voucherType}</span>{" "}
+                  {r.voucherNo && <span className="font-mono">{r.voucherNo}</span>} {r.narration}
+                </td>
+                <td className="px-4 py-1.5 text-right tabular-nums">{money(r.debit)}</td>
+                <td className="px-4 py-1.5 text-right tabular-nums">{money(r.credit)}</td>
+                <td className="px-4 py-1.5 text-right tabular-nums font-semibold">
+                  {fmtMoney(r.balance)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="bg-gray-50 border-t font-bold">
+              <td className="px-4 py-2" colSpan={2}>
+                Total
+              </td>
+              <td className="px-4 py-2 text-right tabular-nums">{fmtMoney(debit)}</td>
+              <td className="px-4 py-2 text-right tabular-nums">{fmtMoney(credit)}</td>
+              <td className="px-4 py-2 text-right tabular-nums">{fmtMoney(closing)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
     </div>
   );
 }
@@ -261,12 +366,19 @@ export function ReconciliationReport() {
               <tr key={r.key} className="border-b border-gray-100 last:border-0 align-top">
                 <td className="px-4 py-2.5">
                   <span className="flex items-center gap-1.5 font-medium text-gray-800">
-                    {r.ok ? (
+                    {r.informational ? (
+                      <Info className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                    ) : r.ok ? (
                       <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
                     ) : (
                       <AlertTriangle className="h-3.5 w-3.5 text-rose-600 shrink-0" />
                     )}
                     {r.label}
+                    {r.informational && (
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                        for information
+                      </span>
+                    )}
                   </span>
                   <span className="block text-[11px] text-gray-400 mt-0.5">{r.why}</span>
                 </td>
@@ -274,7 +386,7 @@ export function ReconciliationReport() {
                 <td className="px-4 py-2.5 text-right tabular-nums">{fmtMoney(r.app)}</td>
                 <td
                   className={`px-4 py-2.5 text-right tabular-nums font-semibold ${
-                    r.ok ? "text-gray-300" : "text-rose-600"
+                    r.informational ? "text-gray-500" : r.ok ? "text-gray-300" : "text-rose-600"
                   }`}
                 >
                   {r.diff ? fmtMoney(r.diff) : "—"}

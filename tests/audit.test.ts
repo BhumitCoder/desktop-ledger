@@ -57,7 +57,13 @@ import {
   closingEntryBalances,
 } from "@/lib/financials";
 import { accountsFor } from "@/lib/accounts";
-import { reconcile, trialBalance, balanceOf, partyPositionsFromLedger } from "@/lib/trialBalance";
+import {
+  reconcile,
+  trialBalance,
+  balanceOf,
+  partyPositionsFromLedger,
+  accountLedger,
+} from "@/lib/trialBalance";
 import {
   CASH_PURPOSES,
   CHOOSABLE_PURPOSES,
@@ -3759,6 +3765,185 @@ console.log(`\n═════════════════════�
   assert(
     withVoided.length === 1 && withVoided[0].correct === 90,
     `T32: counting it would silently take 10 off the real stock — ${JSON.stringify(withVoided)}`,
+  );
+}
+
+/* ═══ TEST 33: what an account figure is made of ════════════════════════
+   A trial balance without this is a set of assertions: "Accounts Receivable
+   is 4,12,300" and nothing to do but believe it. The first question anyone
+   asks of a figure they doubt is "made up of what", and an accountant asks it
+   of every figure. */
+{
+  const b: Book = {
+    parties: [{ id: "P1", name: "Cust", openingBalance: 0, createdAt: "" }],
+    items: [],
+    banks: [],
+    sales: [
+      {
+        id: "S1",
+        number: "INV-1",
+        date: "2026-05-10",
+        partyId: "P1",
+        partyName: "Cust",
+        gstEnabled: false,
+        lineItems: [],
+        subtotal: 1000,
+        discount: 0,
+        taxAmount: 0,
+        total: 1000,
+        paid: 0,
+        paymentMode: "credit",
+        createdAt: "",
+      },
+      {
+        id: "S2",
+        number: "INV-2",
+        date: "2026-03-02",
+        partyId: "P1",
+        partyName: "Cust",
+        gstEnabled: false,
+        lineItems: [],
+        subtotal: 400,
+        discount: 0,
+        taxAmount: 0,
+        total: 400,
+        paid: 0,
+        paymentMode: "credit",
+        createdAt: "",
+      },
+    ],
+    purchases: [],
+    saleReturns: [],
+    purchaseReturns: [],
+    payments: [
+      {
+        id: "PAY1",
+        date: "2026-06-01",
+        partyId: "P1",
+        partyName: "Cust",
+        type: "in",
+        amount: 250,
+        mode: "cash",
+        createdAt: "",
+      },
+    ],
+    expenses: [],
+    cashAdjustments: [],
+    bankTxns: [],
+    stockAdjustments: [],
+  } as unknown as Book;
+
+  const entries = buildJournal(b);
+  const led = accountLedger(entries, "ar");
+
+  assert(led.rows.length === 3, `T33: every line that touched the account — ${led.rows.length}`);
+  /* Oldest first. A running balance read from the newest end is not a running
+     balance, and the trial balance itself sorts the other way — so this is a
+     deliberate difference rather than an oversight, and worth pinning. */
+  assert(
+    led.rows[0].date === "2026-03-02" &&
+      led.rows[1].date === "2026-05-10" &&
+      led.rows[2].date === "2026-06-01",
+    `T33: oldest first, so the running balance runs — ${led.rows.map((r) => r.date).join(", ")}`,
+  );
+  assert(
+    led.rows.map((r) => r.balance).join(",") === "400,1400,1150",
+    `T33: and the balance runs with it — ${led.rows.map((r) => r.balance).join(",")}`,
+  );
+  assert(
+    led.closing === balanceOf(entries, "ar"),
+    `T33: ending exactly where the trial balance says — ${led.closing} vs ${balanceOf(entries, "ar")}`,
+  );
+  assert(
+    led.debit === 1400 && led.credit === 250,
+    `T33: with both columns totalled — dr ${led.debit} cr ${led.credit}`,
+  );
+  /* Every row names the document behind it, so "why is receivable 1,150"
+     ends at a bill with a number on it rather than at a shrug. */
+  assert(
+    led.rows.every((r) => !!r.docId && !!r.docKind),
+    "T33: every line points back at the document that caused it",
+  );
+  assert(
+    led.rows.some((r) => r.voucherNo === "INV-1"),
+    `T33: by its number — ${led.rows.map((r) => r.voucherNo).join(", ")}`,
+  );
+  assert(
+    accountLedger(entries, "nothing-here").rows.length === 0,
+    "T33: an account nothing touched reads as empty, not as an error",
+  );
+}
+
+/* ═══ TEST 34: Inventory is shown, and shown honestly ═══════════════════
+   Until now the trial balance printed an Inventory figure that nothing on any
+   screen was ever compared against — the one account with no second opinion.
+   It has one now, but the two answer different questions: the ledger carries
+   stock at what each movement cost at the time, the stock report values what
+   is on the shelf at today's purchase price. They separate when a purchase
+   price moves, which is trading, not a fault. So the row is shown and
+   measured, and marked as information rather than as a verdict. */
+{
+  const item = {
+    id: "I1",
+    name: "Item",
+    // Bought at 100, now costs 150 — the ordinary case, not a corner one.
+    purchasePrice: 150,
+    openingStock: 0,
+    stock: 10,
+    createdAt: "2026-01-01T00:00:00Z",
+  } as unknown as Item;
+
+  const b: Book = {
+    parties: [{ id: "P1", name: "Supp", openingBalance: 0, createdAt: "" }],
+    items: [item],
+    banks: [],
+    sales: [],
+    purchases: [
+      {
+        id: "PB1",
+        number: "PB-1",
+        date: "2026-02-01",
+        partyId: "P1",
+        partyName: "Supp",
+        gstEnabled: false,
+        lineItems: [{ itemId: "I1", qty: 10, price: 100, costPrice: 100 }],
+        subtotal: 1000,
+        discount: 0,
+        taxAmount: 0,
+        total: 1000,
+        paid: 1000,
+        paymentMode: "cash",
+        createdAt: "",
+      },
+    ],
+    saleReturns: [],
+    purchaseReturns: [],
+    payments: [],
+    expenses: [],
+    cashAdjustments: [],
+    bankTxns: [],
+    stockAdjustments: [],
+  } as unknown as Book;
+
+  const recon = reconcile(b);
+  const row = recon.rows.find((r) => r.key === "inventory");
+  assert(!!row, "T34: Inventory is on the reconciliation at all — it never used to be");
+  assert(row?.ledger === 1000, `T34: the ledger carries it at what it cost — ${row?.ledger}`);
+  assert(row?.app === 1500, `T34: the stock report values it at today's price — ${row?.app}`);
+  assert(row?.diff === -500, `T34: and the difference is stated — ${row?.diff}`);
+
+  /* The important part. A 500 gap that is purely a price movement must not
+     turn the reconciliation red, or the screen that exists to be believed
+     starts crying wolf every time a supplier raises a price. */
+  assert(row?.informational === true, "T34: marked as information, not as a verdict");
+  assert(row?.ok === true, "T34: so a normal price movement does not read as a failure");
+  assert(
+    recon.ok,
+    "T34: and the book as a whole still reconciles — the other rows are what pass or fail",
+  );
+  assert(
+    (row?.why ?? "").includes("purchase prices move"),
+    `T34: with the reason on the row, where the reader is — ${row?.why}`,
   );
 }
 
