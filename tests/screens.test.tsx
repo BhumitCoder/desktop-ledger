@@ -3864,6 +3864,87 @@ async function runAll(): Promise<Results> {
     assert(!!badge, "void sale: hovering it says why, and when");
   }
 
+  /* ── A cancelled document still protects its master records ───────────
+     Phase 4 changed what Repository.all() means, and every "is this still
+     referenced?" guard in the app was written before that. A party whose only
+     remaining bill is voided reads as unused to a guard that calls all() — so
+     it can be permanently deleted, and the ledger is left posting a reversal
+     against a party that no longer exists.
+
+     The whole point of voiding is that the history survives. A guard that
+     cannot see the history cannot protect it. */
+  {
+    PartyRepo.add({
+      id: "VOIDONLY",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "Void Only Party",
+      type: "customer",
+      openingBalance: 0,
+    } as never);
+    SalesRepo.add({
+      id: "VOSALE",
+      createdAt: "2026-01-01T00:00:00Z",
+      number: "INV-VOIDONLY",
+      date: D2,
+      partyId: "VOIDONLY",
+      partyName: "Void Only Party",
+      gstEnabled: false,
+      lineItems: [],
+      subtotal: 500,
+      discount: 0,
+      taxAmount: 0,
+      total: 500,
+      paid: 0,
+      paymentMode: "credit",
+      // Its ONLY bill, and it is cancelled.
+      voidedAt: "2026-08-01T00:00:00Z",
+      voidedBy: "someone@shop",
+      voidReason: "Entered twice",
+    } as never);
+
+    // Permanent delete is owner-only, so the test has to be the owner or
+    // the button is not on the page at all — which is how the first version
+    // of this test passed with the guard broken.
+    const wasOwner = globalThis.__TEST_IS_OWNER__;
+    globalThis.__TEST_IS_OWNER__ = true;
+    try {
+      await renderRoute("/parties");
+      const table = document.querySelector(".data-table table");
+      const row = Array.from(table?.querySelectorAll("tbody tr") ?? []).find((tr) =>
+        (tr.textContent ?? "").includes("Void Only Party"),
+      );
+      assert(!!row, "void guard: the party is listed");
+
+      const del = row?.querySelector(
+        '[title="Permanently delete (only if no history)"]',
+      ) as HTMLButtonElement | null;
+      // Asserted, not skipped: a control this test cannot find is a test that
+      // proves nothing.
+      assert(!!del, "void guard: the permanent-delete control is on the row");
+
+      const realConfirm = window.confirm;
+      window.confirm = () => true;
+      try {
+        await act(async () => {
+          del?.click();
+        });
+        await settleMs(200);
+      } finally {
+        window.confirm = realConfirm;
+      }
+
+      assert(
+        !!PartyRepo.get("VOIDONLY"),
+        "void guard: a party whose only bill is CANCELLED is still protected from deletion — the ledger posts that bill and its reversal against them",
+      );
+      // The refusal toast cannot be asserted here: sonner's Toaster lives in
+      // the root component, which this harness replaces with a bare Outlet.
+      // What matters is the outcome, and that is asserted above.
+    } finally {
+      globalThis.__TEST_IS_OWNER__ = wasOwner;
+    }
+  }
+
   /* ── A test deployment says so, on every screen ───────────────────────
      The test site and the real one are the same application. The person in
      front of them is a shopkeeper part-way through a sale, not somebody who
