@@ -2678,6 +2678,131 @@ async function runAll(): Promise<Results> {
     );
   }
 
+  /* ── A credit note carries no Unit or Disc% column either ─────────────
+     Same two columns, gone for the same reasons — with one difference that
+     matters. A bill is opened and edited; a credit note gets its lines by
+     copying them out of the original bill AFTER the form is already open. So
+     "did it arrive with a discount" cannot be answered when the form mounts,
+     and the rule has to latch instead. */
+  {
+    const gridOf = () => {
+      const grid = Array.from(document.querySelectorAll("table")).find(
+        (t) => !!t.querySelector("tbody input"),
+      );
+      return Array.from(grid?.querySelectorAll("thead th") ?? []).map((th) =>
+        (th.textContent ?? "").trim(),
+      );
+    };
+
+    for (const [route, what] of [
+      ["/sale-return/new", "sale return"],
+      ["/purchase-return/new", "purchase return"],
+    ] as const) {
+      await renderRoute(route);
+      const heads = gridOf();
+      assert(heads.length > 0, `return columns: the ${what} grid rendered — ${heads}`);
+      assert(!heads.includes("Unit"), `return columns: no Unit column on a ${what} — ${heads}`);
+      assert(!heads.includes("Disc%"), `return columns: and no Disc% column — ${heads}`);
+      assert(
+        heads.some((h) => /qty/i.test(h)) && heads.some((h) => /price|rate/i.test(h)),
+        `return columns: while Qty and Price are still there — ${heads}`,
+      );
+    }
+
+    /* Loading an original bill that HAS a line discount brings the column
+       back, because that figure is now on the note and changing its total.
+       This is the case a mount-time rule would get wrong: the discount
+       arrives long after the form opened. */
+    SalesRepo.add({
+      id: "RETSRC",
+      createdAt: "2026-01-01T00:00:00Z",
+      number: "INV-RETSRC",
+      date: D2,
+      partyId: "P1",
+      partyName: "Acme Traders",
+      gstEnabled: false,
+      lineItems: [
+        {
+          id: "rl",
+          itemId: "I1",
+          name: "Widget",
+          qty: 3,
+          unit: "PCS",
+          price: 100,
+          discountPct: 20,
+          gstRate: 0,
+          amount: 240,
+        },
+      ],
+      subtotal: 300,
+      discount: 0,
+      taxAmount: 0,
+      total: 240,
+      paid: 0,
+      paymentMode: "credit",
+    } as never);
+
+    await renderRoute("/sale-return/new");
+    assert(
+      !gridOf().includes("Disc%"),
+      "return columns: no Disc% column before anything is loaded",
+    );
+
+    // Find the original-bill picker and choose that invoice.
+    // The box is labelled by what it searches for, not by the word
+    // "invoice" — "Search INV-… to auto-load items".
+    const invBox = Array.from(document.querySelectorAll("input")).find((i) =>
+      /auto-load items/i.test(i.getAttribute("placeholder") ?? ""),
+    ) as HTMLInputElement | undefined;
+    assert(!!invBox, "return columns: found the original-bill box");
+    await act(async () => {
+      setInput(invBox, "INV-RETSRC");
+    });
+    await settleMs(150);
+    // The suggestion is a div that reacts to mousedown, not a button — the
+    // picker commits before the input can blur. Driven the way a person
+    // drives it rather than the way it would be convenient to.
+    const option = Array.from(document.querySelectorAll("div")).find(
+      (el) =>
+        (el.textContent ?? "").includes("INV-RETSRC") &&
+        el.querySelector("span.font-mono") &&
+        !el.querySelector("div div"),
+    );
+    assert(!!option, "return columns: the bill is offered");
+    await act(async () => {
+      option?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    });
+    await settleMs(250);
+
+    assert(
+      gridOf().includes("Disc%"),
+      `return columns: loading a bill that carries a line discount brings the column back — ${gridOf()}`,
+    );
+    assert(!gridOf().includes("Unit"), `return columns: and Unit still stays away — ${gridOf()}`);
+
+    /* And it latches. Clearing the discount must not unmount the box being
+       cleared — the same trap the bill form had. */
+    const grid = Array.from(document.querySelectorAll("table")).find(
+      (t) => !!t.querySelector("tbody input"),
+    );
+    const discBox = Array.from(grid?.querySelectorAll("tbody input") ?? []).find(
+      (i) => (i as HTMLInputElement).value === "20",
+    ) as HTMLInputElement | undefined;
+    assert(!!discBox, "return columns: found the discount box holding 20");
+    await act(async () => {
+      setInput(discBox, "");
+    });
+    await settleMs(120);
+    assert(
+      gridOf().includes("Disc%"),
+      `return columns: clearing it keeps the column — ${gridOf()}`,
+    );
+    assert(
+      document.body.contains(discBox!),
+      "return columns: and the box being cleared is still there",
+    );
+  }
+
   /* ── The summary strip reaches the table's right edge ─────────────────
      Screens hand in their own footer <tr>, counting columns by hand. Adding
      the Action column left every one of them a cell short, so the strip
