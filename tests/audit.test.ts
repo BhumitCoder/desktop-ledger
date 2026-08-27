@@ -25,6 +25,7 @@ import type {
   StockAdjustment,
   BankTxn,
   CashAdjustment,
+  Serial,
   Invoice,
   Payment,
   Return,
@@ -37,6 +38,15 @@ import type {
 import { Repository } from "@/repositories/base";
 import { correctBankPaidAmount, planBankRepair } from "@/lib/bankRepair";
 import { planStockRepair } from "@/lib/dataRepair";
+import {
+  isSerialised,
+  inStockCounts,
+  stockOf,
+  serialsOf,
+  findSerial,
+  warrantyEnd,
+  warrantyDaysLeft,
+} from "@/lib/serials";
 import { transferLegsFor } from "@/lib/transferLegs";
 import { AuditLogRepo, nextVoucherNo } from "@/repositories";
 import { isLocked, blockedDate, lockMessage } from "@/lib/periodLock";
@@ -3944,6 +3954,178 @@ console.log(`\n═════════════════════�
   assert(
     (row?.why ?? "").includes("purchase prices move"),
     `T34: with the reason on the row, where the reader is — ${row?.why}`,
+  );
+}
+
+/* ═══ TEST 35: stock that is counted, not stored ════════════════════════
+   The shop buys adapters by the box and sells them one at a time, and every
+   unit carries the serial the customer's warranty is written against.
+
+   The decision the whole feature rests on: for a serialised item, stock stops
+   being the stored `item.stock` number and becomes the count of serials on
+   hand. `item.stock` is one of only two stored running totals in this
+   application and lib/dataRepair.ts exists because it drifts — for these
+   items that entire class of bug disappears, because there is one source and
+   nothing for it to disagree with.
+
+   Which means the stored number must be *ignored*, not trusted as a fallback.
+   That is what most of this checks. */
+{
+  const plain = { id: "P", name: "Cable", stock: 7, purchasePrice: 50 } as unknown as Item;
+  /* A stored number that is deliberately WRONG. Every assertion below that
+     expects 2 rather than 999 is checking that the stored figure is not
+     consulted at all — a fallback here would be the worst of both: a number
+     nothing maintains, shown as though something did. */
+  const tracked = {
+    id: "T",
+    name: "Adapter",
+    stock: 999,
+    purchasePrice: 100,
+    trackSerials: true,
+  } as unknown as Item;
+
+  const serials = [
+    { id: "s1", itemId: "T", serial: "AAA1", status: "in_stock", createdAt: "3" },
+    { id: "s2", itemId: "T", serial: "AAA2", status: "in_stock", createdAt: "2" },
+    { id: "s3", itemId: "T", serial: "AAA3", status: "sold", createdAt: "1" },
+    { id: "s4", itemId: "T", serial: "AAA4", status: "damaged", createdAt: "4" },
+    { id: "s5", itemId: "OTHER", serial: "BBB1", status: "in_stock", createdAt: "5" },
+  ] as unknown as Serial[];
+
+  assert(isSerialised(tracked) && !isSerialised(plain), "T35: an item says which kind it is");
+  assert(!isSerialised(undefined), "T35: and a missing item is not serialised");
+
+  const counts = inStockCounts(serials);
+  assert(counts.get("T") === 2, `T35: only what is on the shelf counts — ${counts.get("T")}`);
+  assert(counts.get("OTHER") === 1, "T35: counted per item, not lumped together");
+
+  assert(
+    stockOf(tracked, counts) === 2,
+    `T35: a serialised item's stock is its serial count — ${stockOf(tracked, counts)}`,
+  );
+  assert(
+    stockOf(tracked, counts) !== 999,
+    "T35: and the stored number is ignored entirely, not used as a fallback",
+  );
+  assert(
+    stockOf(plain, counts) === 7,
+    `T35: an ordinary item still reads its stored stock — ${stockOf(plain, counts)}`,
+  );
+
+  /* A serialised item with no serials is zero. Falling back to item.stock
+     here is the tempting bug: it would make a brand-new tracked item claim
+     whatever number happened to be sitting on it. */
+  const empty = { id: "E", name: "New", stock: 42, trackSerials: true } as unknown as Item;
+  assert(
+    stockOf(empty, counts) === 0,
+    `T35: a serialised item with no serials has none, whatever the old number said — ${stockOf(empty, counts)}`,
+  );
+
+  // Sold and damaged units are off the shelf but still on file.
+  assert(
+    serialsOf("T", serials).length === 4,
+    `T35: every unit of the item is still listed — ${serialsOf("T", serials).length}`,
+  );
+  assert(
+    serialsOf("T", serials)[0].serial === "AAA4",
+    "T35: newest first, so the last one received is at the top",
+  );
+
+  /* Uniqueness is per ITEM, not global: two manufacturers can legitimately
+     stamp the same string, and a global rule would refuse a real unit with no
+     way to explain why. */
+  assert(!!findSerial("T", "AAA1", serials), "T35: a serial is found under its own item");
+  assert(
+    !findSerial("OTHER", "AAA1", serials),
+    "T35: and not under a different one — uniqueness is per item",
+  );
+  /* Scanners add spaces and cases differ. "f2lx9k3" and "F2LX9K3 " are the
+     same adapter to everyone except a string compare. */
+  assert(
+    findSerial("T", "  aaa1 ", serials)?.id === "s1",
+    "T35: found whatever the scanner did to the spacing and case",
+  );
+  assert(!findSerial("T", "   ", serials), "T35: and an empty scan finds nothing");
+}
+
+/* ═══ TEST 36: warranty dates a customer could argue about ══════════════
+   The whole point of the serial is the warranty, so the date it produces has
+   to survive being read off a bill by someone who wants it honoured. */
+{
+  assert(
+    warrantyEnd("2026-03-12", 12) === "2027-03-12",
+    `T36: a year's warranty ends a year later — ${warrantyEnd("2026-03-12", 12)}`,
+  );
+  assert(
+    warrantyEnd("2026-08-27", 6) === "2027-02-27",
+    `T36: six months crosses the year end correctly — ${warrantyEnd("2026-08-27", 6)}`,
+  );
+  /* 31 January plus one month. A naive setMonth gives 2 or 3 March, which is
+     a date the customer would rightly argue with — the month ends on the
+     28th, so the warranty does. */
+  assert(
+    warrantyEnd("2026-01-31", 1) === "2026-02-28",
+    `T36: a month from the 31st lands on the last day of a short month — ${warrantyEnd("2026-01-31", 1)}`,
+  );
+  assert(
+    warrantyEnd("2028-01-31", 1) === "2028-02-29",
+    `T36: and on the 29th in a leap year — ${warrantyEnd("2028-01-31", 1)}`,
+  );
+  assert(!warrantyEnd("2026-03-12", 0), "T36: no warranty means no end date, not today");
+  assert(!warrantyEnd("2026-03-12", undefined), "T36: and neither does an unset policy");
+  assert(!warrantyEnd("", 12), "T36: nor a missing sale date");
+
+  assert(
+    warrantyDaysLeft("2026-09-01", "2026-08-27") === 5,
+    `T36: days left counts forward — ${warrantyDaysLeft("2026-09-01", "2026-08-27")}`,
+  );
+  assert(
+    (warrantyDaysLeft("2026-08-20", "2026-08-27") ?? 0) < 0,
+    "T36: and goes negative once it has run out, rather than clamping to zero",
+  );
+  assert(
+    warrantyDaysLeft(undefined, "2026-08-27") === undefined,
+    "T36: no warranty is not the same as an expired one",
+  );
+}
+
+/* ═══ TEST 37: the repair tool leaves serialised items alone ════════════
+   planStockRepair rebuilds item.stock from documents. For a serialised item
+   that is the wrong question — stock IS the serial count, so there is nothing
+   to rebuild, and "repairing" it would write a documents-derived figure over
+   a shelf count that is already right.
+
+   Note this is the OPPOSITE answer to the delete guards, which had to start
+   counting voided documents. The two look alike and are not: that one asks
+   "is this still referenced", this asks "what should the number be". */
+{
+  const line = { itemId: "T", qty: 3, price: 100 };
+  const base = {
+    purchases: [] as Invoice[],
+    saleReturns: [] as Return[],
+    purchaseReturns: [] as Return[],
+    stockAdjustments: [] as StockAdjustment[],
+    sales: [{ id: "S", lineItems: [line] }] as unknown as Invoice[],
+  };
+
+  const plain = planStockRepair({
+    ...base,
+    items: [{ id: "T", name: "Adapter", openingStock: 10, stock: 10 }] as unknown as Item[],
+  });
+  assert(
+    plain.length === 1 && plain[0].correct === 7,
+    `T37: an ordinary item is still rebuilt from its documents — ${JSON.stringify(plain)}`,
+  );
+
+  const tracked = planStockRepair({
+    ...base,
+    items: [
+      { id: "T", name: "Adapter", openingStock: 10, stock: 10, trackSerials: true },
+    ] as unknown as Item[],
+  });
+  assert(
+    tracked.length === 0,
+    `T37: a serialised item is left alone — its serials are the stock, and this would overwrite them — ${JSON.stringify(tracked)}`,
   );
 }
 

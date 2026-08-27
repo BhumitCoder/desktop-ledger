@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { stockOf, inStockCounts } from "@/lib/serials";
 import { matchesQuery } from "@/lib/search";
 import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
@@ -12,6 +13,7 @@ import {
   SaleReturnRepo,
   PurchaseReturnRepo,
   StockAdjustmentRepo,
+  SerialRepo,
 } from "@/repositories";
 import { useRepoData } from "@/hooks/useRepoData";
 import { useStickyState } from "@/hooks/useStickySearch";
@@ -59,6 +61,9 @@ function InventoryPage() {
     const map = a.type === "add" ? purchaseQty : salesQty;
     map.set(a.itemId, (map.get(a.itemId) ?? 0) + a.qty);
   });
+
+  // One pass over the serials, shared by every row and every total below.
+  const counts = inStockCounts(SerialRepo.all());
 
   const columns: Column<Item>[] = [
     {
@@ -108,11 +113,11 @@ function InventoryPage() {
         const low = (r.minStock != null && r.stock <= r.minStock) || r.stock < 0;
         return (
           <span className={low ? "text-warning font-medium" : ""}>
-            {r.stock} {r.unit}
+            {stockOf(r, counts)} {r.unit}
           </span>
         );
       },
-      sortValue: (r) => r.stock,
+      sortValue: (r) => stockOf(r, counts),
     },
     { key: "min", label: "Min", align: "right", width: "70px", render: (r) => r.minStock ?? "—" },
     {
@@ -120,8 +125,8 @@ function InventoryPage() {
       label: "Stock Value",
       align: "right",
       width: "120px",
-      render: (r) => fmtMoney(r.stock * r.purchasePrice),
-      sortValue: (r) => r.stock * r.purchasePrice,
+      render: (r) => fmtMoney(stockOf(r, counts) * r.purchasePrice),
+      sortValue: (r) => stockOf(r, counts) * r.purchasePrice,
     },
   ];
 
@@ -131,7 +136,7 @@ function InventoryPage() {
   });
 
   // Footer totals cover the filtered rows the table actually shows
-  const totalValue = filtered.reduce((s, r) => s + r.stock * r.purchasePrice, 0);
+  const totalValue = filtered.reduce((s, r) => s + stockOf(r, counts) * r.purchasePrice, 0);
   const lowCount = filtered.filter(
     (r) => (r.minStock != null && r.stock <= r.minStock) || r.stock < 0,
   ).length;
@@ -186,7 +191,7 @@ function InventoryPage() {
                     <p
                       className={`font-bold tabular-nums shrink-0 ${low ? "text-warning" : "text-gray-800"}`}
                     >
-                      {r.stock} {r.unit}
+                      {stockOf(r, counts)} {r.unit}
                     </p>
                   </div>
                   <div className="flex items-center gap-3 text-xs text-gray-500">
@@ -194,7 +199,7 @@ function InventoryPage() {
                     <span>-{salesQty.get(r.id) ?? 0} out</span>
                     <span>Min {r.minStock ?? "—"}</span>
                     <span className="ml-auto tabular-nums">
-                      {fmtMoney(r.stock * r.purchasePrice)}
+                      {fmtMoney(stockOf(r, counts) * r.purchasePrice)}
                     </span>
                   </div>
                 </div>

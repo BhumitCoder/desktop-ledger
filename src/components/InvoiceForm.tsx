@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { stockOf } from "@/lib/serials";
 import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
@@ -737,7 +738,7 @@ export function InvoiceForm({ mode, existing }: Props) {
     if (isSale) {
       const negative = finalInv.lineItems
         .map((l) => ItemRepo.get(l.itemId))
-        .filter((it): it is Item => !!it && it.stock < 0);
+        .filter((it): it is Item => !!it && stockOf(it) < 0);
       if (negative.length) {
         toast.warning(
           `Stock below zero: ${negative.map((i) => i.name).join(", ")} — add purchase entry`,
@@ -1894,7 +1895,7 @@ function ItemEntryRow({
                     <div>
                       <div className="font-semibold">{it.name}</div>
                       <div className="text-[11px] text-muted-foreground">
-                        Stock: {it.stock} {it.unit}
+                        Stock: {stockOf(it)} {it.unit}
                       </div>
                     </div>
                     <div className="text-right">
@@ -2158,7 +2159,7 @@ function ItemNameCell({
                   <div>
                     <div className="font-semibold">{it.name}</div>
                     <div className="text-[11px] text-muted-foreground">
-                      Stock: {it.stock} {it.unit}
+                      Stock: {stockOf(it)} {it.unit}
                     </div>
                   </div>
                   <div className="text-right">
@@ -2386,7 +2387,7 @@ function QuickAddItemDialog({
                   >
                     <span className="font-medium">{it.name}</span>
                     <span className="text-[11px] text-muted-foreground">
-                      Stock: {it.stock} {it.unit}
+                      Stock: {stockOf(it)} {it.unit}
                     </span>
                   </div>
                 ))}

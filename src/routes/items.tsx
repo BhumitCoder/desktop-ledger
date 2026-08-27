@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { stockOf, inStockCounts } from "@/lib/serials";
 import { matchesQuery } from "@/lib/search";
 import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
@@ -13,6 +14,7 @@ import {
   PurchaseRepo,
   SaleReturnRepo,
   PurchaseReturnRepo,
+  SerialRepo,
 } from "@/repositories";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 import { useStickyState } from "@/hooks/useStickySearch";
@@ -69,7 +71,7 @@ function itemToBulkRow(it: Item): string[] {
     it.wholesalePrice != null ? String(it.wholesalePrice) : "",
     it.minStock != null ? String(it.minStock) : "",
     String(it.openingStock ?? 0),
-    String(it.stock ?? 0),
+    String(stockOf(it)),
   ];
 }
 
@@ -108,6 +110,10 @@ function ItemsPage() {
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, [adjustItem]);
+
+  // One pass over the serials, shared by every row below. Recomputed only
+  // when repository data changes, like every other derived list here.
+  const counts = useRepoMemo(() => inStockCounts(SerialRepo.all()));
 
   const filtered = rows.filter((r) => {
     const s = q.toLowerCase();
@@ -150,11 +156,11 @@ function ItemsPage() {
         const low = (r.minStock != null && r.stock <= r.minStock) || r.stock < 0;
         return (
           <span className={low ? "text-warning font-medium" : ""}>
-            {r.stock} {r.unit}
+            {stockOf(r, counts)} {r.unit}
           </span>
         );
       },
-      sortValue: (r) => r.stock,
+      sortValue: (r) => stockOf(r, counts),
     },
     {
       key: "adjust",
@@ -306,7 +312,7 @@ function ItemsPage() {
                     <span
                       className={`text-xs font-semibold ${low ? "text-warning" : "text-gray-500"}`}
                     >
-                      {r.stock} {r.unit} in stock
+                      {stockOf(r, counts)} {r.unit} in stock
                     </span>
                     <div className="flex items-center gap-1">
                       <button
@@ -449,7 +455,7 @@ export function StockAdjustDialog({
 
   if (!item) return null;
   const n = qty;
-  const newStock = Math.round((item.stock + (type === "add" ? n : -n)) * 100) / 100;
+  const newStock = Math.round((stockOf(item) + (type === "add" ? n : -n)) * 100) / 100;
 
   const save = (e: React.FormEvent) => {
     e.preventDefault();
@@ -492,7 +498,7 @@ export function StockAdjustDialog({
           <p className="text-sm text-muted-foreground">
             Current stock:{" "}
             <span className="font-bold text-foreground">
-              {item.stock} {item.unit}
+              {stockOf(item)} {item.unit}
             </span>
           </p>
           <div className="flex gap-2">
@@ -691,7 +697,7 @@ export function ItemDialog({
                   <div key={x.id} className="px-3 py-2 text-sm flex items-center justify-between">
                     <span className="font-medium">{x.name}</span>
                     <span className="text-[11px] text-muted-foreground">
-                      Stock: {x.stock} {x.unit}
+                      Stock: {stockOf(x)} {x.unit}
                     </span>
                   </div>
                 ))}

@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { stockOf } from "@/lib/serials";
 import { useGoBack } from "@/hooks/useGoBack";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -250,10 +251,10 @@ function ItemDetailPage() {
       <div className="hidden lg:grid grid-cols-6 bg-white border-b">
         <Stat
           label="Current Stock"
-          value={`${item.stock} ${item.unit}`}
-          color={item.stock < 0 ? "text-rose-600" : "text-gray-800"}
+          value={`${stockOf(item)} ${item.unit}`}
+          color={stockOf(item) < 0 ? "text-rose-600" : "text-gray-800"}
         />
-        <Stat label="Stock Value" value={fmtMoney(r2(item.stock * item.purchasePrice))} />
+        <Stat label="Stock Value" value={fmtMoney(r2(stockOf(item) * item.purchasePrice))} />
         <Stat label="Purchase Price" value={fmtMoney(item.purchasePrice)} />
         <Stat label="Sale Price" value={fmtMoney(item.salePrice)} />
         <Stat label="Total Sold" value={`${soldQty} ${item.unit}`} />
@@ -274,12 +275,12 @@ function ItemDetailPage() {
         <div className="flex gap-2.5 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <MobileStatCard
             label="Current Stock"
-            value={`${item.stock} ${item.unit}`}
-            color={item.stock < 0 ? "text-rose-600" : "text-gray-800"}
+            value={`${stockOf(item)} ${item.unit}`}
+            color={stockOf(item) < 0 ? "text-rose-600" : "text-gray-800"}
           />
           <MobileStatCard
             label="Stock Value"
-            value={fmtMoney(r2(item.stock * item.purchasePrice))}
+            value={fmtMoney(r2(stockOf(item) * item.purchasePrice))}
           />
           <MobileStatCard label="Purchase Price" value={fmtMoney(item.purchasePrice)} />
           <MobileStatCard label="Sale Price" value={fmtMoney(item.salePrice)} />

@@ -55,6 +55,7 @@ import type {
   Payment,
   PaymentMode,
   Return,
+  Serial,
   StockAdjustment,
 } from "@/types";
 import { bankAccountId, expenseAccountId } from "@/lib/accounts";
@@ -102,6 +103,8 @@ export interface Book {
   cashAdjustments: CashAdjustment[];
   bankTxns: BankTxn[];
   stockAdjustments: StockAdjustment[];
+  /** Individual units of serialised items. Absent on books that have none. */
+  serials?: Serial[];
   /**
    * Entries that were written rather than derived — year-end closings.
    *

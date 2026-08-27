@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { stockOf } from "@/lib/serials";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   SalesRepo,
@@ -937,7 +938,7 @@ function ReportView({
   }
 
   if (which === "stock") {
-    const totalValue = items.reduce((a, i) => a + i.stock * i.purchasePrice, 0);
+    const totalValue = items.reduce((a, i) => a + stockOf(i) * i.purchasePrice, 0);
     const lowStock = items.filter(
       (i) => (i.minStock != null && i.stock <= i.minStock) || i.stock < 0,
     ).length;
@@ -965,12 +966,12 @@ function ReportView({
             i.name,
             i.sku || "—",
             i.category || "—",
-            String(i.stock),
+            String(stockOf(i)),
             i.unit,
             i.minStock ? String(i.minStock) : "—",
             fmtMoney(i.purchasePrice),
             fmtMoney(i.salePrice),
-            fmtMoney(i.stock * i.purchasePrice),
+            fmtMoney(stockOf(i) * i.purchasePrice),
           ])}
       />
     );

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { stockOf } from "@/lib/serials";
 import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
@@ -919,7 +920,7 @@ function ReturnItemSearchRow({
                   <div>
                     <div className="font-semibold">{it.name}</div>
                     <div className="text-[11px] text-muted-foreground">
-                      Stock: {it.stock} {it.unit}
+                      Stock: {stockOf(it)} {it.unit}
                     </div>
                   </div>
                 </div>
