@@ -23,7 +23,7 @@ import {
   installChunkErrorAutoReload,
 } from "@/lib/chunk-reload";
 import { AppShell } from "@/components/layout/AppShell";
-import { auth, isBrowser } from "@/lib/firebase";
+import { auth, isBrowser, isProductionData, DATABASE_ID } from "@/lib/firebase";
 import {
   hydrateRepos,
   whenReposHydrated,
@@ -228,9 +228,31 @@ function RootComponent() {
   }, []);
   return (
     <QueryClientProvider client={queryClient}>
+      <TestDataBanner />
       <AuthGate />
       <Toaster position="bottom-right" duration={3000} closeButton richColors />
     </QueryClientProvider>
+  );
+}
+
+/**
+ * A strip across the top of every screen when this is not the shop's real
+ * books.
+ *
+ * Two deployments of the same app look identical, and the person in front of
+ * them is a shopkeeper part-way through a sale, not someone who reads the URL
+ * bar. Without this, a real day's takings gets typed into a test site — and
+ * the mistake is only found when the real books turn out to be short.
+ */
+export function TestDataBanner() {
+  if (isProductionData) return null;
+  return (
+    <div
+      role="status"
+      className="fixed top-0 inset-x-0 z-[60] bg-amber-500 text-amber-950 text-[11px] font-bold uppercase tracking-wide text-center py-0.5 pointer-events-none"
+    >
+      Test data — not the shop's real books ({DATABASE_ID})
+    </div>
   );
 }
 

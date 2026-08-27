@@ -17,8 +17,37 @@ const firebaseConfig = {
   measurementId: "G-3WSQ6FXD71",
 };
 
-/** Named Firestore database (not the "(default)" one) */
-export const DATABASE_ID = "kinteshmobileacce";
+/**
+ * The shop's real books. Nothing may point here by accident, so it is the
+ * default rather than something a deployment has to remember to set — an
+ * environment that forgets its configuration falls back to production, which
+ * is wrong for a test site but is at least obvious the moment anyone looks at
+ * the data.
+ */
+export const PRODUCTION_DATABASE_ID = "kinteshmobileacce";
+
+/**
+ * Named Firestore database (not the "(default)" one).
+ *
+ * Overridable so a test deployment can run the same code against its own
+ * database inside the same Firebase project — same logins, same rules, none
+ * of the shop's real bills. Set VITE_FIRESTORE_DB in the deployment's
+ * environment; leave it unset for production.
+ *
+ * It has to be a build-time variable, not a runtime one: the client bundle is
+ * static, and Vite inlines VITE_-prefixed values as it builds.
+ */
+export const DATABASE_ID =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_FIRESTORE_DB) ||
+  PRODUCTION_DATABASE_ID;
+
+/**
+ * False when this deployment is pointed at anything but the shop's real
+ * books. Two identical-looking copies of the same app is exactly how someone
+ * ends up entering a real day's takings into a test site, so every screen
+ * that can be mistaken for the real one says which it is.
+ */
+export const isProductionData = DATABASE_ID === PRODUCTION_DATABASE_ID;
 
 export const isBrowser = typeof window !== "undefined";
 

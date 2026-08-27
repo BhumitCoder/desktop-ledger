@@ -11,8 +11,16 @@
 
 /** Same named Firestore database the client SDK uses — see DATABASE_ID in
  * src/lib/firebase.ts. Must match exactly, or Admin SDK writes would land in
- * the wrong (default) database where the app never looks. */
-const DATABASE_ID = "kinteshmobileacce";
+ * the wrong (default) database where the app never looks.
+ *
+ * Read from the SAME environment variable the client build reads, for that
+ * reason: two variables would be two things to set, and setting one of them
+ * would put the server and the browser in different databases — which fails
+ * silently, because each half works perfectly on its own. */
+const DATABASE_ID =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_FIRESTORE_DB) ||
+  process.env.VITE_FIRESTORE_DB ||
+  "kinteshmobileacce";
 
 let appPromise: Promise<import("firebase-admin").app.App> | null = null;
 

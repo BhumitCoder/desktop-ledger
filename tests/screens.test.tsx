@@ -26,6 +26,7 @@ import { routeTree } from "@/routeTree.gen";
 import { BulkUpdateItemsDialog } from "@/components/BulkUpdateItemsDialog";
 import { PrintablePartyStatement } from "@/components/PrintablePartyStatement";
 import { CashBankTransferDialog } from "@/components/CashBankTransferDialog";
+import { TestDataBanner } from "@/routes/__root";
 import { PartyDialog } from "@/routes/parties";
 import { DataTable } from "@/components/DataTable";
 import { PrintableInvoice } from "@/components/PrintableInvoice";
@@ -3861,6 +3862,61 @@ async function runAll(): Promise<Results> {
       (el.getAttribute("title") ?? "").includes("Billed to the wrong customer"),
     );
     assert(!!badge, "void sale: hovering it says why, and when");
+  }
+
+  /* ── A test deployment says so, on every screen ───────────────────────
+     The test site and the real one are the same application. The person in
+     front of them is a shopkeeper part-way through a sale, not somebody who
+     reads the URL bar — so without a mark on the screen a real day's takings
+     gets typed into the test site, and the mistake is only found when the
+     real books turn out to be short.
+
+     Rendered on its own rather than through a route: this harness swaps the
+     real root component for a bare Outlet, because the real one is the auth
+     gate. That it is actually MOUNTED on every screen is checked against the
+     source in run-screens.cjs — the same split the period lock uses. */
+  {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const r = createRoot(host);
+    await act(async () => {
+      r.render(<TestDataBanner />);
+    });
+    await settleMs(60);
+
+    const strip = host.querySelector('[role="status"]');
+    assert(!!strip, "test banner: a non-production database is marked on screen");
+    assert(
+      (strip?.textContent ?? "").toLowerCase().includes("test data"),
+      `test banner: in words, not a colour — ${JSON.stringify(strip?.textContent)}`,
+    );
+    assert(
+      (strip?.textContent ?? "").includes("test-only-never-a-real-database"),
+      `test banner: and it names which database, so two test sites cannot be confused — ${JSON.stringify(
+        strip?.textContent,
+      )}`,
+    );
+    if (strip) {
+      const box = strip.getBoundingClientRect();
+      const style = getComputedStyle(strip);
+      assert(
+        style.position === "fixed" && box.top < 2,
+        `test banner: pinned to the top of the window, not scrolled away with the page — ${style.position} at ${Math.round(box.top)}`,
+      );
+      assert(
+        box.width > window.innerWidth * 0.9,
+        `test banner: across the full width — ${Math.round(box.width)} of ${window.innerWidth}`,
+      );
+      /* It must never eat a click meant for the app underneath. A warning
+         that blocks the toolbar it sits over gets removed within a day, and
+         then there is no warning. */
+      assert(
+        style.pointerEvents === "none",
+        `test banner: and it does not swallow clicks meant for the app — ${style.pointerEvents}`,
+      );
+    }
+    r.unmount();
+    host.remove();
   }
 
   /* ── A closed period actually refuses, on a real screen ───────────────

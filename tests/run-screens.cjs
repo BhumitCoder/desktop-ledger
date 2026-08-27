@@ -139,6 +139,34 @@ function checkBackupKeepsVoided() {
   return false;
 }
 
+/**
+ * The test-data warning has to be MOUNTED, not merely written.
+ *
+ * The screen harness replaces the real root component with a bare Outlet, so
+ * a rendered test can prove the strip looks right and can never prove it is
+ * on the page. A deployment pointed at the wrong database with no warning on
+ * screen is the failure that costs the shop a day's takings, so the wiring is
+ * checked here instead.
+ */
+function checkTestBannerMounted() {
+  const src = fs.readFileSync(path.resolve(__dirname, "../src/routes/__root.tsx"), "utf8");
+  const mounted = /<TestDataBanner\s*\/>/.test(src);
+  // And production must be the fallback, so a deployment that forgets its
+  // configuration lands on the shop's own books rather than on a stranger's.
+  const fb = fs.readFileSync(path.resolve(__dirname, "../src/lib/firebase.ts"), "utf8");
+  const defaultsToProduction =
+    /export const DATABASE_ID =[\s\S]{0,200}?PRODUCTION_DATABASE_ID;/.test(fb);
+  if (mounted && defaultsToProduction) {
+    console.log("  Test-data warning is mounted, and production is the default database.");
+    return true;
+  }
+  if (!mounted) console.log("\n  TEST BANNER: __root.tsx does not mount <TestDataBanner />.");
+  if (!defaultsToProduction)
+    console.log("\n  TEST BANNER: DATABASE_ID does not fall back to the production database.");
+  console.log("");
+  return false;
+}
+
 function checkPeriodLockCoverage() {
   const roots = ["src/components", "src/routes"];
   // Writes that create or move money/stock with a date on them. Reads,
@@ -179,6 +207,7 @@ function checkPeriodLockCoverage() {
 async function main() {
   const lockOk = checkPeriodLockCoverage();
   const voidOk = checkVoidCoverage();
+  const bannerOk = checkTestBannerMounted();
   const backupOk = checkBackupKeepsVoided();
   fs.mkdirSync(OUT_DIR, { recursive: true });
 
@@ -325,7 +354,9 @@ run().then((r) => { (window as any).__RESULT__ = r; })
     console.log("  ✅ ALL SCREENS RENDER REAL DATA");
   }
   console.log("══════════════════════════════════════\n");
-  process.exit(result.failed || pageErrors.length || !lockOk || !voidOk || !backupOk ? 1 : 0);
+  process.exit(
+    result.failed || pageErrors.length || !lockOk || !voidOk || !backupOk || !bannerOk ? 1 : 0,
+  );
 }
 
 main().catch((e) => {
