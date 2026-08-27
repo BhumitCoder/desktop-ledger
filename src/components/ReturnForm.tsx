@@ -335,6 +335,20 @@ export function ReturnForm({ mode }: Props) {
       );
       return;
     }
+    /* Serial-tracked items cannot be returned yet: a return has to say WHICH
+       units came back, and that capture is the next step. Allowing it now
+       would raise the shelf count while the unit itself still said it was
+       with the customer — a disagreement of exactly the kind serials exist to
+       prevent. Refused, with the thing to do instead. */
+    const serialLines = ret.lineItems.filter((l) => ItemRepo.get(l.itemId)?.trackSerials);
+    if (serialLines.length) {
+      toast.error(
+        `${serialLines.map((l) => l.name).join(", ")} is tracked by serial number, and returns cannot name units yet — void the original bill instead.`,
+        { duration: 9000 },
+      );
+      return;
+    }
+
     const partyId = ret.partyId;
     const partyName = ret.partyName || partyQ.trim();
     if (!partyId && !partyName) {

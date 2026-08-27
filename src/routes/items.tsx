@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { stockOf, inStockCounts } from "@/lib/serials";
+import { stockOf, inStockCounts, isSerialised } from "@/lib/serials";
 import { matchesQuery } from "@/lib/search";
 import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
@@ -464,6 +464,17 @@ export function StockAdjustDialog({
     if (savingRef.current) return;
     if (n <= 0) {
       toast.error("Enter quantity to adjust");
+      return;
+    }
+    /* A serialised item's shelf is its list of units, so there is no stock
+       number here to nudge. Writing one would put a figure nothing reads
+       into the record — which looks like it worked, and is not. Correcting
+       these means naming units. */
+    if (isSerialised(item)) {
+      toast.error(
+        `${item.name} is tracked by serial number — its stock is the units on the shelf. Receive units on a purchase, or void the document that was wrong.`,
+        { duration: 8000 },
+      );
       return;
     }
     if (!canPost(date)) return;

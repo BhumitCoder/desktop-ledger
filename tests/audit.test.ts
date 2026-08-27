@@ -48,7 +48,12 @@ import {
   warrantyDaysLeft,
   serialShortfalls,
 } from "@/lib/serials";
-import { planPurchaseSerials, planSaleSerials, soldSerialsOf } from "@/lib/serialMoves";
+import {
+  planPurchaseSerials,
+  planSaleSerials,
+  soldSerialsOf,
+  undoSerialsOf,
+} from "@/lib/serialMoves";
 import { transferLegsFor } from "@/lib/transferLegs";
 import { AuditLogRepo, nextVoucherNo } from "@/repositories";
 import { isLocked, blockedDate, lockMessage } from "@/lib/periodLock";
@@ -4340,6 +4345,54 @@ console.log(`\n═════════════════════�
   assert(
     soldSerialsOf(inv, serials, new Set(["s1"])).length === 1,
     "T40: while removing the sold one is refused",
+  );
+}
+
+/* ═══ TEST 41: undoing a document puts its units back ═══════════════════
+   Deleting and voiding need exactly the same serial movements — the document
+   stops counting either way — so they share one answer rather than two that
+   drift apart silently until a shelf count goes wrong. */
+{
+  const item = { id: "T", trackSerials: true } as unknown as Item;
+  const itemOf = (id: string) => (id === "T" ? item : undefined);
+  const doc = { lineItems: [{ itemId: "T", serialIds: ["s1", "s2"] }] };
+
+  const undoneSale = undoSerialsOf(doc, "sale", itemOf);
+  assert(undoneSale.length === 2, "T41: every unit on the bill moves");
+  assert(
+    (undoneSale[0].patch as Record<string, unknown>).status === "in_stock",
+    "T41: a cancelled sale puts them back on the shelf",
+  );
+  assert(
+    Object.prototype.hasOwnProperty.call(undoneSale[0].patch, "customerName"),
+    "T41: and forgets the customer explicitly, so the stored record loses it",
+  );
+
+  const undonePurchase = undoSerialsOf(doc, "purchase", itemOf);
+  assert(
+    !!(undonePurchase[0].patch as { voidedAt?: string }).voidedAt,
+    "T41: a cancelled purchase means the units never arrived",
+  );
+  assert(
+    (undonePurchase[0].patch as Record<string, unknown>).status === undefined,
+    "T41: marked rather than restatused — the record survives, the count does not",
+  );
+
+  assert(
+    (undoSerialsOf(doc, "sale-return", itemOf)[0].patch as Record<string, unknown>).status ===
+      "sold",
+    "T41: undoing a sale return means the customer still has it",
+  );
+  assert(
+    (undoSerialsOf(doc, "purchase-return", itemOf)[0].patch as Record<string, unknown>).status ===
+      "in_stock",
+    "T41: undoing a purchase return means it never went back to the vendor",
+  );
+
+  const plain = { lineItems: [{ itemId: "OTHER", serialIds: ["x"] }] };
+  assert(
+    undoSerialsOf(plain, "sale", itemOf).length === 0,
+    "T41: an item that is not serialised moves nothing, whatever is on the line",
   );
 }
 

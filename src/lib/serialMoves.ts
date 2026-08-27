@@ -166,6 +166,49 @@ export function releaseToStock(): Partial<Serial> {
 }
 
 /**
+ * What removing a document does to the units on it.
+ *
+ * Deleting and voiding need exactly the same serial movements — the document
+ * stops counting either way — so they share one answer. Two copies would
+ * drift, and the drift would be silent until a shelf count went wrong.
+ */
+export function undoSerialsOf(
+  inv: { lineItems: { itemId: string; serialIds?: string[] }[] },
+  kind: "sale" | "purchase" | "sale-return" | "purchase-return",
+  itemOf: (id: string) => Item | undefined,
+): SerialUpdate[] {
+  const out: SerialUpdate[] = [];
+  for (const l of inv.lineItems) {
+    if (!itemOf(l.itemId)?.trackSerials) continue;
+    for (const id of l.serialIds ?? []) {
+      switch (kind) {
+        case "sale":
+          // The customer never had it: back on the shelf, and forgotten.
+          out.push({ id, patch: releaseToStock() });
+          break;
+        case "purchase":
+          // It never arrived. Marked rather than deleted, like every other
+          // cancellation here — and refused outright by the caller if it has
+          // since been sold.
+          out.push({ id, patch: { voidedAt: new Date().toISOString() } as Partial<Serial> });
+          break;
+        case "sale-return":
+          // The unit did NOT come back after all, so it is with the customer
+          // again. Who that is gets restored from the original sale by the
+          // caller, which is the only place that knows it.
+          out.push({ id, patch: { status: "sold" } });
+          break;
+        case "purchase-return":
+          // It was not sent back to the vendor after all.
+          out.push({ id, patch: { status: "in_stock" } });
+          break;
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Units received on a purchase that have since been sold.
  *
  * A purchase cannot be removed or edited out from under them: the unit is in
