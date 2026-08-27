@@ -2560,6 +2560,99 @@ async function runAll(): Promise<Results> {
     );
   }
 
+  /* ── The bill grid carries no Unit or Disc% column ────────────────────
+     The counter gives one whole-bill "Extra Discount" in the totals card, so
+     a per-line Disc% is a second place to put the same thing — and the
+     client's own report was that it confuses the person entering the bill.
+     Unit belongs to the item and was only ever being re-typed.
+
+     Sales dropped them first and purchases kept them, for no reason the
+     person using the two forms could see. Both are checked here so they
+     cannot drift apart again.
+
+     What must NOT happen: a bill that already carries a line discount losing
+     the column. That would leave an amount changing the total with nowhere
+     to see or correct it — so that case keeps the column, and is checked. */
+  {
+    /* The EDITABLE grid, not every table on the page. The form also renders
+       a hidden printable copy of the bill, which has a Unit column of its own
+       and always should — a printed bill states the unit. Selecting on
+       "thead th" alone read both and reported the print template's column as
+       the form's. */
+    const headersOf = () => {
+      const grid = Array.from(document.querySelectorAll("table")).find(
+        (t) => !!t.querySelector("tbody input"),
+      );
+      assert(!!grid, "bill columns: found the editable line grid");
+      return Array.from(grid?.querySelectorAll("thead th") ?? []).map((th) =>
+        (th.textContent ?? "").trim(),
+      );
+    };
+
+    for (const [route, what] of [
+      ["/sales/new", "sale"],
+      ["/purchase/new", "purchase"],
+    ] as const) {
+      await renderRoute(route);
+      const heads = headersOf();
+      assert(heads.length > 0, `bill columns: the ${what} grid rendered — ${heads}`);
+      assert(
+        !heads.includes("Unit"),
+        `bill columns: a new ${what} has no per-line Unit column — ${heads}`,
+      );
+      assert(!heads.includes("Disc%"), `bill columns: and no per-line Disc% column — ${heads}`);
+      // The columns that must still be there, so this cannot pass by the grid
+      // having failed to render at all.
+      assert(
+        heads.some((h) => /qty/i.test(h)) && heads.some((h) => /price|rate/i.test(h)),
+        `bill columns: while Qty and Price are still there — ${heads}`,
+      );
+    }
+
+    /* An older bill that already has a line discount keeps the column. The
+       figure is affecting its total; hiding it would make the total
+       unexplainable and uncorrectable. */
+    PurchaseRepo.add({
+      id: "OLDDISC",
+      createdAt: "2026-01-01T00:00:00Z",
+      number: "PB-DISC",
+      date: D2,
+      partyId: "P1",
+      partyName: "Acme Traders",
+      gstEnabled: false,
+      lineItems: [
+        {
+          id: "dl",
+          itemId: "I1",
+          name: "Widget",
+          qty: 2,
+          unit: "PCS",
+          price: 100,
+          discountPct: 10,
+          gstRate: 0,
+          amount: 180,
+        },
+      ],
+      subtotal: 200,
+      discount: 0,
+      taxAmount: 0,
+      total: 180,
+      paid: 0,
+      paymentMode: "credit",
+    } as never);
+
+    await renderRoute("/purchase/edit/OLDDISC");
+    const editHeads = headersOf();
+    assert(
+      editHeads.includes("Disc%"),
+      `bill columns: a bill that already carries a line discount keeps the column — ${editHeads}`,
+    );
+    assert(
+      !editHeads.includes("Unit"),
+      `bill columns: but still no Unit column, which nothing depends on — ${editHeads}`,
+    );
+  }
+
   /* ── The summary strip reaches the table's right edge ─────────────────
      Screens hand in their own footer <tr>, counting columns by hand. Adding
      the Action column left every one of them a cell short, so the strip
