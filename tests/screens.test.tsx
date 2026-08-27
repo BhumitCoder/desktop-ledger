@@ -2704,6 +2704,344 @@ async function runAll(): Promise<Results> {
     );
   }
 
+  /* ── The bill grid carries no Unit or Disc% column ────────────────────
+     The counter gives one whole-bill "Extra Discount" in the totals card, so
+     a per-line Disc% is a second place to put the same thing — and the
+     client's own report was that it confuses the person entering the bill.
+     Unit belongs to the item and was only ever being re-typed.
+
+     Sales dropped them first and purchases kept them, for no reason the
+     person using the two forms could see. Both are checked here so they
+     cannot drift apart again.
+
+     What must NOT happen: a bill that already carries a line discount losing
+     the column. That would leave an amount changing the total with nowhere
+     to see or correct it — so that case keeps the column, and is checked. */
+  {
+    /* The EDITABLE grid, not every table on the page. The form also renders
+       a hidden printable copy of the bill, which has a Unit column of its own
+       and always should — a printed bill states the unit. Selecting on
+       "thead th" alone read both and reported the print template's column as
+       the form's. */
+    const headersOf = () => {
+      const grid = Array.from(document.querySelectorAll("table")).find(
+        (t) => !!t.querySelector("tbody input"),
+      );
+      assert(!!grid, "bill columns: found the editable line grid");
+      return Array.from(grid?.querySelectorAll("thead th") ?? []).map((th) =>
+        (th.textContent ?? "").trim(),
+      );
+    };
+
+    for (const [route, what] of [
+      ["/sales/new", "sale"],
+      ["/purchase/new", "purchase"],
+    ] as const) {
+      await renderRoute(route);
+      const heads = headersOf();
+      assert(heads.length > 0, `bill columns: the ${what} grid rendered — ${heads}`);
+      assert(
+        !heads.includes("Unit"),
+        `bill columns: a new ${what} has no per-line Unit column — ${heads}`,
+      );
+      assert(!heads.includes("Disc%"), `bill columns: and no per-line Disc% column — ${heads}`);
+      // The columns that must still be there, so this cannot pass by the grid
+      // having failed to render at all.
+      assert(
+        heads.some((h) => /qty/i.test(h)) && heads.some((h) => /price|rate/i.test(h)),
+        `bill columns: while Qty and Price are still there — ${heads}`,
+      );
+    }
+
+    /* An older bill that already has a line discount keeps the column. The
+       figure is affecting its total; hiding it would make the total
+       unexplainable and uncorrectable. */
+    PurchaseRepo.add({
+      id: "OLDDISC",
+      createdAt: "2026-01-01T00:00:00Z",
+      number: "PB-DISC",
+      // Today: this block is about the Disc% column, and a bill from an
+      // earlier day can no longer be opened for editing at all (see the
+      // append-only rule) — so an older one would test the wrong refusal.
+      date: today(),
+      partyId: "P1",
+      partyName: "Acme Traders",
+      gstEnabled: false,
+      lineItems: [
+        {
+          id: "dl",
+          itemId: "I1",
+          name: "Widget",
+          qty: 2,
+          unit: "PCS",
+          price: 100,
+          discountPct: 10,
+          gstRate: 0,
+          amount: 180,
+        },
+      ],
+      subtotal: 200,
+      discount: 0,
+      taxAmount: 0,
+      total: 180,
+      paid: 0,
+      paymentMode: "credit",
+    } as never);
+
+    await renderRoute("/purchase/edit/OLDDISC");
+    const editHeads = headersOf();
+    assert(
+      editHeads.includes("Disc%"),
+      `bill columns: a bill that already carries a line discount keeps the column — ${editHeads}`,
+    );
+    assert(
+      !editHeads.includes("Unit"),
+      `bill columns: but still no Unit column, which nothing depends on — ${editHeads}`,
+    );
+
+    /* And clearing that discount must not take the column away underneath the
+       person clearing it. NumInput reports 0 for an empty box, so a rule
+       computed from the live lines flips the moment Backspace empties the
+       field — the column unmounts, the focused input goes with it, and the
+       one value being corrected is the one that cannot be. */
+    const grid = Array.from(document.querySelectorAll("table")).find(
+      (t) => !!t.querySelector("tbody input"),
+    );
+    const discInput = Array.from(grid?.querySelectorAll("tbody input") ?? []).find(
+      (i) => (i as HTMLInputElement).value === "10",
+    ) as HTMLInputElement | undefined;
+    assert(!!discInput, "bill columns: found the discount box holding 10");
+    await act(async () => {
+      setInput(discInput, "");
+    });
+    await settleMs(120);
+    assert(
+      headersOf().includes("Disc%"),
+      `bill columns: emptying it keeps the column — ${headersOf()}`,
+    );
+    assert(
+      document.body.contains(discInput!),
+      "bill columns: and the box being typed in is still there to type in",
+    );
+  }
+
+  /* ── A credit note carries no Unit or Disc% column either ─────────────
+     Same two columns, gone for the same reasons — with one difference that
+     matters. A bill is opened and edited; a credit note gets its lines by
+     copying them out of the original bill AFTER the form is already open. So
+     "did it arrive with a discount" cannot be answered when the form mounts,
+     and the rule has to latch instead. */
+  {
+    const gridOf = () => {
+      const grid = Array.from(document.querySelectorAll("table")).find(
+        (t) => !!t.querySelector("tbody input"),
+      );
+      return Array.from(grid?.querySelectorAll("thead th") ?? []).map((th) =>
+        (th.textContent ?? "").trim(),
+      );
+    };
+
+    for (const [route, what] of [
+      ["/sale-return/new", "sale return"],
+      ["/purchase-return/new", "purchase return"],
+    ] as const) {
+      await renderRoute(route);
+      const heads = gridOf();
+      assert(heads.length > 0, `return columns: the ${what} grid rendered — ${heads}`);
+      assert(!heads.includes("Unit"), `return columns: no Unit column on a ${what} — ${heads}`);
+      assert(!heads.includes("Disc%"), `return columns: and no Disc% column — ${heads}`);
+      assert(
+        heads.some((h) => /qty/i.test(h)) && heads.some((h) => /price|rate/i.test(h)),
+        `return columns: while Qty and Price are still there — ${heads}`,
+      );
+    }
+
+    /* Loading an original bill that HAS a line discount brings the column
+       back, because that figure is now on the note and changing its total.
+       This is the case a mount-time rule would get wrong: the discount
+       arrives long after the form opened. */
+    SalesRepo.add({
+      id: "RETSRC",
+      createdAt: "2026-01-01T00:00:00Z",
+      number: "INV-RETSRC",
+      date: D2,
+      partyId: "P1",
+      partyName: "Acme Traders",
+      gstEnabled: false,
+      lineItems: [
+        {
+          id: "rl",
+          itemId: "I1",
+          name: "Widget",
+          qty: 3,
+          unit: "PCS",
+          price: 100,
+          discountPct: 20,
+          gstRate: 0,
+          amount: 240,
+        },
+      ],
+      subtotal: 300,
+      discount: 0,
+      taxAmount: 0,
+      total: 240,
+      paid: 0,
+      paymentMode: "credit",
+    } as never);
+
+    await renderRoute("/sale-return/new");
+    assert(
+      !gridOf().includes("Disc%"),
+      "return columns: no Disc% column before anything is loaded",
+    );
+
+    // Find the original-bill picker and choose that invoice.
+    // The box is labelled by what it searches for, not by the word
+    // "invoice" — "Search INV-… to auto-load items".
+    const invBox = Array.from(document.querySelectorAll("input")).find((i) =>
+      /auto-load items/i.test(i.getAttribute("placeholder") ?? ""),
+    ) as HTMLInputElement | undefined;
+    assert(!!invBox, "return columns: found the original-bill box");
+    await act(async () => {
+      setInput(invBox, "INV-RETSRC");
+    });
+    await settleMs(150);
+    // The suggestion is a div that reacts to mousedown, not a button — the
+    // picker commits before the input can blur. Driven the way a person
+    // drives it rather than the way it would be convenient to.
+    const option = Array.from(document.querySelectorAll("div")).find(
+      (el) =>
+        (el.textContent ?? "").includes("INV-RETSRC") &&
+        el.querySelector("span.font-mono") &&
+        !el.querySelector("div div"),
+    );
+    assert(!!option, "return columns: the bill is offered");
+    await act(async () => {
+      option?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    });
+    await settleMs(250);
+
+    assert(
+      gridOf().includes("Disc%"),
+      `return columns: loading a bill that carries a line discount brings the column back — ${gridOf()}`,
+    );
+    assert(!gridOf().includes("Unit"), `return columns: and Unit still stays away — ${gridOf()}`);
+
+    /* And it latches. Clearing the discount must not unmount the box being
+       cleared — the same trap the bill form had. */
+    const grid = Array.from(document.querySelectorAll("table")).find(
+      (t) => !!t.querySelector("tbody input"),
+    );
+    const discBox = Array.from(grid?.querySelectorAll("tbody input") ?? []).find(
+      (i) => (i as HTMLInputElement).value === "20",
+    ) as HTMLInputElement | undefined;
+    assert(!!discBox, "return columns: found the discount box holding 20");
+    await act(async () => {
+      setInput(discBox, "");
+    });
+    await settleMs(120);
+    assert(
+      gridOf().includes("Disc%"),
+      `return columns: clearing it keeps the column — ${gridOf()}`,
+    );
+    assert(
+      document.body.contains(discBox!),
+      "return columns: and the box being cleared is still there",
+    );
+  }
+
+  /* ── One date format across every section's table ─────────────────────
+     Cash and Payments read 22-08-26; every other list read "22 Aug 2026".
+     Two formats in one application is a small thing that makes a screen feel
+     unfinished — and the long one is what pushed the Action column off the
+     right edge on those two tables in the first place, a width problem the
+     other tables have too and simply had not hit yet.
+
+     Checked as a set rather than one screen at a time, because "they all
+     match" is the actual requirement and no single-screen assertion states
+     it. */
+  {
+    /* Purchase Returns carries no rows from any earlier block, and a screen
+       with no rows checks nothing — so it gets one. */
+    PurchaseReturnRepo.add({
+      id: "PRDATE",
+      createdAt: "2026-01-01T00:00:00Z",
+      number: "DN-DATE",
+      date: D2,
+      partyId: "P1",
+      partyName: "Acme Traders",
+      gstEnabled: false,
+      lineItems: [],
+      subtotal: 100,
+      taxAmount: 0,
+      total: 100,
+    } as never);
+
+    /* Anchored at the start rather than matching the whole cell: a cancelled
+       row carries its Voided mark in this same cell, so "22-08-26Voided" is a
+       correct date that an exact match would reject. The negative check below
+       is what stops the long form creeping back. */
+    const SHORT = /^\d{2}-\d{2}-\d{2}(?!\d)/; // 22-08-26
+    const LONG = /^\d{1,2} [A-Za-z]{3} \d{4}$/; // 22 Aug 2026
+
+    let checked = 0;
+    for (const [route, label] of [
+      ["/sales", "Sales"],
+      ["/purchase", "Purchases"],
+      ["/sale-return", "Sale Returns"],
+      ["/purchase-return", "Purchase Returns"],
+      ["/expenses", "Expenses"],
+      ["/payments", "Payments"],
+      ["/cash", "Cash"],
+    ] as const) {
+      await renderRoute(route);
+      const table = document.querySelector(".data-table table");
+      const heads = Array.from(table?.querySelectorAll("thead th") ?? []).map((th) =>
+        (th.textContent ?? "").trim(),
+      );
+      const dateCol = heads.indexOf("Date");
+      assert(dateCol >= 0, `date format: ${label} has a Date column — ${heads}`);
+
+      const cells = Array.from(table?.querySelectorAll("tbody tr") ?? [])
+        .map((tr) => (tr.querySelectorAll("td")[dateCol]?.textContent ?? "").trim())
+        .filter(Boolean);
+      /* Asserted, not skipped. A screen with no rows checks nothing, and
+         "continue" turns that into a pass — which is exactly how the purchase
+         returns screen sailed through with the long date still on it. */
+      assert(cells.length > 0, `date format: ${label} has rows to check`);
+      checked++;
+
+      assert(
+        cells.every((c) => SHORT.test(c)),
+        `date format: ${label} shows the short form — ${JSON.stringify(cells.slice(0, 3))}`,
+      );
+      assert(
+        !cells.some((c) => LONG.test(c)),
+        `date format: and nothing on ${label} still reads the long way — ${JSON.stringify(cells.slice(0, 3))}`,
+      );
+    }
+    assert(checked === 7, `date format: all seven section tables were checked — ${checked}`);
+  }
+
+  /* A statement handed to a customer keeps the long date. It is a document,
+     not a list to scan, and "22-08-26" on something a customer reads is worse
+     in a way that saving a few pixels does not pay for. */
+  {
+    await renderRoute("/parties/P1");
+    const rows = Array.from(document.querySelectorAll("tbody tr"))
+      .map((tr) => (tr.querySelector("td")?.textContent ?? "").trim())
+      .filter((t) => /\d/.test(t));
+    assert(rows.length > 0, "date format: the party statement has rows");
+    assert(
+      rows.some((c) => /^\d{1,2} [A-Za-z]{3} \d{4}$/.test(c)),
+      `date format: a party statement still reads the long way — it is a document handed to a customer, not a list to scan — ${JSON.stringify(rows.slice(0, 3))}`,
+    );
+    assert(
+      !rows.some((c) => /^\d{2}-\d{2}-\d{2}$/.test(c)),
+      `date format: and none of its rows were switched to the short form — ${JSON.stringify(rows.slice(0, 3))}`,
+    );
+  }
+
   /* ── The summary strip reaches the table's right edge ─────────────────
      Screens hand in their own footer <tr>, counting columns by hand. Adding
      the Action column left every one of them a cell short, so the strip

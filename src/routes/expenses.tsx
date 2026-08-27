@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/select";
 import { ModePills } from "@/components/ModePills";
 import { fmtMode } from "@/lib/paymentMode";
-import { fmtMoney, fmtDate, today } from "@/lib/format";
+import { fmtDate, fmtDateShort, fmtMoney, today } from "@/lib/format";
 import { Plus, Receipt, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -152,8 +152,10 @@ function ExpensesPage() {
       label: "Date",
       width: "120px",
       render: (r) => (
-        <span className="inline-flex items-center gap-1.5">
-          <span className={isVoided(r) ? "line-through text-gray-400" : ""}>{fmtDate(r.date)}</span>
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+          <span className={isVoided(r) ? "line-through text-gray-400" : ""}>
+            {fmtDateShort(r.date)}
+          </span>
           {isVoided(r) && <VoidedBadge reason={r.voidReason} at={r.voidedAt} />}
         </span>
       ),

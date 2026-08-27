@@ -9,7 +9,7 @@ import {
   PurchaseReturnRepo,
   StockAdjustmentRepo,
 } from "@/repositories";
-import { fmtMoney, fmtDate, today } from "@/lib/format";
+import { fmtDate, fmtDateShort, fmtMoney, today } from "@/lib/format";
 import { newBatch, commitBatch } from "@/repositories/base";
 import { usePeriodLock } from "@/hooks/usePeriodLock";
 import { toast } from "sonner";
@@ -382,7 +382,7 @@ function ItemDetailPage() {
                     className={`border-b border-gray-100 hover:bg-gray-50/60 ${e.docId ? "cursor-pointer" : ""}`}
                   >
                     <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">
-                      {fmtDate(e.date)}
+                      {fmtDateShort(e.date)}
                     </td>
                     <td className="px-4 py-2.5">
                       <span
