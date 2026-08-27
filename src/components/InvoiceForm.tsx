@@ -123,9 +123,21 @@ export function InvoiceForm({ mode, existing }: Props) {
   // discount, the column stays visible. Hiding a live, non-zero discount
   // would leave an amount affecting the total that nobody could see or
   // correct.
-  const hasLineDiscount = inv.lineItems.some((l) => (l.discountPct ?? 0) > 0);
+  // Whether the bill ARRIVED carrying a line discount — decided once, when
+  // the form opens, and then held.
+  //
+  // Recomputing it from the live lines looks equivalent and is not. NumInput
+  // reports 0 for an empty box, so backspacing the last discount away to
+  // retype it flips this to false mid-keystroke: the column unmounts and
+  // takes the focused input with it, and the value that is actually being
+  // corrected is the one that makes correcting it impossible. Holding the
+  // answer keeps the column for as long as the bill is open, which is the
+  // only span that matters.
+  const [hadLineDiscount] = useState(() =>
+    (existing?.lineItems ?? []).some((l) => (l.discountPct ?? 0) > 0),
+  );
   const showUnitCol: boolean = false;
-  const showDiscCol = hasLineDiscount;
+  const showDiscCol = hadLineDiscount;
 
   const allParties = useRepoMemo(() => PartyRepo.all());
   const parties = useMemo(() => allParties.filter(partyFilter), [allParties]);

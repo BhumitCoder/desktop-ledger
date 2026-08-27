@@ -2651,6 +2651,31 @@ async function runAll(): Promise<Results> {
       !editHeads.includes("Unit"),
       `bill columns: but still no Unit column, which nothing depends on — ${editHeads}`,
     );
+
+    /* And clearing that discount must not take the column away underneath the
+       person clearing it. NumInput reports 0 for an empty box, so a rule
+       computed from the live lines flips the moment Backspace empties the
+       field — the column unmounts, the focused input goes with it, and the
+       one value being corrected is the one that cannot be. */
+    const grid = Array.from(document.querySelectorAll("table")).find(
+      (t) => !!t.querySelector("tbody input"),
+    );
+    const discInput = Array.from(grid?.querySelectorAll("tbody input") ?? []).find(
+      (i) => (i as HTMLInputElement).value === "10",
+    ) as HTMLInputElement | undefined;
+    assert(!!discInput, "bill columns: found the discount box holding 10");
+    await act(async () => {
+      setInput(discInput, "");
+    });
+    await settleMs(120);
+    assert(
+      headersOf().includes("Disc%"),
+      `bill columns: emptying it keeps the column — ${headersOf()}`,
+    );
+    assert(
+      document.body.contains(discInput!),
+      "bill columns: and the box being typed in is still there to type in",
+    );
   }
 
   /* ── The summary strip reaches the table's right edge ─────────────────
