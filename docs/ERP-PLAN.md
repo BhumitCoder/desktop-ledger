@@ -394,7 +394,7 @@ its year label.
 - **Risk** MEDIUM. The rule that keeps it safe: nothing except the line's own
   display reads `unitUsed`.
 
-### 4.9 Serial / IMEI tracking
+### 4.9 Serial / IMEI tracking — **PLANNED in docs/SERIALS-PLAN.md**
 - **Add** `Item.trackSerials`; `serialUnits { id, itemId, serial, status,
   purchaseDocId, saleDocId }`; `LineItem.serials: string[]`.
 - **Touches** the bill and purchase forms (pick/scan serials), returns (restore
@@ -447,11 +447,17 @@ Dependency-driven, cheapest-safest first:
 | 3 | Balance Sheet · P&L from ledger · Year close | 2 reconciled | **done** |
 | 4 | Append-only corrections | 2 | **done** |
 | 5 | Unit conversion | — | |
-| 6 | Serial / IMEI | 5 | |
+| 6 | Serial / IMEI | — (see note) | **planned** |
 | 7 | Document workflow | — | |
 | 8 | Multi-location | 5, 7 | |
 | 9 | Cost centres · budgets · TDS/TCS | 2 | |
 | 10 | e-Invoicing | client credentials | |
+
+**Note on 6 (Serial / IMEI):** listed above as depending on unit conversion.
+It does not, for this shop — adapters are bought and sold as single pieces, so
+there is no box-to-piece conversion in the way. Fully planned in
+docs/SERIALS-PLAN.md, including the 11 stock-write points and 10 stock-reader
+files it touches.
 
 ## 6. Standing rules for this programme
 
