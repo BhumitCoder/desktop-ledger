@@ -46,7 +46,9 @@ import {
   findSerial,
   warrantyEnd,
   warrantyDaysLeft,
+  serialShortfalls,
 } from "@/lib/serials";
+import { planPurchaseSerials, planSaleSerials, soldSerialsOf } from "@/lib/serialMoves";
 import { transferLegsFor } from "@/lib/transferLegs";
 import { AuditLogRepo, nextVoucherNo } from "@/repositories";
 import { isLocked, blockedDate, lockMessage } from "@/lib/periodLock";
@@ -4126,6 +4128,218 @@ console.log(`\n═════════════════════�
   assert(
     tracked.length === 0,
     `T37: a serialised item is left alone — its serials are the stock, and this would overwrite them — ${JSON.stringify(tracked)}`,
+  );
+}
+
+/* ═══ TEST 38: the rule the whole feature rests on ══════════════════════
+   Serial count equals line quantity, and the document will not save
+   otherwise. Without it the data rots inside a month, and a warranty screen
+   that is confidently wrong is worse than no warranty screen at all. */
+{
+  const tracked = { id: "T", trackSerials: true };
+  const plain = { id: "P" };
+  const itemOf = (id: string) => (id === "T" ? tracked : plain) as never;
+
+  assert(
+    serialShortfalls([{ itemId: "P", name: "Cable", qty: 5 }], itemOf).length === 0,
+    "T38: an ordinary item is never asked for serials",
+  );
+  assert(
+    serialShortfalls([{ itemId: "T", name: "Adapter", qty: 2, serialIds: ["a", "b"] }], itemOf)
+      .length === 0,
+    "T38: a matched line passes",
+  );
+  const short = serialShortfalls(
+    [{ itemId: "T", name: "Adapter", qty: 3, serialIds: ["a"] }],
+    itemOf,
+  );
+  assert(
+    short.length === 1 && short[0].includes("2 serials still to scan"),
+    `T38: a short line says how many are missing — ${short[0]}`,
+  );
+  const over = serialShortfalls(
+    [{ itemId: "T", name: "Adapter", qty: 1, serialIds: ["a", "b"] }],
+    itemOf,
+  );
+  assert(
+    over.length === 1 && over[0].includes("more serials than quantity"),
+    `T38: and too many is refused just as firmly — ${over[0]}`,
+  );
+  assert(
+    serialShortfalls([{ itemId: "T", name: "Adapter", qty: 1 }], itemOf).length === 1,
+    "T38: a serialised line with no serials at all is short, not exempt",
+  );
+}
+
+/* ═══ TEST 39: what a purchase and a sale do to the units ═══════════════
+   Only a document moves a serial. These are the two that matter most, and
+   the edit paths — where a unit is taken off a bill it used to be on — are
+   where the mistakes live. */
+{
+  const item = {
+    id: "T",
+    name: "Adapter",
+    trackSerials: true,
+    warrantyMonths: 12,
+    vendorWarrantyMonths: 24,
+  } as unknown as Item;
+  const itemOf = (id: string) => (id === "T" ? item : undefined);
+
+  const bill = (over: Record<string, unknown> = {}) =>
+    ({
+      id: "PB1",
+      number: "PB-1",
+      date: "2026-05-10",
+      partyId: "V1",
+      partyName: "Mehta Distributors",
+      lineItems: [{ id: "l1", itemId: "T", name: "Adapter", qty: 2, price: 1180, serialIds: [] }],
+      total: 2360,
+      ...over,
+    }) as unknown as Invoice;
+
+  /* Receiving. Two scanned units do not exist yet — they are drafts, and
+     become records only when the bill saves. Writing them the moment they
+     are scanned would leave orphan stock behind every time somebody opened a
+     purchase and changed their mind. */
+  const received = bill();
+  received.lineItems[0].serialIds = ["draft:AAA1", "draft:AAA2"];
+  const p1 = planPurchaseSerials(received, null, itemOf);
+  assert(p1.create.length === 2, `T39: both scanned units are created — ${p1.create.length}`);
+  assert(
+    p1.create.every((c) => c.itemId === "T") && p1.create[0].serial === "AAA1",
+    "T39: under the right item, with the serial that was scanned",
+  );
+  assert(p1.update.length === 0 && p1.release.length === 0, "T39: and nothing else moves");
+
+  /* Editing the bill: one unit taken off. It never arrived, so it stops
+     being stock — but the record of it survives, like every other
+     cancellation in this application. */
+  const before = bill();
+  before.lineItems[0].serialIds = ["s1", "s2"];
+  const after = bill();
+  after.lineItems[0].serialIds = ["s1"];
+  const p2 = planPurchaseSerials(after, before, itemOf);
+  assert(
+    p2.release.length === 1 && p2.release[0].id === "s2",
+    `T39: the unit taken off the bill is released — ${JSON.stringify(p2.release)}`,
+  );
+  /* Guarded. Without it the assertion above fails correctly and then this
+     line throws on an empty array, killing the run before it can report —
+     the harness has no per-block catch, so one broken rule would hide the
+     other hundred thousand assertions. */
+  if (p2.release[0]) {
+    assert(
+      !!(p2.release[0].patch as { voidedAt?: string }).voidedAt,
+      "T39: by being marked, not by being deleted",
+    );
+  }
+  assert(
+    p2.update.length === 1 && p2.update[0].id === "s1",
+    "T39: and the one still on it is re-stamped, in case the date or price changed",
+  );
+  assert(
+    (p2.update[0].patch as { cost?: number }).cost === 1180,
+    `T39: with what THIS unit cost — ${(p2.update[0].patch as { cost?: number }).cost}`,
+  );
+  assert(
+    (p2.update[0].patch as { vendorWarrantyEnd?: string }).vendorWarrantyEnd === "2028-05-10",
+    `T39: and the shop's own claim window against the vendor — ${(p2.update[0].patch as { vendorWarrantyEnd?: string }).vendorWarrantyEnd}`,
+  );
+
+  /* Selling. */
+  const sale = bill({
+    id: "S1",
+    number: "INV-1",
+    date: "2026-06-01",
+    partyId: "C1",
+    partyName: "Ramesh",
+  });
+  sale.lineItems[0].serialIds = ["s1", "s2"];
+  const p3 = planSaleSerials(sale, null, itemOf);
+  assert(p3.update.length === 2, "T39: both units are marked sold");
+  const patch = p3.update[0].patch as Record<string, unknown>;
+  assert(patch.status === "sold", "T39: off the shelf");
+  assert(
+    patch.customerName === "Ramesh" && patch.saleDate === "2026-06-01",
+    "T39: with who bought it and when — the two things a warranty claim needs",
+  );
+  assert(
+    patch.warrantyEnd === "2027-06-01" && patch.warrantyMonths === 12,
+    `T39: and the warranty it was sold with — ${patch.warrantyEnd}`,
+  );
+
+  /* Taking a unit off a sale on an edit. It goes back on the shelf AND
+     forgets who had it: leaving a customer's name on a unit that is back in
+     stock is how a warranty lookup ends up naming the wrong person. */
+  const soldBefore = bill({ id: "S1", date: "2026-06-01" });
+  soldBefore.lineItems[0].serialIds = ["s1", "s2"];
+  const soldAfter = bill({ id: "S1", date: "2026-06-01" });
+  soldAfter.lineItems[0].serialIds = ["s1"];
+  const p4 = planSaleSerials(soldAfter, soldBefore, itemOf);
+  assert(p4.release.length === 1 && p4.release[0].id === "s2", "T39: the removed unit is released");
+  const back = p4.release[0].patch as Record<string, unknown>;
+  assert(back.status === "in_stock", "T39: back on the shelf");
+  /* The KEYS must be present and undefined, not merely absent. The write is a
+     full set() of the merged record with undefined stripped, so a key that is
+     present-and-undefined disappears from the stored document while a key
+     that was never mentioned keeps whatever it had. Checking "=== undefined"
+     alone cannot tell those two apart, and only one of them actually forgets
+     the customer. */
+  for (const k of [
+    "customerName",
+    "customerId",
+    "saleId",
+    "saleDate",
+    "warrantyEnd",
+    "warrantyMonths",
+  ]) {
+    assert(
+      Object.prototype.hasOwnProperty.call(back, k) && back[k] === undefined,
+      `T39: releasing a unit clears ${k} explicitly, so the stored record loses it — ${JSON.stringify(back)}`,
+    );
+  }
+  assert(
+    back.customerName === undefined && back.saleId === undefined,
+    "T39: and the customer forgotten with it",
+  );
+
+  /* An ordinary item is never touched by any of this. */
+  const plainBill = bill();
+  plainBill.lineItems[0].itemId = "OTHER";
+  plainBill.lineItems[0].serialIds = ["draft:X"];
+  const p5 = planPurchaseSerials(plainBill, null, itemOf);
+  assert(
+    p5.create.length === 0 && p5.update.length === 0,
+    "T39: an item that is not serialised moves no units, whatever is on the line",
+  );
+}
+
+/* ═══ TEST 40: a unit in a customer's hands cannot be un-received ═══════
+   The shop's record of where a unit came from is the only thing that lets
+   them claim a faulty one back from the vendor. Editing that purchase out
+   from under a sold unit would destroy exactly that. */
+{
+  const inv = {
+    id: "PB1",
+    lineItems: [{ id: "l", itemId: "T", qty: 2, serialIds: ["s1", "s2"] }],
+  } as unknown as Invoice;
+  const serials = [
+    { id: "s1", itemId: "T", serial: "A1", status: "sold" },
+    { id: "s2", itemId: "T", serial: "A2", status: "in_stock" },
+  ] as unknown as Serial[];
+
+  const sold = soldSerialsOf(inv, serials);
+  assert(
+    sold.length === 1 && sold[0].serial === "A1",
+    `T40: the unit already sold is named — ${JSON.stringify(sold.map((s) => s.serial))}`,
+  );
+  assert(
+    soldSerialsOf(inv, serials, new Set(["s2"])).length === 0,
+    "T40: and a unit still on the shelf is no obstacle to removing it",
+  );
+  assert(
+    soldSerialsOf(inv, serials, new Set(["s1"])).length === 1,
+    "T40: while removing the sold one is refused",
   );
 }
 

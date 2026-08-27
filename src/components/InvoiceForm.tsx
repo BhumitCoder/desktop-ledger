@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { stockOf } from "@/lib/serials";
+import { stockOf, isSerialised, warrantyEnd, serialShortfalls, serialIdsOn } from "@/lib/serials";
+import { SerialEntry } from "@/components/SerialEntry";
+import { planPurchaseSerials, planSaleSerials, soldSerialsOf } from "@/lib/serialMoves";
+import { SerialRepo } from "@/repositories";
 import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
@@ -713,8 +716,74 @@ export function InvoiceForm({ mode, existing }: Props) {
       const origDelta = isSale ? 1 : -1;
       for (const l of existing.lineItems) {
         const it = ItemRepo.get(l.itemId);
-        if (it) ItemRepo.adjustFieldBatched(batch, it.id, "stock", origDelta * l.qty);
+        // Serialised items are reversed by moving their serials, not by
+        // nudging a number nothing reads.
+        if (it && !isSerialised(it))
+          ItemRepo.adjustFieldBatched(batch, it.id, "stock", origDelta * l.qty);
       }
+    }
+
+    /* The units. Planned first and applied here, on the same batch as the
+       document itself: a bill that saved while its serials did not would
+       leave the shelf disagreeing with the paperwork, which is the one
+       outcome this whole feature exists to prevent. */
+    const serialPlan = isSale
+      ? planSaleSerials(finalInv, existing, (id) => ItemRepo.get(id))
+      : planPurchaseSerials(finalInv, existing, (id) => ItemRepo.get(id));
+
+    if (!isSale && existing) {
+      /* A unit already in a customer's hands cannot be un-received. The
+         shop's record of where it came from is the only thing that lets them
+         claim it back from the vendor. */
+      const stillOut = soldSerialsOf(
+        existing,
+        SerialRepo.all(),
+        new Set(serialPlan.release.map((r) => r.id)),
+      );
+      if (stillOut.length) {
+        toast.error(`Cannot remove ${stillOut.map((s) => s.serial).join(", ")} — already sold`, {
+          duration: 7000,
+        });
+        return;
+      }
+    }
+
+    /* Drafts become records, and the line is rewritten to point at them.
+       Ids, not serial strings, so correcting a mis-scan later moves the line
+       with it. */
+    const draftToReal = new Map<string, string>();
+    for (const c of serialPlan.create) {
+      const made = SerialRepo.addBatched(batch, {
+        itemId: c.itemId,
+        serial: c.serial,
+        status: "in_stock",
+      } as never);
+      draftToReal.set(c.draftId, made.id);
+    }
+    if (draftToReal.size) {
+      finalInv.lineItems = finalInv.lineItems.map((l) =>
+        l.serialIds?.length
+          ? { ...l, serialIds: l.serialIds.map((id) => draftToReal.get(id) ?? id) }
+          : l,
+      );
+      // Re-stamp the freshly created ones now that they have real ids.
+      for (const c of serialPlan.create) {
+        const realId = draftToReal.get(c.draftId);
+        const item = ItemRepo.get(c.itemId);
+        const line = finalInv.lineItems.find((l) => l.itemId === c.itemId);
+        if (!realId || !item || !line) continue;
+        SerialRepo.updateBatched(batch, realId, {
+          purchaseId: finalInv.id,
+          purchaseDate: finalInv.date,
+          vendorId: finalInv.partyId,
+          vendorName: finalInv.partyName,
+          cost: Math.round((line.price || 0) * 100) / 100,
+          vendorWarrantyEnd: warrantyEnd(finalInv.date, item.vendorWarrantyMonths),
+        } as never);
+      }
+    }
+    for (const u of [...serialPlan.update, ...serialPlan.release]) {
+      SerialRepo.updateBatched(batch, u.id, u.patch as never);
     }
 
     const stockDelta = isSale ? -1 : 1;
@@ -731,7 +800,14 @@ export function InvoiceForm({ mode, existing }: Props) {
         // Purchase price: always the LATEST cost, so profit stays accurate.
         if (!isSale && it.purchasePrice !== l.price) extra.purchasePrice = l.price;
       }
-      ItemRepo.adjustFieldBatched(batch, it.id, "stock", stockDelta * l.qty, extra);
+      if (isSerialised(it)) {
+        // Its stock is the serial count — the stored number is not read for
+        // this item, and writing it would leave a second figure that nothing
+        // maintains and somebody eventually believes.
+        if (Object.keys(extra).length) ItemRepo.updateBatched(batch, it.id, extra);
+      } else {
+        ItemRepo.adjustFieldBatched(batch, it.id, "stock", stockDelta * l.qty, extra);
+      }
     }
 
     // Warn (non-blocking) when a sale pushes stock below zero — shop can still bill
@@ -820,6 +896,14 @@ export function InvoiceForm({ mode, existing }: Props) {
   };
 
   const save = (andPrint = false) => {
+    /* Serial count must equal line quantity. Without this the data rots
+       inside a month, and a warranty screen that is confidently wrong is
+       worse than no warranty screen at all. */
+    const missing = serialShortfalls(inv.lineItems, (id) => items.find((x) => x.id === id));
+    if (missing.length) {
+      toast.error(missing.join(" · "), { duration: 7000 });
+      return;
+    }
     if (savingRef.current) return; // double-click / Ctrl+S repeat protection
     // Both dates: an edit that moves a bill out of a closed month changes that
     // month's filed totals as surely as one posted into it.
@@ -1426,6 +1510,32 @@ export function InvoiceForm({ mode, existing }: Props) {
                     </td>
                   </tr>
                 ))}
+                {/* Serial rows, one under each line that needs them. A
+                    separate pass rather than a second <tr> inside the map,
+                    because a fragment of two rows per line makes the keying
+                    and the hover striping fight each other. */}
+                {inv.lineItems.flatMap((l) => {
+                  const it = items.find((x) => x.id === l.itemId);
+                  if (!isSerialised(it) || !it) return [];
+                  return [
+                    <tr key={`${l.id}-serials`} className="border-t-0">
+                      <td />
+                      <td colSpan={99} className="px-3 pb-2">
+                        <SerialEntry
+                          item={it}
+                          mode={isSale ? "issuing" : "receiving"}
+                          qty={l.qty}
+                          value={l.serialIds ?? []}
+                          onChange={(ids) => updateLine(l.id, { serialIds: ids })}
+                          alreadyOnThisDocument={
+                            existing?.lineItems.find((x) => x.id === l.id)?.serialIds ?? []
+                          }
+                          usedElsewhere={serialIdsOn(inv.lineItems.filter((x) => x.id !== l.id))}
+                        />
+                      </td>
+                    </tr>,
+                  ];
+                })}
                 {pendingRowIds.map((id) => (
                   <ItemEntryRow
                     key={id}

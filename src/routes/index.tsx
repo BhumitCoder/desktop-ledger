@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { stockOf } from "@/lib/serials";
 import { useEffect, useMemo, useState } from "react";
 import {
   SalesRepo,
@@ -255,9 +256,10 @@ function Dashboard() {
       totalSettlementDiscount(periodPayments.filter((p) => p.type === "out")),
   );
 
-  const lowStock = data.items.filter(
-    (i) => (i.minStock != null && i.stock <= i.minStock) || i.stock < 0,
-  );
+  const lowStock = data.items.filter((i) => {
+    const s = stockOf(i);
+    return (i.minStock != null && s <= i.minStock) || s < 0;
+  });
 
   const chartData = useMemo(() => buildChartData(data.sales, start, end), [data.sales, start, end]);
 
@@ -523,7 +525,7 @@ function Dashboard() {
                   <div key={i.id} className="flex justify-between text-xs text-amber-700">
                     <span className="truncate flex-1">{i.name}</span>
                     <span className="font-semibold ml-2">
-                      Stock: {i.stock} / Min: {i.minStock}
+                      Stock: {stockOf(i)} / Min: {i.minStock}
                     </span>
                   </div>
                 ))}

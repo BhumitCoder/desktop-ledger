@@ -110,7 +110,8 @@ function InventoryPage() {
         // stand out even when no threshold is configured at all — this is
         // the one genuine alert on this page, so it's the one place color
         // stays (same rule Items follows for its own low-stock warning).
-        const low = (r.minStock != null && r.stock <= r.minStock) || r.stock < 0;
+        const s = stockOf(r, counts);
+        const low = (r.minStock != null && s <= r.minStock) || s < 0;
         return (
           <span className={low ? "text-warning font-medium" : ""}>
             {stockOf(r, counts)} {r.unit}
@@ -137,9 +138,10 @@ function InventoryPage() {
 
   // Footer totals cover the filtered rows the table actually shows
   const totalValue = filtered.reduce((s, r) => s + stockOf(r, counts) * r.purchasePrice, 0);
-  const lowCount = filtered.filter(
-    (r) => (r.minStock != null && r.stock <= r.minStock) || r.stock < 0,
-  ).length;
+  const lowCount = filtered.filter((r) => {
+    const s = stockOf(r, counts);
+    return (r.minStock != null && s <= r.minStock) || s < 0;
+  }).length;
 
   const pg = usePagination(filtered, "inventory");
 
@@ -178,7 +180,8 @@ function InventoryPage() {
               // be treated as unset), and negative/oversold stock should always
               // stand out even when no threshold is configured at all — same
               // rule the desktop "Current" column uses.
-              const low = (r.minStock != null && r.stock <= r.minStock) || r.stock < 0;
+              const s = stockOf(r, counts);
+              const low = (r.minStock != null && s <= r.minStock) || s < 0;
               return (
                 <div key={r.id} className="bg-white p-4">
                   <div className="flex items-start justify-between gap-3 mb-1.5">

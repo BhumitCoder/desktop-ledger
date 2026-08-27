@@ -134,3 +134,44 @@ export function warrantyDaysLeft(end: string | undefined, today: string): number
   if (isNaN(a) || isNaN(b)) return undefined;
   return Math.round((a - b) / 86400000);
 }
+
+/**
+ * Units added while receiving do not exist as records yet — the bill has not
+ * been saved. They are held as drafts keyed by a temporary id, and turned
+ * into Serial records on save. The alternative, writing them immediately,
+ * would leave orphan stock behind every time someone opened a purchase and
+ * changed their mind.
+ */
+export const DRAFT_PREFIX = "draft:";
+export const isDraftSerial = (id: string) => id.startsWith(DRAFT_PREFIX);
+export const draftSerialText = (id: string) => id.slice(DRAFT_PREFIX.length);
+
+/**
+ * Which lines do not have the right number of serials.
+ *
+ * The rule the whole feature rests on: serial count equals line quantity, and
+ * the document will not save otherwise. Without it the data rots inside a
+ * month, and a warranty screen that is confidently wrong is worse than no
+ * warranty screen.
+ */
+export function serialShortfalls(
+  lines: { itemId: string; name: string; qty: number; serialIds?: string[] }[],
+  itemOf: (id: string) => { trackSerials?: boolean } | undefined,
+): string[] {
+  const out: string[] = [];
+  for (const l of lines) {
+    if (!itemOf(l.itemId)?.trackSerials) continue;
+    const have = l.serialIds?.length ?? 0;
+    if (have === l.qty) continue;
+    out.push(
+      have < l.qty
+        ? `${l.name}: ${l.qty - have} serial${l.qty - have > 1 ? "s" : ""} still to scan`
+        : `${l.name}: ${have - l.qty} more serials than quantity`,
+    );
+  }
+  return out;
+}
+
+/** Every serial id named anywhere on a set of lines. */
+export const serialIdsOn = (lines: { serialIds?: string[] }[]): string[] =>
+  lines.flatMap((l) => l.serialIds ?? []);

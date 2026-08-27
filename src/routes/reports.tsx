@@ -939,9 +939,10 @@ function ReportView({
 
   if (which === "stock") {
     const totalValue = items.reduce((a, i) => a + stockOf(i) * i.purchasePrice, 0);
-    const lowStock = items.filter(
-      (i) => (i.minStock != null && i.stock <= i.minStock) || i.stock < 0,
-    ).length;
+    const lowStock = items.filter((i) => {
+      const s = stockOf(i);
+      return (i.minStock != null && s <= i.minStock) || s < 0;
+    }).length;
     return (
       <TableReport
         label={label}

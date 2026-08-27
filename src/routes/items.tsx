@@ -153,7 +153,8 @@ function ItemsPage() {
       render: (r) => {
         // minStock=0 is a valid "alert exactly at zero" threshold — must not
         // be treated the same as "no threshold set" (which `&&` would do).
-        const low = (r.minStock != null && r.stock <= r.minStock) || r.stock < 0;
+        const s = stockOf(r, counts);
+        const low = (r.minStock != null && s <= r.minStock) || s < 0;
         return (
           <span className={low ? "text-warning font-medium" : ""}>
             {stockOf(r, counts)} {r.unit}
@@ -290,7 +291,8 @@ function ItemsPage() {
         ) : (
           <div className="divide-y divide-gray-100">
             {pg.paged.map((r) => {
-              const low = (r.minStock != null && r.stock <= r.minStock) || r.stock < 0;
+              const s = stockOf(r, counts);
+              const low = (r.minStock != null && s <= r.minStock) || s < 0;
               return (
                 <div
                   key={r.id}
@@ -760,6 +762,58 @@ export function ItemDialog({
               setF({ ...f, minStock: v === "" ? undefined : Math.max(0, parseFloat(v) || 0) });
             }}
           />
+          {/* Serial tracking. Its own block, spanning the row, because
+              turning it on changes what "stock" means for this item and that
+              deserves more than a checkbox squeezed between two number
+              boxes. */}
+          <div className="sm:col-span-3 rounded-md border bg-muted/30 px-3 py-2.5">
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!!f.trackSerials}
+                onChange={(e) => setF({ ...f, trackSerials: e.target.checked })}
+                className="mt-0.5 h-4 w-4 accent-primary"
+              />
+              <span>
+                <span className="text-[13px] font-semibold text-foreground block">
+                  Track serial numbers
+                </span>
+                <span className="text-[11px] text-muted-foreground block mt-0.5">
+                  For units with a warranty against the individual piece. Every purchase and sale of
+                  this item will ask which units — and its stock becomes the count of units on the
+                  shelf, rather than a number anyone can type. Leave off for anything sold by the
+                  handful.
+                </span>
+              </span>
+            </label>
+            {f.trackSerials && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2.5 pl-6">
+                <Field
+                  label="Customer warranty (months)"
+                  type="text"
+                  inputMode="numeric"
+                  value={f.warrantyMonths ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (!/^\d*$/.test(v)) return;
+                    setF({ ...f, warrantyMonths: v === "" ? undefined : parseInt(v, 10) });
+                  }}
+                />
+                <Field
+                  label="Vendor warranty (months)"
+                  type="text"
+                  inputMode="numeric"
+                  value={f.vendorWarrantyMonths ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (!/^\d*$/.test(v)) return;
+                    setF({ ...f, vendorWarrantyMonths: v === "" ? undefined : parseInt(v, 10) });
+                  }}
+                />
+              </div>
+            )}
+          </div>
+
           <div className="sm:col-span-3 flex justify-end gap-2 mt-2">
             <Button
               type="button"
