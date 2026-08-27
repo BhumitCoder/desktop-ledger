@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/select";
 import { ModePills } from "@/components/ModePills";
 import { fmtMode } from "@/lib/paymentMode";
-import { fmtMoney, fmtDate, today } from "@/lib/format";
+import { fmtDate, fmtDateShort, fmtMoney, today } from "@/lib/format";
 import { Plus, Receipt, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -87,7 +87,7 @@ function ExpensesPage() {
       key: "date",
       label: "Date",
       width: "120px",
-      render: (r) => fmtDate(r.date),
+      render: (r) => <span className="whitespace-nowrap">{fmtDateShort(r.date)}</span>,
       sortValue: (r) => r.date,
     },
     { key: "category", label: "Category", width: "160px", render: (r) => r.category },

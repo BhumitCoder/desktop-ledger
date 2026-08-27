@@ -2803,6 +2803,94 @@ async function runAll(): Promise<Results> {
     );
   }
 
+  /* ── One date format across every section's table ─────────────────────
+     Cash and Payments read 22-08-26; every other list read "22 Aug 2026".
+     Two formats in one application is a small thing that makes a screen feel
+     unfinished — and the long one is what pushed the Action column off the
+     right edge on those two tables in the first place, a width problem the
+     other tables have too and simply had not hit yet.
+
+     Checked as a set rather than one screen at a time, because "they all
+     match" is the actual requirement and no single-screen assertion states
+     it. */
+  {
+    /* Purchase Returns carries no rows from any earlier block, and a screen
+       with no rows checks nothing — so it gets one. */
+    PurchaseReturnRepo.add({
+      id: "PRDATE",
+      createdAt: "2026-01-01T00:00:00Z",
+      number: "DN-DATE",
+      date: D2,
+      partyId: "P1",
+      partyName: "Acme Traders",
+      gstEnabled: false,
+      lineItems: [],
+      subtotal: 100,
+      taxAmount: 0,
+      total: 100,
+    } as never);
+
+    const SHORT = /^\d{2}-\d{2}-\d{2}$/; // 22-08-26
+    const LONG = /^\d{1,2} [A-Za-z]{3} \d{4}$/; // 22 Aug 2026
+
+    let checked = 0;
+    for (const [route, label] of [
+      ["/sales", "Sales"],
+      ["/purchase", "Purchases"],
+      ["/sale-return", "Sale Returns"],
+      ["/purchase-return", "Purchase Returns"],
+      ["/expenses", "Expenses"],
+      ["/payments", "Payments"],
+      ["/cash", "Cash"],
+    ] as const) {
+      await renderRoute(route);
+      const table = document.querySelector(".data-table table");
+      const heads = Array.from(table?.querySelectorAll("thead th") ?? []).map((th) =>
+        (th.textContent ?? "").trim(),
+      );
+      const dateCol = heads.indexOf("Date");
+      assert(dateCol >= 0, `date format: ${label} has a Date column — ${heads}`);
+
+      const cells = Array.from(table?.querySelectorAll("tbody tr") ?? [])
+        .map((tr) => (tr.querySelectorAll("td")[dateCol]?.textContent ?? "").trim())
+        .filter(Boolean);
+      /* Asserted, not skipped. A screen with no rows checks nothing, and
+         "continue" turns that into a pass — which is exactly how the purchase
+         returns screen sailed through with the long date still on it. */
+      assert(cells.length > 0, `date format: ${label} has rows to check`);
+      checked++;
+
+      assert(
+        cells.every((c) => SHORT.test(c)),
+        `date format: ${label} shows the short form — ${JSON.stringify(cells.slice(0, 3))}`,
+      );
+      assert(
+        !cells.some((c) => LONG.test(c)),
+        `date format: and nothing on ${label} still reads the long way — ${JSON.stringify(cells.slice(0, 3))}`,
+      );
+    }
+    assert(checked === 7, `date format: all seven section tables were checked — ${checked}`);
+  }
+
+  /* A statement handed to a customer keeps the long date. It is a document,
+     not a list to scan, and "22-08-26" on something a customer reads is worse
+     in a way that saving a few pixels does not pay for. */
+  {
+    await renderRoute("/parties/P1");
+    const rows = Array.from(document.querySelectorAll("tbody tr"))
+      .map((tr) => (tr.querySelector("td")?.textContent ?? "").trim())
+      .filter((t) => /\d/.test(t));
+    assert(rows.length > 0, "date format: the party statement has rows");
+    assert(
+      rows.some((c) => /^\d{1,2} [A-Za-z]{3} \d{4}$/.test(c)),
+      `date format: a party statement still reads the long way — it is a document handed to a customer, not a list to scan — ${JSON.stringify(rows.slice(0, 3))}`,
+    );
+    assert(
+      !rows.some((c) => /^\d{2}-\d{2}-\d{2}$/.test(c)),
+      `date format: and none of its rows were switched to the short form — ${JSON.stringify(rows.slice(0, 3))}`,
+    );
+  }
+
   /* ── The summary strip reaches the table's right edge ─────────────────
      Screens hand in their own footer <tr>, counting columns by hand. Adding
      the Action column left every one of them a cell short, so the strip
