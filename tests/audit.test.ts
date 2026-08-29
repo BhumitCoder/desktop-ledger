@@ -54,6 +54,8 @@ import {
 } from "@/lib/serials";
 import {
   planPurchaseSerials,
+  planSaleReturnSerials,
+  planPurchaseReturnSerials,
   planSaleSerials,
   soldSerialsOf,
   undoSerialsOf,
@@ -4501,6 +4503,118 @@ console.log(`\n═════════════════════�
     vendorClaimState({} as Serial, TODAY).tone === "none",
     "T43: and an unrecorded one is not silently treated as open",
   );
+}
+
+/* ═══ TEST 44: a sale return takes named units back ═════════════════════
+   The unit really was sold to that customer and really did come back. Both
+   halves are the record — erasing the first is what makes a return
+   impossible to undo correctly. */
+{
+  const item = { id: "T", trackSerials: true } as unknown as Item;
+  const itemOf = (id: string) => (id === "T" ? item : undefined);
+  const ret = {
+    id: "CR1",
+    date: "2026-06-10",
+    lineItems: [{ itemId: "T", serialIds: ["s1", "s2"] }],
+  } as unknown as Return;
+
+  const p = planSaleReturnSerials(ret, null, itemOf);
+  assert(p.update.length === 2, "T44: every unit named on the note moves");
+  const patch = p.update[0].patch as Record<string, unknown>;
+  assert(patch.status === "in_stock", "T44: a returned unit goes back on the shelf");
+  assert(patch.returnId === "CR1", "T44: stamped with the note that brought it back");
+  assert(patch.returnDate === "2026-06-10", "T44: and when");
+  // The sale must survive: it is the trail, and it is what undoing this
+  // return puts back. A patch that MENTIONED these keys would clear them,
+  // because a full set() strips undefined.
+  assert(
+    !Object.prototype.hasOwnProperty.call(patch, "customerName"),
+    "T44: the customer who had it is not erased — the return is not a denial of the sale",
+  );
+  assert(
+    !Object.prototype.hasOwnProperty.call(patch, "saleId"),
+    "T44: nor which bill it went out on",
+  );
+
+  // A warranty failure is the commonest sale return there is.
+  const faulty = planSaleReturnSerials({ ...ret, unitsDamaged: true }, null, itemOf);
+  assert(
+    (faulty.update[0].patch as Record<string, unknown>).status === "damaged",
+    "T44: a faulty unit is marked damaged, not put back on the sellable shelf",
+  );
+
+  // Taken off the note before saving: it did not come back after all.
+  const edited = planSaleReturnSerials(
+    { ...ret, lineItems: [{ itemId: "T", serialIds: ["s1"] }] } as unknown as Return,
+    ret,
+    itemOf,
+  );
+  assert(edited.release.length === 1, "T44: a unit removed from the note is put back as it was");
+  const rel = edited.release[0].patch as Record<string, unknown>;
+  assert(rel.status === "sold", "T44: which means it is with the customer again");
+  assert(
+    Object.prototype.hasOwnProperty.call(rel, "returnId") && rel.returnId === undefined,
+    "T44: and the note is cleared explicitly, not merely left unmentioned",
+  );
+
+  const plain = { ...ret, lineItems: [{ itemId: "OTHER", serialIds: ["x"] }] } as unknown as Return;
+  assert(
+    planSaleReturnSerials(plain, null, itemOf).update.length === 0,
+    "T44: an item that is not serialised moves nothing, whatever is on the line",
+  );
+}
+
+/* ═══ TEST 45: a purchase return sends named units back to the vendor ═══
+   These leave for good, which is why they stop counting as stock without
+   being deleted — the shop still has to say where a unit went. */
+{
+  const item = { id: "T", trackSerials: true } as unknown as Item;
+  const itemOf = (id: string) => (id === "T" ? item : undefined);
+  const ret = {
+    id: "DR1",
+    date: "2026-06-11",
+    lineItems: [{ itemId: "T", serialIds: ["s1"] }],
+  } as unknown as Return;
+
+  const p = planPurchaseReturnSerials(ret, null, itemOf);
+  const patch = p.update[0].patch as Record<string, unknown>;
+  assert(patch.status === "returned_to_vendor", "T45: the unit goes back to the vendor");
+  assert(patch.returnId === "DR1", "T45: stamped with the note that sent it");
+  assert(
+    !Object.prototype.hasOwnProperty.call(patch, "purchaseId"),
+    "T45: and keeps where it came from, which is the whole point of the record",
+  );
+
+  const edited = planPurchaseReturnSerials(
+    { ...ret, lineItems: [] } as unknown as Return,
+    ret,
+    itemOf,
+  );
+  assert(
+    (edited.release[0].patch as Record<string, unknown>).status === "in_stock",
+    "T45: a unit taken off the note never left the shop",
+  );
+}
+
+/* ═══ TEST 46: undoing a return clears the note as well as the status ═══
+   A status put back while the note id stayed would leave a unit claiming to
+   have been returned by a document that no longer counts. */
+{
+  const item = { id: "T", trackSerials: true } as unknown as Item;
+  const itemOf = (id: string) => (id === "T" ? item : undefined);
+  const doc = { lineItems: [{ itemId: "T", serialIds: ["s1"] }] };
+
+  for (const kind of ["sale-return", "purchase-return"] as const) {
+    const patch = undoSerialsOf(doc, kind, itemOf)[0].patch as Record<string, unknown>;
+    assert(
+      Object.prototype.hasOwnProperty.call(patch, "returnId") && patch.returnId === undefined,
+      `T46: cancelling a ${kind} clears the note off the unit explicitly`,
+    );
+    assert(
+      Object.prototype.hasOwnProperty.call(patch, "returnDate") && patch.returnDate === undefined,
+      `T46: including the date, so nothing is left half-set on a ${kind}`,
+    );
+  }
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);

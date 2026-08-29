@@ -18,7 +18,7 @@
  *                            └─────────────────┘
  */
 
-import type { Invoice, Item, Serial } from "@/types";
+import type { Invoice, Item, Return, Serial } from "@/types";
 import { warrantyEnd, isDraftSerial, draftSerialText } from "@/lib/serials";
 
 /** A serial to bring into existence, because a purchase received it. */
@@ -146,12 +146,102 @@ export function planSaleSerials(
 }
 
 /**
+ * Everything a sale return does to its units.
+ *
+ * Note what it does NOT do: erase the sale. The unit really was sold to that
+ * customer on that day and really did come back, and both halves are the
+ * record. Readers decide what to SHOW from the status — a unit that is not
+ * sold has no warranty running and no current holder, which is exactly what
+ * warrantyState answers and what the screens print. Erasing instead would
+ * make undoing this return impossible to get right, because nothing left on
+ * the unit would say which sale to put back.
+ */
+export function planSaleReturnSerials(
+  ret: Return,
+  previous: Return | null | undefined,
+  itemOf: (id: string) => Item | undefined,
+): SerialPlan {
+  const plan = emptyPlan();
+  const nowOn = new Set<string>();
+  // A warranty failure is the commonest return there is, and putting that
+  // unit back on the sellable shelf hands it to the next customer.
+  const back: Serial["status"] = ret.unitsDamaged ? "damaged" : "in_stock";
+
+  for (const l of ret.lineItems) {
+    if (!itemOf(l.itemId)?.trackSerials) continue;
+    for (const id of l.serialIds ?? []) {
+      nowOn.add(id);
+      plan.update.push({ id, patch: { status: back, returnId: ret.id, returnDate: ret.date } });
+    }
+  }
+
+  // Taken off the note on an edit: it did not come back after all, so it is
+  // with the customer again.
+  for (const l of previous?.lineItems ?? []) {
+    for (const id of l.serialIds ?? []) {
+      if (nowOn.has(id)) continue;
+      plan.release.push({ id, patch: backWithCustomer() });
+    }
+  }
+  return plan;
+}
+
+/**
+ * Everything a purchase return does to its units.
+ *
+ * These leave the shop for good, which is why they stop counting as stock
+ * without being deleted: the shop still needs to be able to say where a unit
+ * went when the vendor asks about it.
+ */
+export function planPurchaseReturnSerials(
+  ret: Return,
+  previous: Return | null | undefined,
+  itemOf: (id: string) => Item | undefined,
+): SerialPlan {
+  const plan = emptyPlan();
+  const nowOn = new Set<string>();
+
+  for (const l of ret.lineItems) {
+    if (!itemOf(l.itemId)?.trackSerials) continue;
+    for (const id of l.serialIds ?? []) {
+      nowOn.add(id);
+      plan.update.push({
+        id,
+        patch: { status: "returned_to_vendor", returnId: ret.id, returnDate: ret.date },
+      });
+    }
+  }
+
+  for (const l of previous?.lineItems ?? []) {
+    for (const id of l.serialIds ?? []) {
+      if (nowOn.has(id)) continue;
+      plan.release.push({ id, patch: backOnShelf() });
+    }
+  }
+  return plan;
+}
+
+/** Undoing a sale return: the unit is with the customer again, and the note
+ *  that said otherwise is forgotten. The key must be PRESENT and undefined —
+ *  a key merely absent leaves the stored value where it was. */
+export function backWithCustomer(): Partial<Serial> {
+  return { status: "sold", returnId: undefined, returnDate: undefined };
+}
+
+/** Undoing a purchase return: it was never sent back to the vendor. */
+export function backOnShelf(): Partial<Serial> {
+  return { status: "in_stock", returnId: undefined, returnDate: undefined };
+}
+
+/**
  * Put a unit back on the shelf, forgetting who had it.
  *
- * Written once and shared by the edit path, the void path and sale returns,
- * because "back in stock" has to mean the same thing in all three. Leaving a
- * customer's name on a unit that is back on the shelf is how a warranty
- * lookup ends up naming the wrong person.
+ * Written once and shared by the sale edit path and the sale void path,
+ * because "this customer never had it" has to mean the same thing in both.
+ *
+ * Sale RETURNS deliberately do not use this: there the customer did have the
+ * unit, and erasing that would lose the trail and make the return impossible
+ * to undo. See planSaleReturnSerials.
  */
 export function releaseToStock(): Partial<Serial> {
   return {
@@ -194,13 +284,13 @@ export function undoSerialsOf(
           break;
         case "sale-return":
           // The unit did NOT come back after all, so it is with the customer
-          // again. Who that is gets restored from the original sale by the
-          // caller, which is the only place that knows it.
-          out.push({ id, patch: { status: "sold" } });
+          // again — and every sale field is still on the record, because the
+          // return never erased them.
+          out.push({ id, patch: backWithCustomer() });
           break;
         case "purchase-return":
           // It was not sent back to the vendor after all.
-          out.push({ id, patch: { status: "in_stock" } });
+          out.push({ id, patch: backOnShelf() });
           break;
       }
     }

@@ -285,16 +285,16 @@ adapter, and it is strictly more than they asked for.
 
 ## 8. Order of work
 
-| #   | Step                                                                                                                                     | Why this order                                                |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| 1   | **DONE** — `Serial` type, `SerialRepo`, `stockOf()` accessor, readers routed through it                                                  | Nothing behaves differently yet; the seam exists              |
-| 2   | **DONE** — Purchase capture + serial list on the item page                                                                               | Serials exist and are visible before anything depends on them |
-| 3   | **DONE** — Sale picking + the count-equals-qty rule                                                                                      | The state machine closes                                      |
-| 4   | **DONE (partly)** — voids, deletes and stock adjustments move or refuse; returns of serialised items are _refused_, pending unit capture | Every other path that moves stock                             |
-| 5   | **DONE** — Serial Lookup screen, warranty + vendor claim state, Units panel on the item page                                             | The payoff                                                    |
-| 6   | Printed documents, exports                                                                                                               | Reaches the customer                                          |
-| 7   | Serial-integrity check; drop serialised items from `planStockRepair`                                                                     | The old repair stops being wrong for them                     |
-| 8   | Exact COGS from serial cost; Inventory reconciliation row                                                                                | The ledger gets better numbers                                |
+| #   | Step                                                                                                 | Why this order                                                |
+| --- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| 1   | **DONE** — `Serial` type, `SerialRepo`, `stockOf()` accessor, readers routed through it              | Nothing behaves differently yet; the seam exists              |
+| 2   | **DONE** — Purchase capture + serial list on the item page                                           | Serials exist and are visible before anything depends on them |
+| 3   | **DONE** — Sale picking + the count-equals-qty rule                                                  | The state machine closes                                      |
+| 4   | **DONE** — voids, deletes, stock adjustments and both returns move their units or refuse and say why | Every other path that moves stock                             |
+| 5   | **DONE** — Serial Lookup screen, warranty + vendor claim state, Units panel on the item page         | The payoff                                                    |
+| 6   | Printed documents, exports                                                                           | Reaches the customer                                          |
+| 7   | Serial-integrity check; drop serialised items from `planStockRepair`                                 | The old repair stops being wrong for them                     |
+| 8   | Exact COGS from serial cost; Inventory reconciliation row                                            | The ledger gets better numbers                                |
 
 Steps 1–3 are the feature. 4–8 are what make it survive contact with a real
 shop.

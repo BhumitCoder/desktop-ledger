@@ -210,19 +210,6 @@ function checkStockPathsKnowSerials() {
     "src/routes/items_.$id.tsx",
   ]);
 
-  /* The two return screens undo a document that cannot yet contain a
-     serialised item, because ReturnForm refuses to create one. The exemption
-     is therefore conditional on that refusal still being there — remove the
-     guard and these stop being exempt on the same run, rather than years
-     later when somebody notices the shelf is wrong. */
-  const returnForm = fs.readFileSync(
-    path.resolve(__dirname, "../src/components/ReturnForm.tsx"),
-    "utf8",
-  );
-  if (/trackSerials/.test(returnForm)) {
-    EXEMPT.add("src/routes/sale-return.index.tsx");
-    EXEMPT.add("src/routes/purchase-return.index.tsx");
-  }
   const offenders = [];
   for (const root of ["src/components", "src/routes"]) {
     const dir = path.resolve(__dirname, "..", root);

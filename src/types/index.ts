@@ -208,6 +208,17 @@ export interface Serial extends Audited, Voidable {
    *  leaves out, and where the money is actually lost. */
   vendorWarrantyEnd?: string;
 
+  /** The credit or debit note that last moved this unit, if one did.
+   *
+   *  A sale return does NOT erase who had the unit — the trail is the point.
+   *  It changes the status, and every reader decides what to show from that:
+   *  a unit back on the shelf has no warranty running and no current holder,
+   *  which is what warrantyState and the screens key off. Keeping the sale
+   *  fields is also what makes undoing a return a single status change with
+   *  nothing to reconstruct. */
+  returnId?: ID;
+  returnDate?: string;
+
   createdAt: string;
 }
 
@@ -299,6 +310,14 @@ export interface Return extends Voidable {
   number: string;
   date: string;
   originalRef?: string;
+  /** Serial-tracked units on this credit note came back faulty, so they go to
+   *  `damaged` rather than onto the sellable shelf.
+   *
+   *  Without this the commonest sale return there is — a warranty failure —
+   *  would put a broken unit back in stock for the next customer. Per note
+   *  rather than per unit because that is how they arrive: a customer brings
+   *  back the one that stopped working, not a mixed bag. */
+  unitsDamaged?: boolean;
   partyId: ID;
   partyName: string;
   partyPhone?: string;

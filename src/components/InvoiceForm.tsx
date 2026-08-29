@@ -642,6 +642,11 @@ export function InvoiceForm({ mode, existing }: Props) {
 
     const finalInv: Invoice = {
       ...inv,
+      /* Minted here, not left to addBatched. The serial plan below stamps
+         every unit with THIS id, and addBatched only generates one when the
+         record arrives without it — which is after the stamping. An empty id
+         here silently unlinked every unit from the bill that sold it. */
+      id: inv.id || genId(),
       number: inv.number.trim(),
       paid,
       partyId,

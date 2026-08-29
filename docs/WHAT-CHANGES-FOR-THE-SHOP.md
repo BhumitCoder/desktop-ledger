@@ -90,16 +90,22 @@ figure said 12. Which twelve, nobody knew.
 - **The stock figure is the count of units on the shelf.** It is not stored
   and cannot be typed. It is always exactly what the unit list says.
 
-Three things therefore **refuse** rather than guess, each saying what to do
-instead:
+Returning one asks **which unit came back** — and, because a warranty failure
+is the commonest return there is, whether it came back **faulty**. Tick that
+and the unit is marked damaged instead of going back on the sellable shelf.
+The units are never copied across from the original bill: the bill says what
+went out, and only the counter can say what came back.
+
+These therefore **refuse** rather than guess, each saying what to do instead:
 
 | If somebody tries to…                                                      | It says                                                          |
 | -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
 | type a stock figure for one of these items (item page, or the bulk editor) | receive units on a purchase, or void the document that was wrong |
-| **return** a serial-tracked item on a credit/debit note                    | void the original bill instead — returns cannot name units yet   |
 | delete or cancel a purchase whose units have **already been sold**         | names those units and stops                                      |
+| return a unit that was **sold on a different bill**                        | names the bill the note is raised against                        |
+| return a unit that was **never sold**                                      | says so — it cannot come back from a customer it never went to   |
 
-That last one is not a limitation. A unit in a customer's hands cannot stop
+The purchase one is not a limitation. A unit in a customer's hands cannot stop
 having arrived, and the purchase record is the only thing that lets the shop
 claim a faulty one back from the vendor.
 

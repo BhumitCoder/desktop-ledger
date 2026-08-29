@@ -33,6 +33,7 @@ import { PrintableInvoice } from "@/components/PrintableInvoice";
 import { PrintableReturn } from "@/components/PrintableReturn";
 import { fmtMoney, today, ymd } from "@/lib/format";
 import { planStockRepair } from "@/lib/dataRepair";
+import { stockOf } from "@/lib/serials";
 import { useEscapeToLeave } from "@/hooks/useFormKeys";
 import { useAppEscape } from "@/hooks/useGoBack";
 import { useWorkspace } from "@/store/workspace";
@@ -388,6 +389,21 @@ function seed() {
     warrantyEnd: plusDays(-40),
     vendorWarrantyEnd: plusDays(-10),
   } as never);
+  /* Sold, but on a different bill. A credit note against INV-SER1 must
+     refuse it: crediting a customer for a unit they never bought corrupts
+     both bills at once. */
+  SerialRepo.add({
+    id: "SN4",
+    createdAt: `${D2}T09:00:00Z`,
+    itemId: "I9",
+    serial: "WRONGBILL1",
+    status: "sold",
+    purchaseId: "PU1",
+    purchaseDate: D2,
+    saleId: "S1",
+    saleDate: D3,
+    customerName: "Ramesh Traders",
+  } as never);
 }
 
 let host: HTMLDivElement | null = null;
@@ -686,7 +702,7 @@ async function runAll(): Promise<Results> {
     has(page, "F2LX9K3AAA", "item units: every unit is listed, not just the unsold ones");
     has(page, "F2LX9K3BBB", "item units: including one still on the shelf");
     has(page, "1 on the shelf", "item units: the shelf count is stated, not left to be counted");
-    has(page, "3 ever received", "item units: alongside how many ever came in");
+    has(page, "4 ever received", "item units: alongside how many ever came in");
     has(page, "Ramesh Traders", "item units: who each sold unit went to");
     has(page, "Warranty ended", "item units: and which have fallen out of warranty");
 
@@ -3110,6 +3126,260 @@ async function runAll(): Promise<Results> {
     assert(
       document.body.contains(discBox!),
       "return columns: and the box being cleared is still there",
+    );
+  }
+
+  /* ── A credit note has to say WHICH units came back ───────────────────
+     The document created here rather than in the shared fixture: a sale added
+     there moves the revenue, COGS and cash figures eight earlier tests assert,
+     and those tests are right to assert them. */
+  {
+    SalesRepo.add({
+      id: "S9",
+      createdAt: `${D3}T09:00:00Z`,
+      number: "INV-SER1",
+      date: D3,
+      partyId: "P1",
+      partyName: "Ramesh Traders",
+      gstEnabled: false,
+      lineItems: [
+        {
+          id: "L9",
+          itemId: "I9",
+          name: "Apple 20W Adapter",
+          unit: "pcs",
+          qty: 2,
+          price: 1900,
+          discountPct: 0,
+          gstRate: 0,
+          costPrice: 1200,
+          amount: 3800,
+          serialIds: ["SN1", "SN3"],
+        },
+      ],
+      subtotal: 3800,
+      discount: 0,
+      shippingCharge: 0,
+      taxAmount: 0,
+      total: 3800,
+      paid: 3800,
+      paymentMode: "cash",
+    } as never);
+
+    await renderRoute("/sale-return/new");
+    const invBox = Array.from(document.querySelectorAll("input")).find((i) =>
+      /auto-load items/i.test(i.getAttribute("placeholder") ?? ""),
+    ) as HTMLInputElement | undefined;
+    assert(!!invBox, "return serials: found the original-bill box");
+    await act(async () => {
+      setInput(invBox, "INV-SER1");
+    });
+    await settleMs(150);
+    const option = Array.from(document.querySelectorAll("div")).find(
+      (el) =>
+        (el.textContent ?? "").includes("INV-SER1") &&
+        el.querySelector("span.font-mono") &&
+        !el.querySelector("div div"),
+    );
+    assert(!!option, "return serials: the bill is offered");
+    await act(async () => {
+      option?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    });
+    await settleMs(250);
+
+    const scanBox = () =>
+      Array.from(document.querySelectorAll("input")).find((i) =>
+        /coming back/i.test(i.getAttribute("placeholder") ?? ""),
+      ) as HTMLInputElement | undefined;
+    assert(!!scanBox(), "return serials: a serialised line asks which units came back");
+
+    // The bill says which went out; only the counter can say which came back.
+    const loaded = await readMounted();
+    assert(
+      !loaded.includes("F2LX9K3AAA"),
+      "return serials: the units are NOT pre-filled from the bill — that would answer for the counter",
+    );
+    has(loaded, "2 more to pick", "return serials: it says how many are still to be scanned");
+
+    const scan = async (text: string) => {
+      setInput(scanBox(), text);
+      await act(async () => {
+        scanBox()?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      });
+      return readMounted();
+    };
+
+    // In stock, so it was never sold — the exact opposite of what a credit
+    // note needs, and the reverse of the test the sale form applies.
+    const notSold = await scan("F2LX9K3BBB");
+    has(
+      notSold,
+      "was not sold",
+      "return serials: a unit still on the shelf cannot come back from a customer",
+    );
+
+    // Sold, but on a different bill: crediting this customer for it would
+    // corrupt both bills at once.
+    const wrongBill = await scan("WRONGBILL1");
+    has(
+      wrongBill,
+      "is not on INV-SER1",
+      "return serials: a unit sold on another bill is refused, and the bill is named",
+    );
+
+    const good = await scan("F2LX9K3AAA");
+    has(good, "F2LX9K3AAA", "return serials: a unit that really went out on this bill is accepted");
+    has(good, "1 more to pick", "return serials: and the counter comes down");
+
+    // A warranty failure is the commonest sale return there is.
+    has(
+      good,
+      "came back faulty",
+      "return serials: the note can say these are faulty rather than resellable",
+    );
+
+    /* The refusal and the movement are both asserted by OUTCOME, not by the
+       toast: sonner's Toaster lives in the root component, which this harness
+       replaces with a bare Outlet. */
+    const saveBtn = () =>
+      Array.from(document.querySelectorAll("button")).find((b) =>
+        /^Save/.test((b.textContent ?? "").trim()),
+      );
+    assert(!!saveBtn(), "return serials: the Save button is on screen");
+    const clickSave = async () => {
+      await act(async () => {
+        saveBtn()?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      await settleMs(150);
+    };
+
+    const before = SaleReturnRepo.all().length;
+    await clickSave();
+    assert(
+      SaleReturnRepo.all().length === before,
+      "return serials: a note naming fewer units than it credits will not save",
+    );
+    assert(
+      SerialRepo.get("SN1")?.status === "sold",
+      "return serials: and nothing moved while it was refused",
+    );
+
+    // Scan the second unit the bill actually carried, and it goes through.
+    await scan("QQ7700ZZZ");
+    await clickSave();
+    assert(SaleReturnRepo.all().length === before + 1, "return serials: a complete note saves");
+    assert(
+      SerialRepo.get("SN1")?.status === "in_stock",
+      "return serials: the units that came back are on the shelf again",
+    );
+    assert(
+      SerialRepo.get("SN1")?.customerName === "Ramesh Traders",
+      "return serials: with who had them still on the record — a return is not a denial of the sale",
+    );
+    assert(
+      !!SerialRepo.get("SN1")?.returnId,
+      "return serials: and the note that brought them back named on the unit",
+    );
+    // Stock is COUNTED from the units, so it moved without anyone writing it.
+    assert(
+      stockOf(ItemRepo.get("I9")!) === 3,
+      `return serials: the shelf count follows the units, not a stored number — got ${stockOf(ItemRepo.get("I9")!)}`,
+    );
+    /* And the stored field was left alone. stockOf() ignores it entirely for
+       these items, so a bogus number written here is invisible to every
+       assertion above — which is exactly why it has to be checked directly.
+       A figure nothing reads is a figure somebody eventually believes. */
+    assert(
+      (ItemRepo.get("I9") as { stock?: number }).stock === 0,
+      `return serials: and the stored stock number was not nudged as well — got ${JSON.stringify((ItemRepo.get("I9") as { stock?: number }).stock)}`,
+    );
+  }
+
+  /* ── A sold unit must point at the bill that sold it ──────────────────
+     Driven through the form rather than seeded, because the bug this catches
+     lives in the save path and no seeded fixture can reach it: the draft
+     carries an empty id until addBatched mints one, which happens AFTER the
+     units have been stamped with it. Every seeded serial in this file already
+     has a saleId, so nothing else here would ever notice. */
+  {
+    await renderRoute("/sales/new");
+
+    const partyBox = document.querySelector(
+      'input[placeholder="Type name or search…"]',
+    ) as HTMLInputElement | null;
+    assert(!!partyBox, "sale serials: found the customer box");
+    await act(async () => {
+      setInput(partyBox, "Ramesh Traders");
+    });
+    await settleMs(120);
+    const partyOption = Array.from(document.querySelectorAll("div")).find(
+      (el) =>
+        (el.textContent ?? "").includes("Ramesh Traders") &&
+        !el.querySelector("div div") &&
+        !el.querySelector("input"),
+    );
+    if (partyOption) {
+      await act(async () => {
+        partyOption.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      });
+      await settleMs(120);
+    }
+
+    const addRow = document.querySelector(
+      'input[placeholder="Type item name to add…"]',
+    ) as HTMLInputElement | null;
+    assert(!!addRow, "sale serials: found the item entry row");
+    await act(async () => {
+      setInput(addRow, "Apple 20W Adapter");
+    });
+    await settleMs(120);
+    await act(async () => {
+      addRow?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    await settleMs(150);
+
+    const outBox = Array.from(document.querySelectorAll("input")).find((i) =>
+      /going out/i.test(i.getAttribute("placeholder") ?? ""),
+    ) as HTMLInputElement | undefined;
+    assert(!!outBox, "sale serials: a serialised line asks which unit is going out");
+    await act(async () => {
+      setInput(outBox, "F2LX9K3BBB");
+    });
+    await act(async () => {
+      outBox?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    await settleMs(120);
+
+    const before = SalesRepo.all().length;
+    const saveBtn = Array.from(document.querySelectorAll("button")).find((b) =>
+      /^Save/.test((b.textContent ?? "").trim()),
+    );
+    assert(!!saveBtn, "sale serials: the Save button is on screen");
+    await act(async () => {
+      saveBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settleMs(250);
+
+    assert(SalesRepo.all().length === before + 1, "sale serials: the bill saved");
+    const unit = SerialRepo.get("SN2");
+    assert(unit?.status === "sold", "sale serials: the unit that was scanned is sold");
+    assert(
+      !!unit?.saleId,
+      "sale serials: and carries the id of the bill that sold it, not an empty string",
+    );
+    assert(
+      !!SalesRepo.get(unit?.saleId ?? ""),
+      `sale serials: an id that actually resolves to that bill — got ${JSON.stringify(unit?.saleId)}`,
+    );
+    // Same rule as the return path: the stored figure is not touched, and
+    // nothing but a direct look at it would notice if it were.
+    assert(
+      (ItemRepo.get("I9") as { stock?: number }).stock === 0,
+      `sale serials: selling a tracked unit does not nudge the stored stock number — got ${JSON.stringify((ItemRepo.get("I9") as { stock?: number }).stock)}`,
+    );
+    assert(
+      stockOf(ItemRepo.get("I9")!) === 2,
+      `sale serials: the shelf count came down by one, counted from the units — got ${stockOf(ItemRepo.get("I9")!)}`,
     );
   }
 

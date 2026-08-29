@@ -4,8 +4,10 @@
  * Two jobs, one component, because they are the same act from the counter's
  * point of view — point the scanner at the thing and it appears on the bill:
  *
- *   receiving  — new units arriving; the serial must NOT already exist
- *   issuing    — units going out; the serial MUST be one that is in stock
+ *   receiving    — new units arriving; the serial must NOT already exist
+ *   issuing      — units going out; the serial MUST be one that is in stock
+ *   taking_back  — units coming back from a customer; it MUST be one that is
+ *                  currently sold, which is the exact opposite test
  *
  * Scan-first throughout. The box keeps focus, a scan commits on Enter, and
  * the next scan goes straight in. Twenty units must be twenty scans and no
@@ -27,7 +29,7 @@ import { X, ScanLine, AlertCircle } from "lucide-react";
 
 export interface SerialEntryProps {
   item: Item;
-  mode: "receiving" | "issuing";
+  mode: "receiving" | "issuing" | "taking_back";
   /** Serial ids already on this line. */
   value: string[];
   onChange: (ids: string[]) => void;
@@ -43,6 +45,16 @@ export interface SerialEntryProps {
   /** Serial ids taken by OTHER lines of the same bill — the same unit must
    *  not be sold twice on one document. */
   usedElsewhere?: string[];
+  /**
+   * When the document was loaded from another one, the only units it may
+   * name.
+   *
+   * A credit note raised against INV-1 that takes back a unit sold on INV-9
+   * quietly corrupts both: INV-9 keeps a unit it no longer has, and the
+   * customer on INV-1 is credited for something they never bought. The
+   * scanner is the moment to catch that, not a reconciliation months later.
+   */
+  restrictTo?: { ids: string[]; label: string };
 }
 
 export function SerialEntry({
@@ -53,6 +65,7 @@ export function SerialEntry({
   qty,
   alreadyOnThisDocument = [],
   usedElsewhere = [],
+  restrictTo,
 }: SerialEntryProps) {
   const [text, setText] = useState("");
   const [error, setError] = useState("");
@@ -102,13 +115,24 @@ export function SerialEntry({
         setError(`${wanted} is not a unit of ${item.name}`);
         return;
       }
+      // Editing an existing document: its own units are no longer in the
+      // state this mode wants, because this very document moved them.
       const mine = alreadyOnThisDocument.includes(existing.id);
-      if (existing.status !== "in_stock" && !mine) {
+      const needs = mode === "taking_back" ? "sold" : "in_stock";
+      if (existing.status !== needs && !mine) {
         setError(
-          existing.status === "sold"
-            ? `${wanted} has already been sold`
-            : `${wanted} is ${existing.status.replace(/_/g, " ")}`,
+          mode === "taking_back"
+            ? existing.status === "in_stock"
+              ? `${wanted} is in stock — it was not sold, so it cannot come back`
+              : `${wanted} is ${existing.status.replace(/_/g, " ")}, not with a customer`
+            : existing.status === "sold"
+              ? `${wanted} has already been sold`
+              : `${wanted} is ${existing.status.replace(/_/g, " ")}`,
         );
+        return;
+      }
+      if (restrictTo && !restrictTo.ids.includes(existing.id) && !mine) {
+        setError(`${wanted} is not on ${restrictTo.label}`);
         return;
       }
       onChange([...value, existing.id]);
@@ -140,7 +164,13 @@ export function SerialEntry({
           ref={boxRef}
           value={text}
           aria-label={`Serial numbers for ${item.name}`}
-          placeholder={mode === "receiving" ? "Scan or type a serial…" : "Scan the unit going out…"}
+          placeholder={
+            mode === "receiving"
+              ? "Scan or type a serial…"
+              : mode === "taking_back"
+                ? "Scan the unit coming back…"
+                : "Scan the unit going out…"
+          }
           onChange={(e) => {
             // A paste of many arrives as one change, not as keystrokes.
             if (addMany(e.target.value)) {
