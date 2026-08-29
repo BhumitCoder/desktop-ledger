@@ -282,6 +282,50 @@ function checkPeriodLockCoverage() {
   return true;
 }
 
+/**
+ * Every collection the app talks to must have a rule written for it.
+ *
+ * firestore.rules ends with Firestore's default deny, so a collection that
+ * is simply forgotten does not fail here, or in any test, or in any build —
+ * it fails at the counter, in production, the first time somebody uses the
+ * feature it belongs to. That is the worst possible place to find out, and
+ * nothing else in this repo was looking.
+ *
+ * Matched on the collection name the Repository is constructed with, which
+ * is the string Firestore actually sees — not on the export name, which
+ * could drift from it without anybody noticing.
+ */
+function checkEveryCollectionHasRules() {
+  const repos = fs.readFileSync(path.resolve(__dirname, "../src/repositories/index.ts"), "utf8");
+  const rules = fs.readFileSync(path.resolve(__dirname, "../firestore.rules"), "utf8");
+  const names = [...repos.matchAll(/new Repository<[^>]*>\(\s*"([^"]+)"/g)].map((m) => m[1]);
+  /* A parser that finds SOME of the declarations is more dangerous than one
+     that finds none: it reports a comfortable pass while covering less than
+     it did yesterday. So the number of names read has to equal the number of
+     construction sites, and a mismatch fails rather than quietly shortening
+     the list. */
+  const sites = (repos.match(/new Repository\b/g) ?? []).length;
+  if (!names.length || names.length !== sites) {
+    console.log(
+      `\n  RULES: found ${sites} Repository constructions but could read ${names.length}`,
+    );
+    console.log("  collection names out of them. Until those agree this check covers less than");
+    console.log("  it claims — fix the pattern in run-screens.cjs.\n");
+    return false;
+  }
+  const missing = names.filter((n) => !new RegExp(`match /${n}/`).test(rules));
+  if (missing.length) {
+    console.log("\n  RULES: these collections are written by the app but have no rule, so every");
+    console.log("  read and write to them is denied in production:");
+    missing.forEach((n) => console.log("    x " + n));
+    console.log("  The file ends with a default deny — a forgotten collection fails nowhere");
+    console.log("  but at the counter.\n");
+    return false;
+  }
+  console.log(`  Firestore rules cover all ${names.length} collections the app writes.`);
+  return true;
+}
+
 async function main() {
   const lockOk = checkPeriodLockCoverage();
   const voidOk = checkVoidCoverage();
@@ -289,6 +333,7 @@ async function main() {
   const guardsOk = checkDeleteGuardsSeeVoided();
   const serialsOk = checkStockPathsKnowSerials();
   const backupOk = checkBackupKeepsVoided();
+  const rulesOk = checkEveryCollectionHasRules();
   fs.mkdirSync(OUT_DIR, { recursive: true });
 
   fs.writeFileSync(
