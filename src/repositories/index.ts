@@ -371,8 +371,26 @@ const MODULE_REPOS: Record<ModuleKey, Repository<{ id: string }>[]> = {
   masterData: [PartyRepo, ItemRepo, StockAdjustmentRepo, SerialRepo] as Repository<{
     id: string;
   }>[],
-  sales: [SalesRepo, SaleReturnRepo] as Repository<{ id: string }>[],
-  purchaseExpenses: [PurchaseRepo, PurchaseReturnRepo, ExpenseRepo, PayeeRepo] as Repository<{
+  /* SerialRepo appears under Sales and Purchase as well as Master Data, and
+     has to: billing a serial-tracked item means scanning its units, and the
+     scanner validates against this cache. A user who can sell but has Master
+     Data view off would otherwise be handed an empty cache and told "that is
+     not a unit of this item" for every scan — a refusal that blames the
+     serial for a permissions setting.
+     It also has to, for the app to agree with itself: firestore.rules lets a
+     Sales user WRITE this collection (they mark units sold when a bill
+     saves), so a rule granting a write for data the device never receives
+     was a contradiction, not a restriction.
+     hydrate() is idempotent (it returns early once subscribed), so being
+     listed under several modules costs one listener, not three. */
+  sales: [SalesRepo, SaleReturnRepo, SerialRepo] as Repository<{ id: string }>[],
+  purchaseExpenses: [
+    PurchaseRepo,
+    PurchaseReturnRepo,
+    ExpenseRepo,
+    PayeeRepo,
+    SerialRepo,
+  ] as Repository<{
     id: string;
   }>[],
   cashBank: [BankRepo, BankTxnRepo, PaymentRepo, CashAdjustmentRepo] as Repository<{

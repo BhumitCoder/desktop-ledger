@@ -169,6 +169,25 @@ entry rather than deleting it.
 
 ---
 
+## Before this branch can run at all
+
+**The Firestore rules must be published to the database this branch uses.**
+Three collections it writes are new since production — the units themselves,
+the year-close entries, and the deletion log — and Firestore denies anything
+it has no rule for. Until `firestore.rules` is published, the app will look
+like it is working and then fail on save.
+
+The deletion log is the one to be careful about: its entry is written in the
+same batch as the deletion it records, so if that collection is denied, the
+whole batch fails and **the delete itself fails**, on every screen. This does
+not affect the shop's live system today — production has none of these three
+collections — but it will the moment this branch is deployed.
+
+Publish via Firebase Console → Firestore Database → select the database this
+deployment points at → Rules → paste `firestore.rules` → Publish.
+
+---
+
 ## The one thing this cannot tell you
 
 Every figure above has been checked against generated data — over 110,000
