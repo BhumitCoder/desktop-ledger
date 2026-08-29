@@ -54,6 +54,7 @@ import {
   StockAdjustmentRepo,
   PurchaseReturnRepo,
   CashAdjustmentRepo,
+  SerialRepo,
 } from "@/repositories";
 
 export interface Results {
@@ -324,6 +325,69 @@ function seed() {
     amount: 1000,
     notes: "Counter cash",
   } as never);
+
+  /* A serial-tracked item and three units, each in a state the counter has
+     to be able to tell apart out loud. Warranty dates are relative to the
+     day the suite runs, because a fixed date would quietly become "expired"
+     for every unit some months after it was written and the test would still
+     pass while proving nothing. */
+  ItemRepo.add({
+    id: "I9",
+    createdAt: "2026-01-01T00:00:00Z",
+    name: "Apple 20W Adapter",
+    unit: "pcs",
+    gstRate: 18,
+    purchasePrice: 1200,
+    salePrice: 1900,
+    stock: 0,
+    trackSerials: true,
+    warrantyMonths: 12,
+  } as never);
+  const plusDays = (n: number) => ymd(new Date(Date.now() + n * 86400000));
+  SerialRepo.add({
+    id: "SN1",
+    createdAt: `${D2}T09:00:00Z`,
+    itemId: "I9",
+    serial: "F2LX9K3AAA",
+    status: "sold",
+    purchaseId: "PU1",
+    purchaseDate: D2,
+    vendorName: "Sunrise Supply",
+    cost: 1200,
+    saleId: "S1",
+    saleDate: D3,
+    customerName: "Ramesh Traders",
+    warrantyMonths: 12,
+    warrantyEnd: plusDays(200),
+    vendorWarrantyEnd: plusDays(300),
+  } as never);
+  SerialRepo.add({
+    id: "SN2",
+    createdAt: `${D2}T09:00:00Z`,
+    itemId: "I9",
+    serial: "F2LX9K3BBB",
+    status: "in_stock",
+    purchaseId: "PU1",
+    purchaseDate: D2,
+    vendorName: "Sunrise Supply",
+    cost: 1200,
+    vendorWarrantyEnd: plusDays(300),
+  } as never);
+  SerialRepo.add({
+    id: "SN3",
+    createdAt: `${D2}T09:00:00Z`,
+    itemId: "I9",
+    serial: "QQ7700ZZZ",
+    status: "sold",
+    purchaseId: "PU1",
+    purchaseDate: D2,
+    saleId: "S1",
+    saleDate: D3,
+    customerName: "Ramesh Traders",
+    warrantyMonths: 12,
+    warrantyEnd: plusDays(-40),
+    vendorWarrantyEnd: plusDays(-10),
+  } as never);
 }
 
 let host: HTMLDivElement | null = null;
@@ -543,12 +607,111 @@ async function runAll(): Promise<Results> {
   has(ownerSettings, "Check Calculations", "settings (owner): the recalculation action");
   has(ownerSettings, "Team", "settings (owner): team section");
 
+  /* ── Serial Lookup: the counter's three questions ─────────────────────
+     Somebody is standing there holding an adapter. Is it ours, is it still
+     covered, and can we still claim it back from the vendor. */
+  {
+    await renderRoute("/serials");
+    const box = () => document.querySelector('input[placeholder^="Scan"]') as HTMLInputElement;
+    const lookUp = async (text: string) => {
+      setInput(box(), text);
+      const btn = Array.from(document.querySelectorAll("button")).find(
+        (b) => b.textContent?.trim() === "Look up",
+      );
+      assert(!!btn, "serial lookup: the Look up button is on screen");
+      await act(async () => {
+        btn!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      return readMounted();
+    };
+
+    const before = host?.textContent ?? "";
+    assert(
+      !before.includes("F2LX9K3AAA"),
+      "serial lookup: nothing is listed until something is actually looked up",
+    );
+    // An empty box is not a failed search. Rendering "no unit matches" before
+    // anyone has typed reads as "we do not have it" and is how a counter
+    // turns a customer away for a unit that is sitting on the shelf.
+    has(before, "Nothing looked up yet", "serial lookup: an untouched box invites a scan");
+    assert(
+      !before.includes("No unit matches"),
+      "serial lookup: and does not report a failed search nobody ran",
+    );
+
+    const sold = await lookUp("f2lx9k3aaa");
+    has(sold, "F2LX9K3AAA", "serial lookup: the unit is found from a lower-case scan");
+    has(sold, "Apple 20W Adapter", "serial lookup: and says which item it is");
+    has(sold, "Under warranty", "serial lookup: the answer the customer came for");
+    has(sold, "Ramesh Traders", "serial lookup: who bought it, for a warranty claim");
+    has(sold, "Sunrise Supply", "serial lookup: and who it was bought from");
+    has(sold, "Claimable from vendor", "serial lookup: the shop's own claim window, separately");
+    assert(
+      !sold.includes("F2LX9K3BBB"),
+      "serial lookup: an exact match does not also list its shelf-mates",
+    );
+
+    const expired = await lookUp("QQ7700ZZZ");
+    has(expired, "Warranty ended", "serial lookup: an expired warranty says so plainly");
+    has(expired, "40 days ago", "serial lookup: and says how long ago, so nobody has to count");
+    has(expired, "Vendor claim closed", "serial lookup: the vendor window closed too");
+
+    const shelf = await lookUp("F2LX9K3BBB");
+    has(shelf, "In stock", "serial lookup: an unsold unit is on the shelf");
+    has(shelf, "Not sold", "serial lookup: with no warranty running against it");
+    has(shelf, "Still on the shelf", "serial lookup: and nowhere it went");
+
+    // Read out down a phone line: the tail is all anyone can give you.
+    const partial = await lookUp("9K3AAA");
+    has(partial, "F2LX9K3AAA", "serial lookup: the last characters find the unit");
+    const tail = await lookUp("K3");
+    has(tail, "No unit matches", "serial lookup: two characters is too loose to answer");
+    has(tail, "at least 3", "serial lookup: and it says what to do instead");
+
+    const missing = await lookUp("NOSUCHUNIT");
+    has(missing, "No unit matches", "serial lookup: an unknown serial is not silently empty");
+    has(
+      missing,
+      "never received here",
+      "serial lookup: with the two reasons it can happen, so it is not a dead end",
+    );
+  }
+
+  /* ── The item page's Units panel ──────────────────────────────────────
+     The owner's question is the other way round from the counter's: not
+     "where is this unit" but "which units do I still have". */
+  {
+    const page = await renderRoute("/items/I9");
+    has(page, "Units", "item units: the panel is on a serialised item's page");
+    has(page, "F2LX9K3AAA", "item units: every unit is listed, not just the unsold ones");
+    has(page, "F2LX9K3BBB", "item units: including one still on the shelf");
+    has(page, "1 on the shelf", "item units: the shelf count is stated, not left to be counted");
+    has(page, "3 ever received", "item units: alongside how many ever came in");
+    has(page, "Ramesh Traders", "item units: who each sold unit went to");
+    has(page, "Warranty ended", "item units: and which have fallen out of warranty");
+
+    // The stock figure above the panel is COUNTED from this list, not stored
+    // — I9 was seeded with stock: 0 precisely so a stored number would show.
+    has(
+      page,
+      "1 pcs",
+      "item units: current stock is counted from the units, not read from the record",
+    );
+
+    const plain = await renderRoute("/items/I1");
+    assert(
+      !plain.includes("ever received"),
+      "item units: an ordinary item gets no units panel, because it has none",
+    );
+  }
+
   /* ── Every remaining screen must render real content, not blow up ───── */
   const pages: [string, string][] = [
     ["/", "Total Receivable"],
     ["/parties", "Ramesh Traders"],
     ["/items", "USB Cable"],
     ["/inventory", "USB Cable"],
+    ["/serials", "Serial Lookup"],
     ["/sales", "INV-0001"],
     ["/purchase", "PUR-0001"],
     ["/sale-return", "CR-0001"],

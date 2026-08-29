@@ -47,6 +47,10 @@ import {
   warrantyEnd,
   warrantyDaysLeft,
   serialShortfalls,
+  lookupSerials,
+  warrantyState,
+  vendorClaimState,
+  SERIAL_MATCH_LIMIT,
 } from "@/lib/serials";
 import {
   planPurchaseSerials,
@@ -4393,6 +4397,109 @@ console.log(`\n═════════════════════�
   assert(
     undoSerialsOf(plain, "sale", itemOf).length === 0,
     "T41: an item that is not serialised moves nothing, whatever is on the line",
+  );
+}
+
+/* ═══ TEST 42: looking a unit up by what is printed on it ═══════════════
+   The counter's search, not the accountant's: somebody is holding an adapter
+   and wants to know whether the shop still owes them a warranty. They do not
+   know the item id, and half the time they are reading the last characters
+   down a phone line. */
+{
+  const serials = [
+    { id: "s1", itemId: "A", serial: "F2LX9K3", status: "sold" },
+    { id: "s2", itemId: "B", serial: "F2LX9K3", status: "in_stock" },
+    { id: "s3", itemId: "A", serial: "QQ119K3", status: "in_stock" },
+    { id: "s4", itemId: "A", serial: "ZZZ0001", status: "in_stock" },
+  ] as unknown as Serial[];
+
+  const exact = lookupSerials("f2lx9k3", serials);
+  assert(exact.hits.length === 2, "T42: an exact match on two items returns both");
+  assert(!exact.partial, "T42: and is not reported as a guess");
+  assert(
+    lookupSerials("  F2LX9K3 ", serials).hits.length === 2,
+    "T42: a scanner's stray space and case change nothing",
+  );
+
+  const tail = lookupSerials("9K3", serials);
+  assert(
+    tail.hits.length === 3 && tail.partial,
+    `T42: read out from the end, it matches every unit ending that way — got ${tail.hits.length}`,
+  );
+  // "K3" genuinely ends three of these — so this only passes because the
+  // length floor refuses it, not because the search happened to find nothing.
+  assert(
+    lookupSerials("K3", serials).hits.length === 0,
+    "T42: two characters is too loose to mean anything, so it answers nothing",
+  );
+  assert(
+    lookupSerials("F2L", serials).hits.length === 0,
+    "T42: and it is ends-with, not contains — a prefix is not a match",
+  );
+  assert(lookupSerials("", serials).hits.length === 0, "T42: an empty box searches for nothing");
+
+  const many = Array.from({ length: SERIAL_MATCH_LIMIT + 5 }, (_, i) => ({
+    id: `m${i}`,
+    itemId: "A",
+    serial: `X${i}999`,
+    status: "in_stock",
+  })) as unknown as Serial[];
+  const flood = lookupSerials("999", many);
+  assert(
+    flood.hits.length === SERIAL_MATCH_LIMIT && flood.truncated,
+    "T42: a search that matches the whole shelf says so rather than listing it",
+  );
+}
+
+/* ═══ TEST 43: is it still under warranty? ══════════════════════════════
+   "No warranty was given" and "the warranty has run out" lead to different
+   conversations. Collapsing them into one "not covered" is how a shop refuses
+   a repair it had in fact promised. */
+{
+  const TODAY = "2026-06-15";
+  const sold = (warrantyEnd?: string) =>
+    warrantyState({ status: "sold", warrantyEnd } as Serial, TODAY);
+
+  assert(
+    warrantyState({ status: "in_stock", warrantyEnd: "2027-01-01" } as Serial, TODAY).tone ===
+      "none",
+    "T43: a unit on the shelf has no promise running, whatever date is left on it",
+  );
+  assert(
+    sold(undefined).label.includes("no warranty recorded"),
+    "T43: sold with no warranty says so, and does not say expired",
+  );
+  assert(sold("2027-06-15").tone === "ok", "T43: a year out is simply covered");
+  assert(
+    sold("2026-07-01").tone === "expiring",
+    "T43: inside a month, the counter is told before being asked",
+  );
+  // Zero is the last covered day, not the first uncovered one — a warranty
+  // "until the 15th" is honoured on the 15th, which is the day the customer
+  // actually turns up.
+  assert(sold(TODAY).tone === "expiring", "T43: the last day is still a covered day");
+  assert(sold(TODAY).label === "Warranty ends today", "T43: and is said in those words");
+  assert(sold("2026-06-14").tone === "expired", "T43: the day after is not");
+  assert(
+    sold("2026-06-14").label.includes("1 day ago"),
+    `T43: singular when it is one day — "${sold("2026-06-14").label}"`,
+  );
+  assert(
+    sold("2026-06-13").label.includes("2 days ago"),
+    "T43: plural when it is more, because it will be read out loud",
+  );
+
+  assert(
+    vendorClaimState({ vendorWarrantyEnd: "2026-12-01" } as Serial, TODAY).tone === "ok",
+    "T43: the shop's own claim window is answered separately from the customer's",
+  );
+  assert(
+    vendorClaimState({ vendorWarrantyEnd: "2026-01-01" } as Serial, TODAY).tone === "expired",
+    "T43: a closed vendor window is the half that quietly costs money",
+  );
+  assert(
+    vendorClaimState({} as Serial, TODAY).tone === "none",
+    "T43: and an unrecorded one is not silently treated as open",
   );
 }
 

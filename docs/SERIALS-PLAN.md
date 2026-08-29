@@ -16,20 +16,20 @@ This is `ERP-PLAN.md` §4.9 (Serial / IMEI), planned properly before any code.
 Not one item per adapter. The client asked for that and it is the one shape to
 avoid, so the reason is written down rather than argued twice:
 
-| | One item per adapter | One item + serials |
-|---|---|---|
-| Items after 3 years @ 50/month | ~1,800, nearly all stock 0 | 1 |
-| Buying 20 adapters | Create 20 items — name, HSN, GST, prices each | 1 line, qty 20, scan 20 serials |
-| Price rises ₹50 | Edit every unsold item | Edit one field |
-| "How many 20W sold this month?" | Impossible — nothing to group by | One number |
-| "Do I need to reorder?" | Impossible — every item is 1 or 0 | Stock 12, min 5 → alert |
-| HSN / GST rate | Retyped 1,800 times | Once |
+|                                 | One item per adapter                          | One item + serials              |
+| ------------------------------- | --------------------------------------------- | ------------------------------- |
+| Items after 3 years @ 50/month  | ~1,800, nearly all stock 0                    | 1                               |
+| Buying 20 adapters              | Create 20 items — name, HSN, GST, prices each | 1 line, qty 20, scan 20 serials |
+| Price rises ₹50                 | Edit every unsold item                        | Edit one field                  |
+| "How many 20W sold this month?" | Impossible — nothing to group by              | One number                      |
+| "Do I need to reorder?"         | Impossible — every item is 1 or 0             | Stock 12, min 5 → alert         |
+| HSN / GST rate                  | Retyped 1,800 times                           | Once                            |
 
 The reorder question is the one that costs the shop money: with an item per
 adapter, **nothing can ever tell them they are running low.**
 
 **The test for any future item:** if a customer would take any one off the
-shelf, it is one item. If they would ask for *that specific one*, it is a
+shelf, it is one item. If they would ask for _that specific one_, it is a
 different item. 20W and 30W are different items. Two 20W adapters are not.
 
 **The honest exception**, for when they start taking second-hand phones in
@@ -98,12 +98,12 @@ interface Serial extends Audited, Voidable {
 
 ### Changed types
 
-| Type | Field | Why |
-|---|---|---|
-| `Item` | `trackSerials?: boolean` | Opt-in per item. A ₹50 cable must never ask. |
-| `Item` | `warrantyMonths?: number` | Default warranty given on sale. |
-| `Item` | `vendorWarrantyMonths?: number` | Default claim window against the vendor. |
-| `LineItem` | `serialIds?: ID[]` | Which physical units this line is. Length must equal `qty` — §4. |
+| Type       | Field                           | Why                                                              |
+| ---------- | ------------------------------- | ---------------------------------------------------------------- |
+| `Item`     | `trackSerials?: boolean`        | Opt-in per item. A ₹50 cable must never ask.                     |
+| `Item`     | `warrantyMonths?: number`       | Default warranty given on sale.                                  |
+| `Item`     | `vendorWarrantyMonths?: number` | Default claim window against the vendor.                         |
+| `LineItem` | `serialIds?: ID[]`              | Which physical units this line is. Length must equal `qty` — §4. |
 
 `LineItem.serialIds` rather than serial strings: a serial can be corrected
 (mis-scan), and the line must follow it.
@@ -143,17 +143,17 @@ Only a document may move a serial. Nothing edits `status` directly.
                                          (back to in_stock)
 ```
 
-| Document | Effect |
-|---|---|
-| Purchase saved | create serials, `in_stock`, stamped with vendor, cost, purchase date |
-| Purchase edited | reconcile against the previous set — add new, remove ones no longer listed (only if still `in_stock`) |
-| Purchase voided / deleted | remove those serials, but **refuse if any has been sold** |
-| Sale saved | `in_stock → sold`, stamp customer, sale date, warranty end |
-| Sale voided / deleted | `sold → in_stock`, clear sale fields |
-| Sale return | `sold → in_stock` (or `damaged`, chosen on the return) |
-| Purchase return | `in_stock → returned_to_vendor` |
-| Stock adjustment (reduce) | pick which serials; `→ damaged` |
-| Stock adjustment (add) | serialised items: not allowed — receiving stock is a purchase |
+| Document                  | Effect                                                                                                |
+| ------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Purchase saved            | create serials, `in_stock`, stamped with vendor, cost, purchase date                                  |
+| Purchase edited           | reconcile against the previous set — add new, remove ones no longer listed (only if still `in_stock`) |
+| Purchase voided / deleted | remove those serials, but **refuse if any has been sold**                                             |
+| Sale saved                | `in_stock → sold`, stamp customer, sale date, warranty end                                            |
+| Sale voided / deleted     | `sold → in_stock`, clear sale fields                                                                  |
+| Sale return               | `sold → in_stock` (or `damaged`, chosen on the return)                                                |
+| Purchase return           | `in_stock → returned_to_vendor`                                                                       |
+| Stock adjustment (reduce) | pick which serials; `→ damaged`                                                                       |
+| Stock adjustment (add)    | serialised items: not allowed — receiving stock is a purchase                                         |
 
 ---
 
@@ -164,19 +164,19 @@ Grepped, not guessed. `"stock"` is written in **11 places across 9 files**;
 
 ### 5a. Stock writes — each must branch on `trackSerials`
 
-| File | Today | With serials |
-|---|---|---|
-| `InvoiceForm.tsx:715` | sale/purchase save, `stockDelta * qty` | move the line's serials; do not touch `stock` |
-| `InvoiceForm.tsx:733` | edit path, reverses the original lines | reconcile old serial set against new |
-| `ReturnForm.tsx:312` | return save | move serials named on the return |
-| `sales.index.tsx:217` | delete/void a sale | serials `sold → in_stock` |
-| `purchase.index.tsx:211` | delete/void a purchase | remove serials; refuse if any sold |
-| `sale-return.index.tsx:79` | delete/void | serials back to `sold` |
-| `purchase-return.index.tsx:77` | delete/void | serials back to `in_stock` |
-| `items.tsx:468` | manual stock adjust | serialised: pick serials, or refuse |
-| `items_.$id.tsx:170` | reverse an adjustment | reverse the serial moves |
-| `BulkUpdateItemsDialog.tsx:246` | bulk stock edit | **must refuse** for serialised items |
-| `settings.tsx:140` | Fix Calculations applies `plan.items` deltas | see 5c |
+| File                            | Today                                        | With serials                                  |
+| ------------------------------- | -------------------------------------------- | --------------------------------------------- |
+| `InvoiceForm.tsx:715`           | sale/purchase save, `stockDelta * qty`       | move the line's serials; do not touch `stock` |
+| `InvoiceForm.tsx:733`           | edit path, reverses the original lines       | reconcile old serial set against new          |
+| `ReturnForm.tsx:312`            | return save                                  | move serials named on the return              |
+| `sales.index.tsx:217`           | delete/void a sale                           | serials `sold → in_stock`                     |
+| `purchase.index.tsx:211`        | delete/void a purchase                       | remove serials; refuse if any sold            |
+| `sale-return.index.tsx:79`      | delete/void                                  | serials back to `sold`                        |
+| `purchase-return.index.tsx:77`  | delete/void                                  | serials back to `in_stock`                    |
+| `items.tsx:468`                 | manual stock adjust                          | serialised: pick serials, or refuse           |
+| `items_.$id.tsx:170`            | reverse an adjustment                        | reverse the serial moves                      |
+| `BulkUpdateItemsDialog.tsx:246` | bulk stock edit                              | **must refuse** for serialised items          |
+| `settings.tsx:140`              | Fix Calculations applies `plan.items` deltas | see 5c                                        |
 
 ### 5b. Stock readers — must read the derived count
 
@@ -194,7 +194,7 @@ correct.
 ### 5c. The repair tools — the subtle one
 
 `planStockRepair` rebuilds `item.stock` from documents. For a serialised item
-that is the wrong question: stock is the serial count, and the *serials* are
+that is the wrong question: stock is the serial count, and the _serials_ are
 what could be wrong.
 
 - Serialised items are **excluded** from `planStockRepair`.
@@ -205,22 +205,22 @@ what could be wrong.
 
 ### 5d. Ledger, costing and reports
 
-| Area | Effect |
-|---|---|
-| COGS (`computeCogs`) | Today: `costPrice ?? item.purchasePrice`. With serials: the **exact cost of the units sold**. Profit per sale becomes exact. |
-| `posting.ts` | No new rule. COGS is already `Dr COGS / Cr Inventory`; only the amount is sourced better. |
-| Reconciliation | The Inventory row gets a **third**, better answer: serials on hand × their own cost. That is a genuine second opinion, unlike today's current-price valuation — the informational row can become a real check for serialised items. |
-| Stock Report | Serial count and value at actual cost |
-| GST | Unaffected — serials do not change taxable value or HSN |
+| Area                 | Effect                                                                                                                                                                                                                              |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| COGS (`computeCogs`) | Today: `costPrice ?? item.purchasePrice`. With serials: the **exact cost of the units sold**. Profit per sale becomes exact.                                                                                                        |
+| `posting.ts`         | No new rule. COGS is already `Dr COGS / Cr Inventory`; only the amount is sourced better.                                                                                                                                           |
+| Reconciliation       | The Inventory row gets a **third**, better answer: serials on hand × their own cost. That is a genuine second opinion, unlike today's current-price valuation — the informational row can become a real check for serialised items. |
+| Stock Report         | Serial count and value at actual cost                                                                                                                                                                                               |
+| GST                  | Unaffected — serials do not change taxable value or HSN                                                                                                                                                                             |
 
 ### 5e. Documents
 
-| Where | Change |
-|---|---|
+| Where                  | Change                                                                                                                                        |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | `PrintableInvoice.tsx` | Print the serials under each line. **This is the customer's warranty proof** — without it the feature is invisible to the person it protects. |
-| `PrintableReturn.tsx` | Same |
-| `ThermalReceipt.tsx` | Serials on their own line — an 80mm receipt has no column for them |
-| CSV / XLSX exports | Serial column where a line has them |
+| `PrintableReturn.tsx`  | Same                                                                                                                                          |
+| `ThermalReceipt.tsx`   | Serials on their own line — an 80mm receipt has no column for them                                                                            |
+| CSV / XLSX exports     | Serial column where a line has them                                                                                                           |
 
 ### 5f. Interaction with what is already on this branch
 
@@ -232,7 +232,7 @@ Not optional, and painful to retrofit — this is why it is being planned now:
 - **Period lock (Phase 0b)** — a serial movement is a dated write and asks
   `canPost` like every other.
 - **Append-only edit rule** — a bill older than today is voided and re-issued,
-  so serial *edits* on old documents never arise. Simpler, not harder.
+  so serial _edits_ on old documents never arise. Simpler, not harder.
 - **`Repository.all()`** — `SerialRepo.all()` excludes voided serials
   automatically; the delete guards on Items must count serials, including
   voided ones, before allowing an item to be destroyed.
@@ -285,16 +285,16 @@ adapter, and it is strictly more than they asked for.
 
 ## 8. Order of work
 
-| # | Step | Why this order |
-|---|---|---|
-| 1 | `Serial` type, `SerialRepo`, `stockOf()` accessor, readers routed through it | Nothing behaves differently yet; the seam exists |
-| 2 | Purchase capture + serial list on the item page | Serials exist and are visible before anything depends on them |
-| 3 | Sale picking + the count-equals-qty rule | The state machine closes |
-| 4 | Returns, voids, stock adjustments | Every other path that moves stock |
-| 5 | Serial Lookup + warranty | The payoff |
-| 6 | Printed documents, exports | Reaches the customer |
-| 7 | Serial-integrity check; drop serialised items from `planStockRepair` | The old repair stops being wrong for them |
-| 8 | Exact COGS from serial cost; Inventory reconciliation row | The ledger gets better numbers |
+| #   | Step                                                                                                                                     | Why this order                                                |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| 1   | **DONE** — `Serial` type, `SerialRepo`, `stockOf()` accessor, readers routed through it                                                  | Nothing behaves differently yet; the seam exists              |
+| 2   | **DONE** — Purchase capture + serial list on the item page                                                                               | Serials exist and are visible before anything depends on them |
+| 3   | **DONE** — Sale picking + the count-equals-qty rule                                                                                      | The state machine closes                                      |
+| 4   | **DONE (partly)** — voids, deletes and stock adjustments move or refuse; returns of serialised items are _refused_, pending unit capture | Every other path that moves stock                             |
+| 5   | **DONE** — Serial Lookup screen, warranty + vendor claim state, Units panel on the item page                                             | The payoff                                                    |
+| 6   | Printed documents, exports                                                                                                               | Reaches the customer                                          |
+| 7   | Serial-integrity check; drop serialised items from `planStockRepair`                                                                     | The old repair stops being wrong for them                     |
+| 8   | Exact COGS from serial cost; Inventory reconciliation row                                                                                | The ledger gets better numbers                                |
 
 Steps 1–3 are the feature. 4–8 are what make it survive contact with a real
 shop.
@@ -304,7 +304,7 @@ shop.
 ## 9. Risk
 
 **MEDIUM-HIGH, and higher than any phase so far.** It is the first change that
-alters what `item.stock` *means*, and stock is one of only two stored running
+alters what `item.stock` _means_, and stock is one of only two stored running
 totals in the application.
 
 Mitigations, in order of how much they matter:

@@ -136,6 +136,143 @@ export function warrantyDaysLeft(end: string | undefined, today: string): number
 }
 
 /**
+ * Find a unit by what is printed on it, without being told which item it is.
+ *
+ * This is the counter's question, not the accountant's: someone is holding an
+ * adapter and wants to know whether the shop still owes them a warranty on
+ * it. They do not know the item id, and half the time they are reading the
+ * last few characters down a phone line rather than scanning the whole thing.
+ *
+ * So: exact matches first, and only if there are none, units whose serial
+ * ENDS WITH what was typed. Ends-with rather than contains, because serial
+ * numbers are read out from the end — and because a two-character "contains"
+ * search would return the whole shelf and be worse than no answer. Partial
+ * matches are capped and reported as partial, so nobody mistakes "one of
+ * forty units ending 9K3" for "the unit".
+ *
+ * Voided units are excluded by all(): a purchase that never happened cannot
+ * be carrying a warranty.
+ */
+export interface SerialMatches {
+  /** What was searched for, normalised. */
+  query: string;
+  hits: Serial[];
+  /** True when nothing matched exactly and these are ends-with guesses. */
+  partial: boolean;
+  /** More existed than are listed — the search was too loose to be useful. */
+  truncated: boolean;
+}
+
+export const SERIAL_MATCH_LIMIT = 25;
+/** Below this, an ends-with search matches too much to mean anything. */
+export const SERIAL_PARTIAL_MIN = 3;
+
+export function lookupSerials(query: string, serials?: Serial[]): SerialMatches {
+  const want = normaliseSerial(query);
+  const all = serials ?? SerialRepo.all();
+  const empty = { query: want, hits: [] as Serial[], partial: false, truncated: false };
+  if (!want) return empty;
+
+  const exact = all.filter((s) => normaliseSerial(s.serial) === want);
+  // An exact hit on more than one item is not an error to hide: two makers
+  // stamping the same string is legitimate, and the counter needs to see both
+  // rather than be handed whichever the array happened to hold first.
+  if (exact.length) return { query: want, hits: exact, partial: false, truncated: false };
+
+  if (want.length < SERIAL_PARTIAL_MIN) return empty;
+  const ends = all.filter((s) => normaliseSerial(s.serial).endsWith(want));
+  return {
+    query: want,
+    hits: ends.slice(0, SERIAL_MATCH_LIMIT),
+    partial: ends.length > 0,
+    truncated: ends.length > SERIAL_MATCH_LIMIT,
+  };
+}
+
+/**
+ * The answer to "is this still under warranty?", in the form the counter
+ * needs to say it out loud.
+ *
+ * Deliberately distinguishes "no warranty was given" from "the warranty has
+ * run out". They lead to different conversations, and collapsing them into a
+ * single "not covered" is how a shop ends up refusing a repair it had in fact
+ * promised.
+ */
+export type WarrantyTone = "none" | "ok" | "expiring" | "expired";
+
+export interface WarrantyState {
+  tone: WarrantyTone;
+  /** Plain words, ready to be read to a customer. */
+  label: string;
+  end?: string;
+  daysLeft?: number;
+}
+
+/** Inside this many days, the counter should be told before being asked. */
+export const WARRANTY_EXPIRING_DAYS = 30;
+
+export function warrantyState(
+  s: Pick<Serial, "status" | "warrantyEnd">,
+  today: string,
+): WarrantyState {
+  // A unit that is not with a customer has no promise running against it.
+  // Its warranty only begins when it is sold, and a returned unit's is
+  // cleared, so an end date sitting here would be a leftover, not a promise.
+  if (s.status !== "sold") return { tone: "none", label: "Not sold — no warranty running" };
+  if (!s.warrantyEnd) return { tone: "none", label: "Sold with no warranty recorded" };
+
+  const days = warrantyDaysLeft(s.warrantyEnd, today);
+  if (days === undefined) return { tone: "none", label: "Sold with no warranty recorded" };
+  // Zero is the last covered day, not the first uncovered one — a warranty
+  // "until the 31st" is honoured on the 31st, which is exactly the day the
+  // customer will turn up.
+  if (days < 0)
+    return {
+      tone: "expired",
+      label: `Warranty ended ${-days} ${-days === 1 ? "day" : "days"} ago`,
+      end: s.warrantyEnd,
+      daysLeft: days,
+    };
+  const word = days === 1 ? "day" : "days";
+  return {
+    tone: days <= WARRANTY_EXPIRING_DAYS ? "expiring" : "ok",
+    label: days === 0 ? "Warranty ends today" : `Under warranty — ${days} ${word} left`,
+    end: s.warrantyEnd,
+    daysLeft: days,
+  };
+}
+
+/**
+ * The shop's own claim window against the vendor.
+ *
+ * Kept separate from the customer's warranty because they expire at different
+ * times and only one of them is the customer's business. This is the half
+ * that quietly costs money: a unit fails, the shop replaces it, and nobody
+ * checks whether the vendor would still have taken it back.
+ */
+export function vendorClaimState(
+  s: Pick<Serial, "vendorWarrantyEnd">,
+  today: string,
+): WarrantyState {
+  if (!s.vendorWarrantyEnd) return { tone: "none", label: "No vendor claim window recorded" };
+  const days = warrantyDaysLeft(s.vendorWarrantyEnd, today);
+  if (days === undefined) return { tone: "none", label: "No vendor claim window recorded" };
+  if (days < 0)
+    return {
+      tone: "expired",
+      label: `Vendor claim closed ${-days} ${-days === 1 ? "day" : "days"} ago`,
+      end: s.vendorWarrantyEnd,
+      daysLeft: days,
+    };
+  return {
+    tone: days <= WARRANTY_EXPIRING_DAYS ? "expiring" : "ok",
+    label: `Claimable from vendor — ${days} ${days === 1 ? "day" : "days"} left`,
+    end: s.vendorWarrantyEnd,
+    daysLeft: days,
+  };
+}
+
+/**
  * Units added while receiving do not exist as records yet — the bill has not
  * been saved. They are held as drafts keyed by a temporary id, and turned
  * into Serial records on save. The alternative, writing them immediately,
