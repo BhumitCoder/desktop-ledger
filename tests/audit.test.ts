@@ -1521,6 +1521,24 @@ console.log(`\n═════════════════════�
     "S1: and so does an Expense",
   );
 
+  /* Money that reached the document LATER belongs to the Payment that
+     brought it, which carries its own mode and is counted there. A legacy
+     document reports its amount less that; stored rows are already the
+     document's own portion and must not be reduced a second time. Getting
+     either direction wrong is a wrong number on the Cash page. */
+  assert(
+    cashPart({ paid: 1000, paymentMode: "cash" } as unknown as Invoice, 400) === 600,
+    "S1: a legacy row reports only what the document itself settled",
+  );
+  assert(
+    cashPart({ paid: 1000, paymentMode: "cash" } as unknown as Invoice, 1000) === 0,
+    "S1: and nothing at all once every rupee of it arrived later",
+  );
+  assert(
+    bankParts(bankBill, 2000).get("B1") === 3000,
+    "S1: a legacy bank row is already the at-billing snapshot, so it is NOT reduced again",
+  );
+
   // Stored rows win, and are the only case with more than one.
   const split = {
     paid: 10000,
@@ -1531,6 +1549,10 @@ console.log(`\n═════════════════════�
     ],
   } as unknown as Invoice;
   assert(cashPart(split) === 4000, "S1: a split bill reports its cash row");
+  assert(
+    cashPart(split, 2500) === 4000,
+    "S1: and stored rows are the document's own portion already — never reduced twice",
+  );
   assert(bankParts(split).get("B1") === 6000, "S1: and its bank row");
   assert(
     cashPart(split) + (bankParts(split).get("B1") ?? 0) === split.paid,
@@ -1573,6 +1595,124 @@ console.log(`\n═════════════════════�
     "S2: credit is what is left unpaid, not a way of paying",
   );
   assert(splitProblems([], 1000).length === 0, "S2: no rows at all is a single-mode document");
+}
+
+/* ═══ TEST S3: a part-cash, part-bank bill reaches BOTH places ══════════
+   The reported case: ₹10,000 taken as ₹4,000 cash and ₹6,000 into HDFC.
+
+   The dangerous half is cash. modeFlows used to drop any bill that touched a
+   bank, so the ₹6,000 was booked to HDFC correctly and the ₹4,000 simply
+   stopped existing — which at the counter reads as the till being short
+   rather than as a bug in a report. */
+{
+  const splitBill = {
+    id: "SPL1",
+    number: "INV-SPL",
+    date: "2026-06-01",
+    partyId: "P1",
+    partyName: "A Customer",
+    lineItems: [],
+    total: 10000,
+    paid: 10000,
+    paymentMode: "cash",
+    paidSplits: [
+      { mode: "cash", amount: 4000 },
+      { mode: "bank", amount: 6000, bankId: "B1" },
+    ],
+  } as unknown as Invoice;
+
+  const cash = cashFlows([splitBill], [], [], [], []);
+  assert(cash.length === 1, `S3: the bill reaches the cash page — ${cash.length} entries`);
+  assert(
+    netFlow(cash) === 4000,
+    `S3: for the cash part only, not the whole bill and not nothing — ${netFlow(cash)}`,
+  );
+
+  // And the bank half is still the bank's, counted once.
+  assert(
+    bankParts(splitBill).get("B1") === 6000,
+    "S3: the bank part is attributed to the account it went into",
+  );
+  assert(
+    netFlow(modeFlows("bank", [splitBill], [], [], [])) === 0,
+    "S3: and does NOT also appear in the bank-mode flows, which would double it",
+  );
+  assert(
+    r2(netFlow(cash) + (bankParts(splitBill).get("B1") ?? 0)) === splitBill.paid,
+    "S3: the two halves account for every rupee of what was paid, exactly once",
+  );
+
+  /* The bank half must reach the ACCOUNT's own ledger, not just the
+     accessor. This is the mirror of the cash bug: read the account off the
+     document's single bankId and a split bill — which has none — shows its
+     cash correctly and its bank half nowhere at all. */
+  {
+    const bank = { id: "B1", name: "HDFC", openingBalance: 0 } as unknown as BankAccount;
+    const led = buildBankLedger(bank, {
+      sales: [splitBill],
+      purchases: [],
+      payments: [],
+      bankTxns: [],
+      expenses: [],
+    });
+    assert(
+      led.rows.some((r) => r.credit === 6000),
+      `S3: the account's own ledger shows the bank half — ${JSON.stringify(led.rows.map((r) => r.credit))}`,
+    );
+    assert(
+      r2(led.fullBalance) === 6000,
+      `S3: and its balance is that and no more — ${led.fullBalance}`,
+    );
+    const other = buildBankLedger({ ...bank, id: "B2" } as unknown as BankAccount, {
+      sales: [splitBill],
+      purchases: [],
+      payments: [],
+      bankTxns: [],
+      expenses: [],
+    });
+    assert(
+      r2(other.fullBalance) === 0,
+      "S3: while an account the money never reached shows nothing",
+    );
+  }
+
+  /* A purchase settled the same way takes money OUT of both. */
+  const splitPurchase = {
+    ...splitBill,
+    id: "SPL2",
+    number: "PUR-SPL",
+  } as unknown as Invoice;
+  assert(
+    netFlow(cashFlows([], [splitPurchase], [], [], [])) === -4000,
+    "S3: a purchase settled part-cash takes only the cash part out of the drawer",
+  );
+
+  /* An ordinary single-mode bill is unaffected — the whole point of the
+     accessor is that nothing existing moved. */
+  const plainCash = {
+    ...splitBill,
+    id: "SPL3",
+    paidSplits: undefined,
+    paid: 800,
+    paymentMode: "cash",
+  } as unknown as Invoice;
+  assert(
+    netFlow(cashFlows([plainCash], [], [], [], [])) === 800,
+    "S3: a plain cash bill still counts in full",
+  );
+  const plainBank = {
+    ...splitBill,
+    id: "SPL4",
+    paidSplits: undefined,
+    paid: 900,
+    paymentMode: "bank",
+    bankId: "B1",
+    bankPaidAmount: 900,
+  } as unknown as Invoice;
+  assert(
+    netFlow(cashFlows([plainBank], [], [], [], [])) === 0,
+    "S3: and a plain bank bill still contributes nothing to cash",
+  );
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);

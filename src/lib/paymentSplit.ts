@@ -26,20 +26,25 @@ export const NEEDS_ACCOUNT: PaymentMode[] = ["bank", "upi", "cheque"];
 /**
  * The rows a document was settled with.
  *
- * `amount` is what the DOCUMENT ITSELF attributed at the time it was saved.
- * It is deliberately not net of later Payment allocations: `paid` can grow
- * after billing when a receipt is allocated to this invoice, and that money
- * belongs to the Payment record which carries its own mode. Callers that care
- * about the difference already subtract it (see `paidViaPayments`), and doing
- * it here would subtract it twice.
+ * `amount` is always what the DOCUMENT ITSELF settled — never money that
+ * reached it later. An invoice's `paid` GROWS when a receipt is allocated to
+ * it (payments.tsx adjusts the field), and that money belongs to the Payment
+ * record, which carries its own mode and is counted there.
  *
- * Legacy documents return exactly one row, chosen to match what the readers
- * do today rather than what would be tidiest:
+ * `settledElsewhere` is that later money, from `paidViaPayments`. Callers
+ * already had to subtract it and every one of them did; taking it here
+ * instead is what lets a row mean ONE thing in both worlds:
  *
- *  - a bank-attributed invoice reports `bankPaidAmount`, because that is the
- *    figure the bank ledger and bankRepair have always used, and it can be
- *    less than `paid`
- *  - anything else reports the whole amount under its own mode
+ *  - stored rows are already the document's own portion, so they are returned
+ *    untouched and must NOT be reduced again
+ *  - a legacy non-bank document reports its amount less what came later,
+ *    which is exactly the "direct" figure modeFlows computes today
+ *  - a legacy bank document reports `bankPaidAmount`, which is already the
+ *    at-billing snapshot — its own comment says so — and is the figure the
+ *    bank ledger and bankRepair have always used
+ *
+ * Getting this wrong in either direction is a wrong number on the Cash page,
+ * so the asymmetry is deliberate and tested both ways.
  */
 export function splitsOf(
   doc:
@@ -47,6 +52,7 @@ export function splitsOf(
         Partial<Pick<Invoice, "bankId" | "bankPaidAmount" | "paidSplits">>)
     | (Pick<Payment, "amount" | "mode"> & Partial<Pick<Payment, "bankId" | "splits">>)
     | (Pick<Expense, "amount" | "paymentMode"> & Partial<Pick<Expense, "bankId" | "splits">>),
+  settledElsewhere = 0,
 ): PaymentSplit[] {
   const d = doc as Record<string, unknown>;
 
@@ -66,13 +72,15 @@ export function splitsOf(
     if (attributed <= 0) return [];
     return [{ mode, amount: attributed, bankId }];
   }
-  return [{ mode, amount: total }];
+  const own = r2(total - (settledElsewhere || 0));
+  if (own <= 0) return [];
+  return [{ mode, amount: own }];
 }
 
 /** The part that went into the drawer. */
-export function cashPart(doc: Parameters<typeof splitsOf>[0]): number {
+export function cashPart(doc: Parameters<typeof splitsOf>[0], settledElsewhere = 0): number {
   return r2(
-    splitsOf(doc)
+    splitsOf(doc, settledElsewhere)
       .filter((s) => s.mode === "cash")
       .reduce((n, s) => n + (s.amount || 0), 0),
   );
@@ -82,9 +90,12 @@ export function cashPart(doc: Parameters<typeof splitsOf>[0]): number {
  *  needs an account but carry none are excluded — they are the legacy
  *  "unassigned" money the daybook already buckets, and pretending they landed
  *  somewhere would put a figure on a real account that never arrived. */
-export function bankParts(doc: Parameters<typeof splitsOf>[0]): Map<string, number> {
+export function bankParts(
+  doc: Parameters<typeof splitsOf>[0],
+  settledElsewhere = 0,
+): Map<string, number> {
   const out = new Map<string, number>();
-  for (const s of splitsOf(doc)) {
+  for (const s of splitsOf(doc, settledElsewhere)) {
     if (!s.bankId) continue;
     out.set(s.bankId, r2((out.get(s.bankId) ?? 0) + (s.amount || 0)));
   }
@@ -93,9 +104,9 @@ export function bankParts(doc: Parameters<typeof splitsOf>[0]): Map<string, numb
 
 /** Money settled under a mode that names no account — the pre-existing
  *  "unassigned" bucket, kept visible rather than quietly dropped. */
-export function unassignedPart(doc: Parameters<typeof splitsOf>[0]): number {
+export function unassignedPart(doc: Parameters<typeof splitsOf>[0], settledElsewhere = 0): number {
   return r2(
-    splitsOf(doc)
+    splitsOf(doc, settledElsewhere)
       .filter((s) => !s.bankId && NEEDS_ACCOUNT.includes(s.mode))
       .reduce((n, s) => n + (s.amount || 0), 0),
   );
