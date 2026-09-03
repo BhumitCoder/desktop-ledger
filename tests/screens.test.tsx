@@ -2249,6 +2249,133 @@ async function runAll(): Promise<Results> {
     );
   }
 
+  /* ── One party, one outstanding figure, on every screen ───────────────
+     Reported from the shop with these exact numbers. JAY MOBILE is both a
+     customer and a supplier: ₹27,400 of unpaid sales, and ₹9,850 owed to
+     them on a purchase. Their statement said ₹17,550. Receive Payment said
+     ₹27,400, mentioned the difference nowhere, and offered "Full" at the
+     gross — so collecting "everything owed" over-collects by exactly what the
+     shop owes them back.
+
+     Both figures were defensible on their own, which is why nothing caught
+     it: the bug was that neither screen admitted the other existed. */
+  {
+    PartyRepo.add({
+      id: "JM1",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "Jay Mobile Dabholi",
+      type: "both",
+      openingBalance: 0,
+    } as never);
+    const sale = (id: string, number: string, day: string, total: number, paid = 0) =>
+      ({
+        id,
+        createdAt: `${day}T09:00:00Z`,
+        number,
+        date: day,
+        partyId: "JM1",
+        partyName: "Jay Mobile Dabholi",
+        gstEnabled: false,
+        lineItems: [
+          {
+            id: `${id}L`,
+            itemId: "I1",
+            name: "USB Cable",
+            unit: "pcs",
+            qty: 1,
+            price: total,
+            discountPct: 0,
+            gstRate: 0,
+            costPrice: 0,
+            amount: total,
+          },
+        ],
+        subtotal: total,
+        discount: 0,
+        shippingCharge: 0,
+        taxAmount: 0,
+        total,
+        paid,
+        paymentMode: paid ? "cash" : "credit",
+      }) as never;
+    // 11,000 billed with 1,100 already received leaves 9,900 — the first row
+    // in the shop's screenshot.
+    SalesRepo.add(sale("JMS1", "JM-0002", D2, 11000, 1100));
+    SalesRepo.add(sale("JMS2", "JM-0032", D3, 3000));
+    SalesRepo.add(sale("JMS3", "JM-0051", D4, 6000));
+    SalesRepo.add(sale("JMS4", "JM-0131", D5, 8500));
+    PurchaseRepo.add({
+      id: "JMP1",
+      createdAt: `${D2}T08:00:00Z`,
+      number: "JMP-1",
+      date: D2,
+      partyId: "JM1",
+      partyName: "Jay Mobile Dabholi",
+      gstEnabled: false,
+      lineItems: [
+        {
+          id: "JMP1L",
+          itemId: "I1",
+          name: "USB Cable",
+          unit: "pcs",
+          qty: 1,
+          price: 9850,
+          discountPct: 0,
+          gstRate: 0,
+          costPrice: 9850,
+          amount: 9850,
+        },
+      ],
+      subtotal: 9850,
+      discount: 0,
+      shippingCharge: 0,
+      taxAmount: 0,
+      total: 9850,
+      paid: 0,
+      paymentMode: "credit",
+    } as never);
+
+    await renderRoute("/payments");
+    const recv = findButton(/Receive Payment/);
+    assert(!!recv, "one figure: found the Receive Payment button");
+    await act(async () => {
+      recv?.click();
+    });
+    await settleMs(120);
+    const box = document.querySelector(
+      'input[placeholder="Type to search party…"]',
+    ) as HTMLInputElement | null;
+    assert(!!box, "one figure: found the party box");
+    await act(async () => {
+      setInput(box, "Jay Mobile");
+    });
+    await settleMs(100);
+    const option = Array.from(document.querySelectorAll("div"))
+      .filter((d) => d.textContent === "Jay Mobile Dabholi")
+      .pop();
+    assert(!!option, "one figure: the party is suggested");
+    await act(async () => {
+      option?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    });
+    await settleMs(150);
+    const dialog = currentDialog().textContent ?? "";
+
+    has(dialog, fmtMoney(17550), "one figure: Receive Payment shows what the party actually owes");
+    // The gross is still shown — as the explanation, not as the answer.
+    has(dialog, fmtMoney(27400), "one figure: with the open-bill total named");
+    has(dialog, fmtMoney(9850), "one figure: and the amount the shop owes them named too");
+    has(
+      dialog,
+      "you owe them",
+      "one figure: said in words, so nobody has to work out why the two differ",
+    );
+
+    /* The assertion that matters: the statement and the dialog agree. Either
+       number alone was arguable; disagreeing was not. */
+    const statement = await renderRoute("/parties/JM1");
+    has(statement, fmtMoney(17550), "one figure: and the party's own statement says the same");
+  }
+
   /* ── Opening balance: the side is a choice, not the sign of a number ──
      It used to be read back off the sign, so on a NEW party — amount 0 —
      picking "payable" stored -0, and -0 < 0 is false: the button lit up
