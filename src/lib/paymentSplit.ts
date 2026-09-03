@@ -112,6 +112,17 @@ export function unassignedPart(doc: Parameters<typeof splitsOf>[0], settledElsew
   );
 }
 
+/**
+ * The mode a split document reports as "its" mode — the biggest part of it.
+ *
+ * Display only. Every figure comes from the rows; this exists so a list, a
+ * filter or an old printout still says something true about the document
+ * rather than nothing at all.
+ */
+export function largestSplitMode(rows: PaymentSplit[]): PaymentMode {
+  return rows.reduce((best, r) => (r.amount > best.amount ? r : best), rows[0]).mode;
+}
+
 export interface SplitProblem {
   message: string;
 }

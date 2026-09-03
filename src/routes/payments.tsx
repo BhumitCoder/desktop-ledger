@@ -12,7 +12,15 @@ import {
 } from "@/repositories";
 import { useRepoData } from "@/hooks/useRepoData";
 import { newBatch, commitBatch } from "@/repositories/base";
-import type { Payment, PaymentAllocation, PaymentMode, Invoice, BankAccount, Party } from "@/types";
+import type {
+  Payment,
+  PaymentAllocation,
+  PaymentMode,
+  Invoice,
+  BankAccount,
+  Party,
+  PaymentSplit,
+} from "@/types";
 import { fmtMoney, fmtDate, today, fmtDateShort } from "@/lib/format";
 import { netPartyPositions, spreadFifo } from "@/lib/ledger";
 import {
@@ -31,6 +39,8 @@ import {
 } from "lucide-react";
 import { usePermissions } from "@/hooks/usePermissions";
 import { toast } from "sonner";
+import { bankParts, splitProblems, largestSplitMode } from "@/lib/paymentSplit";
+import { SplitPaymentRows } from "@/components/SplitPaymentRows";
 import { genId } from "@/repositories/base";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -155,13 +165,12 @@ function PaymentsPage() {
     // Money that was moved onto a specific bank account when this payment
     // was recorded must be moved back off it, or the account balance stays
     // permanently wrong after the payment is deleted.
-    if (live.mode === "bank" && live.bankId && BankRepo.get(live.bankId)) {
-      BankRepo.adjustFieldBatched(
-        batch,
-        live.bankId,
-        "balance",
-        live.type === "in" ? -live.amount : live.amount,
-      );
+    // Every account, not just one: a receipt can be part cash and part bank,
+    // or land in two accounts, and leaving either behind makes that balance
+    // permanently wrong.
+    for (const [bankId, amount] of bankParts(live)) {
+      if (!BankRepo.get(bankId)) continue;
+      BankRepo.adjustFieldBatched(batch, bankId, "balance", live.type === "in" ? -amount : amount);
     }
     PaymentRepo.removeBatched(batch, live.id);
     commitBatch(batch, "delete payment");
@@ -561,6 +570,9 @@ function ReceivePaymentDialog({
 
   const [date, setDate] = useState(today());
   const [mode, setMode] = useState<PaymentMode>("cash");
+  /** Rows, once the money came in more than one way. null is the ordinary
+   *  single-mode receipt, which is most of them. */
+  const [splitRows, setSplitRows] = useState<PaymentSplit[] | null>(null);
   const [banks, setBanks] = useState<BankAccount[]>([]);
   const [bankId, setBankId] = useState("");
   const [bankQ, setBankQ] = useState("");
@@ -849,9 +861,20 @@ function ReceivePaymentDialog({
       toast.error("Enter or select an amount to pay");
       return;
     }
-    if (mode === "bank" && !bankId) {
+    if (!splitRows && mode === "bank" && !bankId) {
       toast.error("Select which bank account this goes to");
       return;
+    }
+    /* A receipt that does not add up is not a receipt. Refused rather than
+       corrected: only the person taking the money knows which figure is
+       right. Checked against the amount actually being recorded, which is
+       what the rows are shown against too. */
+    if (splitRows) {
+      const problems = splitProblems(splitRows, r2(amount));
+      if (problems.length) {
+        toast.error(problems[0].message, { duration: 8000 });
+        return;
+      }
     }
     savingRef.current = true;
     setSaving(true);
@@ -910,13 +933,11 @@ function ReceivePaymentDialog({
       // Editing: reverse the old bank-account effect too, before applying
       // the new one below — handles both "same account, new amount" and
       // "switched to a different account" correctly.
-      if (editing?.mode === "bank" && editing.bankId && BankRepo.get(editing.bankId)) {
-        BankRepo.adjustFieldBatched(
-          batch,
-          editing.bankId,
-          "balance",
-          editing.type === "in" ? -editing.amount : editing.amount,
-        );
+      if (editing) {
+        for (const [id, amt] of bankParts(editing)) {
+          if (!BankRepo.get(id)) continue;
+          BankRepo.adjustFieldBatched(batch, id, "balance", editing.type === "in" ? -amt : amt);
+        }
       }
 
       // Apply to invoices — atomic increments so simultaneous cashiers both count.
@@ -956,9 +977,17 @@ function ReceivePaymentDialog({
         );
       }
 
-      // Move money on the selected bank account for this (new) payment.
-      if (mode === "bank" && bankId) {
-        BankRepo.adjustFieldBatched(batch, bankId, "balance", isIn ? amount : -amount);
+      /* Move money on every account this payment names. Read through the
+         same accessor the readers use, so a single-mode receipt produces
+         exactly the one adjustment it always did. */
+      const attribution = {
+        amount: r2(amount),
+        mode,
+        bankId: mode === "bank" ? bankId : undefined,
+        splits: splitRows?.length ? splitRows : undefined,
+      };
+      for (const [id, amt] of bankParts(attribution)) {
+        BankRepo.adjustFieldBatched(batch, id, "balance", isIn ? amt : -amt);
       }
 
       // Record payment
@@ -969,8 +998,11 @@ function ReceivePaymentDialog({
           partyName,
           type,
           amount: r2(amount),
-          mode,
-          bankId: mode === "bank" ? bankId : undefined,
+          // For a split receipt the rows are the attribution and the legacy
+          // pair is left empty, so there is one answer for where it went.
+          mode: splitRows?.length ? largestSplitMode(splitRows) : mode,
+          bankId: splitRows?.length ? undefined : mode === "bank" ? bankId : undefined,
+          splits: splitRows?.length ? splitRows : undefined,
           allocations: allocations.length ? allocations : undefined,
           // Clear any legacy `ref` — its application was just reversed above,
           // so leaving it would double-count on the NEXT edit/delete and show
@@ -985,8 +1017,9 @@ function ReceivePaymentDialog({
           partyName,
           type,
           amount: r2(amount),
-          mode,
-          bankId: mode === "bank" ? bankId : undefined,
+          mode: splitRows?.length ? largestSplitMode(splitRows) : mode,
+          bankId: splitRows?.length ? undefined : mode === "bank" ? bankId : undefined,
+          splits: splitRows?.length ? splitRows : undefined,
           allocations: allocations.length ? allocations : undefined,
           createdAt: new Date().toISOString(),
         };
@@ -1452,7 +1485,43 @@ function ReceivePaymentDialog({
             </div>
           </div>
 
-          {mode === "bank" && (
+          {/* Offered only when there is money to divide. */}
+          {payAmount > 0 && !splitRows && (
+            <button
+              type="button"
+              onClick={() =>
+                setSplitRows([
+                  { mode, amount: r2(payAmount), bankId: mode === "bank" ? bankId : undefined },
+                ])
+              }
+              className="self-start text-[11px] font-medium text-primary hover:underline"
+            >
+              Split across cash and bank
+            </button>
+          )}
+          {splitRows && (
+            <div className="flex flex-col gap-1 text-[12px]">
+              <div className="flex items-center justify-between gap-2">
+                <label className="font-semibold text-gray-600">How it was paid</label>
+                <button
+                  type="button"
+                  onClick={() => setSplitRows(null)}
+                  className="text-[11px] text-gray-500 hover:underline"
+                >
+                  Back to one payment
+                </button>
+              </div>
+              <SplitPaymentRows
+                rows={splitRows}
+                onChange={setSplitRows}
+                total={r2(payAmount)}
+                banks={banks}
+                label={isIn ? "Amount received" : "Amount paid"}
+              />
+            </div>
+          )}
+
+          {!splitRows && mode === "bank" && (
             <div className="relative flex flex-col gap-1 text-[12px]">
               <label className="font-semibold text-gray-600">Bank Account *</label>
               <input

@@ -6,7 +6,7 @@ import { usePagination } from "@/hooks/usePagination";
 import { ExpenseRepo, BankRepo, PayeeRepo, CompanyRepo } from "@/repositories";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 import { newBatch, commitBatch, genId } from "@/repositories/base";
-import type { Expense, BankAccount, Payee } from "@/types";
+import type { Expense, BankAccount, Payee, PaymentSplit } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/Field";
@@ -23,6 +23,8 @@ import { fmtMode } from "@/lib/paymentMode";
 import { fmtDate, fmtDateShort, fmtMoney, today } from "@/lib/format";
 import { Plus, Receipt, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
+import { bankParts, splitProblems, largestSplitMode } from "@/lib/paymentSplit";
+import { SplitPaymentRows } from "@/components/SplitPaymentRows";
 import { usePermissions } from "@/hooks/usePermissions";
 
 export const Route = createFileRoute("/expenses")({ component: ExpensesPage });
@@ -72,8 +74,10 @@ function ExpensesPage() {
       // expense was recorded must be moved back on, or the account
       // balance stays permanently wrong after the expense is gone.
       const batch = newBatch();
-      if (live.paymentMode === "bank" && live.bankId && BankRepo.get(live.bankId)) {
-        BankRepo.adjustFieldBatched(batch, live.bankId, "balance", live.amount);
+      // Every account it was paid from, not just one.
+      for (const [bankId, amount] of bankParts(live)) {
+        if (!BankRepo.get(bankId)) continue;
+        BankRepo.adjustFieldBatched(batch, bankId, "balance", amount);
       }
       ExpenseRepo.removeBatched(batch, live.id);
       commitBatch(batch, "delete expense");
@@ -283,6 +287,8 @@ function ExpenseDialog({
 }) {
   const firstRef = useRef<HTMLButtonElement>(null);
   const [f, setF] = useState<Partial<Expense>>({});
+  /** Rows, once the money came out in more than one way. */
+  const [splitRows, setSplitRows] = useState<PaymentSplit[] | null>(null);
   const [saving, setSaving] = useState(false);
   // Synchronous double-submit guard — prevents a same-tick double Enter from
   // recording the expense (and its bank-balance move) twice.
@@ -364,7 +370,16 @@ function ExpenseDialog({
       toast.error("Amount must be positive");
       return;
     }
-    if (f.paymentMode === "bank" && !f.bankId) {
+    /* An expense that does not add up is not an expense. Refused rather than
+       corrected: only the person who paid it knows which figure is right. */
+    if (splitRows) {
+      const problems = splitProblems(splitRows, f.amount ?? 0);
+      if (problems.length) {
+        toast.error(problems[0].message, { duration: 8000 });
+        return;
+      }
+    }
+    if (!splitRows && f.paymentMode === "bank" && !f.bankId) {
       toast.error("Select which bank account this was paid from");
       return;
     }
@@ -383,12 +398,23 @@ function ExpenseDialog({
     // Editing: reverse the old bank-account effect first, before applying
     // the new one below — handles both "same account, new amount" and
     // "switched to a different account" correctly.
-    if (expense?.paymentMode === "bank" && expense.bankId && BankRepo.get(expense.bankId)) {
-      BankRepo.adjustFieldBatched(batch, expense.bankId, "balance", expense.amount);
+    if (expense) {
+      for (const [bankId, amount] of bankParts(expense)) {
+        if (!BankRepo.get(bankId)) continue;
+        BankRepo.adjustFieldBatched(batch, bankId, "balance", amount);
+      }
     }
-    // Money paid out of the selected bank account for this (new) expense.
-    if (f.paymentMode === "bank" && f.bankId) {
-      BankRepo.adjustFieldBatched(batch, f.bankId, "balance", -f.amount);
+    /* Money paid out of every account this expense names. Read through the
+       same accessor as everything else, so a single-mode expense produces
+       exactly the one adjustment it always did. */
+    const attribution = {
+      amount: f.amount ?? 0,
+      paymentMode: f.paymentMode ?? "cash",
+      bankId: f.paymentMode === "bank" ? f.bankId : undefined,
+      splits: splitRows?.length ? splitRows : undefined,
+    };
+    for (const [bankId, amount] of bankParts(attribution)) {
+      BankRepo.adjustFieldBatched(batch, bankId, "balance", -amount);
     }
 
     // f.payeeId is only trusted if it was set by an actual pick from the
@@ -409,7 +435,13 @@ function ExpenseDialog({
 
     const record: Partial<Expense> = {
       ...f,
-      bankId: f.paymentMode === "bank" ? f.bankId : undefined,
+      /* For a split expense the rows ARE the attribution and the legacy pair
+         is left empty, so there is one answer for where the money came from.
+         paymentMode keeps the largest part, so lists still say something
+         true about it. */
+      paymentMode: splitRows?.length ? largestSplitMode(splitRows) : f.paymentMode,
+      bankId: splitRows?.length ? undefined : f.paymentMode === "bank" ? f.bankId : undefined,
+      splits: splitRows?.length ? splitRows : undefined,
       payeeId,
       payeeName,
     };
@@ -529,7 +561,45 @@ function ExpenseDialog({
               />
             </div>
           </label>
-          {f.paymentMode === "bank" && (
+          {(f.amount ?? 0) > 0 && !splitRows && (
+            <button
+              type="button"
+              onClick={() =>
+                setSplitRows([
+                  {
+                    mode: f.paymentMode ?? "cash",
+                    amount: f.amount ?? 0,
+                    bankId: f.paymentMode === "bank" ? f.bankId : undefined,
+                  },
+                ])
+              }
+              className="self-start text-[11px] font-medium text-primary hover:underline"
+            >
+              Split across cash and bank
+            </button>
+          )}
+          {splitRows && (
+            <div className="flex flex-col gap-1 text-[12px]">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold text-gray-600">How it was paid</span>
+                <button
+                  type="button"
+                  onClick={() => setSplitRows(null)}
+                  className="text-[11px] text-gray-500 hover:underline"
+                >
+                  Back to one payment
+                </button>
+              </div>
+              <SplitPaymentRows
+                rows={splitRows}
+                onChange={setSplitRows}
+                total={f.amount ?? 0}
+                banks={banks}
+                label="Amount paid"
+              />
+            </div>
+          )}
+          {!splitRows && f.paymentMode === "bank" && (
             <div className="relative flex flex-col gap-1 text-[12px]">
               <span className="text-muted-foreground font-medium">Bank Account *</span>
               <input

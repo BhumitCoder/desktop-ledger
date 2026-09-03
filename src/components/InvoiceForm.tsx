@@ -37,7 +37,7 @@ import type {
 } from "@/types";
 import { fmtMoney, fmtDate, today } from "@/lib/format";
 import { toast } from "sonner";
-import { bankParts, splitProblems } from "@/lib/paymentSplit";
+import { bankParts, splitProblems, largestSplitMode } from "@/lib/paymentSplit";
 import { SplitPaymentRows } from "@/components/SplitPaymentRows";
 import {
   Trash2,
@@ -319,12 +319,6 @@ export function InvoiceForm({ mode, existing }: Props) {
   }, []);
 
   const r2 = (n: number) => Math.round(n * 100) / 100;
-
-  /** The mode a split bill reports as "its" mode — the biggest part of it.
-   *  Only ever for display: every figure comes from the rows. */
-  function largestSplitMode(rows: PaymentSplit[]): PaymentMode {
-    return rows.reduce((best, r) => (r.amount > best.amount ? r : best), rows[0]).mode;
-  }
 
   const roundEnabled = company.enableRoundOff !== false;
 
