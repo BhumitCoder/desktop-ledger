@@ -2831,7 +2831,11 @@ async function runAll(): Promise<Results> {
     } as never);
 
     const SHORT = /^\d{2}-\d{2}-\d{2}$/; // 22-08-26
-    const LONG = /^\d{1,2} [A-Za-z]{3} \d{4}$/; // 22 Aug 2026
+    /* {3,4}, not {3}: fmtDate asks Intl for a "short" month, and September
+       comes back as "Sept" — the one four-letter abbreviation in English. A
+       {3} here made this suite fail every September, and, worse, made the
+       negative assertion below blind to a long date for that whole month. */
+    const LONG = /^\d{1,2} [A-Za-z]{3,4}\.? \d{4}$/; // 22 Aug 2026 / 02 Sept 2026
 
     let checked = 0;
     for (const [route, label] of [
@@ -2882,7 +2886,8 @@ async function runAll(): Promise<Results> {
       .filter((t) => /\d/.test(t));
     assert(rows.length > 0, "date format: the party statement has rows");
     assert(
-      rows.some((c) => /^\d{1,2} [A-Za-z]{3} \d{4}$/.test(c)),
+      // Same four-letter September case as LONG above.
+      rows.some((c) => /^\d{1,2} [A-Za-z]{3,4}\.? \d{4}$/.test(c)),
       `date format: a party statement still reads the long way — it is a document handed to a customer, not a list to scan — ${JSON.stringify(rows.slice(0, 3))}`,
     );
     assert(
