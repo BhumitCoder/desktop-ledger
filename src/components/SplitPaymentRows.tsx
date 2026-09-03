@@ -6,9 +6,22 @@ import { NEEDS_ACCOUNT, splitProblems } from "@/lib/paymentSplit";
 import { fmtMoney } from "@/lib/format";
 import { NumInput } from "@/components/NumInput";
 
-/** Credit is the absence of payment, so it is not a way of paying part of
- *  something. The rest are, and each says where the money ended up. */
-const SPLITTABLE: PaymentMode[] = ["cash", "bank", "upi", "cheque"];
+/**
+ * What one part of a payment can be.
+ *
+ * Cash and bank only, matching what the rest of the app offers. Credit is the
+ * absence of payment rather than a way of paying part of something, and upi
+ * and cheque are deliberately absent: they exist in old records but cannot be
+ * CHOSEN anywhere in this app today, so offering them only inside a split
+ * would mean the one way to record a UPI payment was to split it — which is
+ * absurd, and the kind of inconsistency that gets discovered by a confused
+ * shopkeeper rather than by us.
+ *
+ * Making UPI a first-class mode everywhere is real work and worth doing —
+ * it is how Indian shops actually take money — but it is its own change, not
+ * a side effect of this one.
+ */
+const SPLITTABLE: PaymentMode[] = ["cash", "bank"];
 
 /**
  * "₹4,000 cash and ₹6,000 into HDFC" — the rows that say so.
