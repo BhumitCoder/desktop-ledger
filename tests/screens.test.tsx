@@ -2263,6 +2263,81 @@ async function runAll(): Promise<Results> {
     );
   }
 
+  /* ── The same item twice is two lines ─────────────────────────────────
+     This shop sells phones, and two of the same model routinely go out at
+     different prices on one bill — a trade-in, a haggle, a damaged box.
+     Folding them into one line of quantity 2 makes that impossible to write
+     down, and loses the itemisation the customer is reading. */
+  {
+    const addOnce = async (name: string) => {
+      const box = document.querySelector(
+        'input[placeholder="Type item name to add…"]',
+      ) as HTMLInputElement | null;
+      assert(!!box, "repeat item: found the item entry row");
+      await act(async () => {
+        setInput(box, name);
+      });
+      await settleMs(120);
+      await act(async () => {
+        box?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      });
+      await settleMs(150);
+    };
+    const linesNamed = (name: string) =>
+      Array.from(document.querySelectorAll('tbody [role="button"]')).filter(
+        (b) => (b.textContent ?? "").trim() === name,
+      ).length;
+
+    await renderRoute("/sales/new");
+    await addOnce("USB Cable");
+    assert(linesNamed("USB Cable") === 1, "repeat item: the first one makes a line");
+    await addOnce("USB Cable");
+    assert(
+      linesNamed("USB Cable") === 2,
+      `repeat item: the second makes a SECOND line rather than quantity 2 — ${linesNamed("USB Cable")} line(s)`,
+    );
+    await addOnce("USB Cable");
+    assert(linesNamed("USB Cable") === 3, "repeat item: and so does the third");
+
+    /* Each line keeps its own price. That is the whole point — one handset
+       discounted and one not, on the same bill. */
+    const rows = Array.from(document.querySelectorAll("tbody tr")).filter((tr) =>
+      Array.from(tr.querySelectorAll('[role="button"]')).some(
+        (b) => (b.textContent ?? "").trim() === "USB Cable",
+      ),
+    );
+    assert(rows.length === 3, "repeat item: three separate rows to price separately");
+    const priceOf = (tr: Element) => {
+      const inputs = Array.from(tr.querySelectorAll("input")) as HTMLInputElement[];
+      return inputs[inputs.length - 1];
+    };
+    await act(async () => {
+      setInput(priceOf(rows[0]), "90");
+    });
+    await settleMs(100);
+    assert(
+      (priceOf(rows[1]) as HTMLInputElement).value !== "90",
+      "repeat item: pricing one line does not drag the others with it",
+    );
+  }
+
+  /* ── Courier cost on a purchase, the same as on a sale ────────────────
+     The shop pays courier on goods coming in just as it charges it on goods
+     going out. The box existed only on sales; the arithmetic always handled
+     both. */
+  {
+    await renderRoute("/purchase/new");
+    const labels = document.body.textContent ?? "";
+    has(labels, "Courier / Shipping", "courier: a purchase can record what the courier cost");
+
+    await renderRoute("/sales/new");
+    has(
+      document.body.textContent ?? "",
+      "Shipping Charge",
+      "courier: and the sale keeps the wording it already had",
+    );
+  }
+
   /* ── Picking the wrong item is not a dead end ─────────────────────────
      Reported from the shop: choose an item by mistake, type the right name
      over it, and there was no way to create it. The blank entry row could

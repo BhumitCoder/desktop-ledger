@@ -400,13 +400,19 @@ export function InvoiceForm({ mode, existing }: Props) {
   // Returns the id of the line that was added/updated, so the caller can move
   // focus straight to that row's Qty field for fast entry.
   const addLineItem = (it: Item): string => {
-    // Repeat items cannot be added twice — increase quantity of the existing line instead
-    const existingLine = inv.lineItems.find((l) => l.itemId === it.id);
-    if (existingLine) {
-      updateLine(existingLine.id, { qty: existingLine.qty + 1 });
-      toast.info(`${it.name} — quantity increased to ${existingLine.qty + 1}`);
-      return existingLine.id;
-    }
+    /* The same item added again gets its OWN line, and does not fold into the
+       one above it.
+
+       This shop sells phones. Two of the same model routinely go out at
+       different prices on one bill — a trade-in, a haggle, a damaged box —
+       and folding them into a single line of quantity 2 makes that
+       impossible to write down. It also lost the itemisation the customer is
+       reading: they want to see what they are paying for each handset, not a
+       multiplied total.
+
+       Merging was the old behaviour and it was deliberate; the shop asked for
+       it to go. Nothing is lost by it — a genuine repeat is still one keystroke
+       away from becoming quantity 2 by hand. */
     // This party's own last price wins; otherwise what the item last
     // actually went out at; only then the catalogue figure.
     const historicalPrice = lastPartyPrice(it.id) ?? lastAnyPrice(it.id);
@@ -536,26 +542,11 @@ export function InvoiceForm({ mode, existing }: Props) {
   // id of the row that ends up holding the item, so the caller can move
   // focus straight to its Qty field.
   const changeLineItem = (lineId: string, it: Item): string => {
-    const dup = inv.lineItems.find((l) => l.itemId === it.id && l.id !== lineId);
-    if (dup) {
-      const removed = inv.lineItems.find((l) => l.id === lineId);
-      const mergedQty = dup.qty + (removed?.qty ?? 0);
-      const gstMult = gstOn ? 1 + dup.gstRate / 100 : 1;
-      const lines = inv.lineItems
-        .filter((l) => l.id !== lineId)
-        .map((l) =>
-          l.id === dup.id
-            ? {
-                ...l,
-                qty: mergedQty,
-                amount: r2(r2(mergedQty * l.price * (1 - l.discountPct / 100)) * gstMult),
-              }
-            : l,
-        );
-      setInv({ ...inv, lineItems: lines, ...recalc(lines) });
-      toast.info(`${it.name} — merged into existing line, quantity increased to ${mergedQty}`);
-      return dup.id;
-    }
+    /* No merging here either, for the same reason as addLineItem — and for
+       consistency: two lines of one item must mean the same thing however
+       the bill arrived at them. Reaching that state by changing a line used
+       to silently delete the line being edited, which is a surprising way to
+       lose a row. */
     // This party's own last price wins; otherwise what the item last
     // actually went out at; only then the catalogue figure.
     const historicalPrice = lastPartyPrice(it.id) ?? lastAnyPrice(it.id);
@@ -1490,16 +1481,20 @@ export function InvoiceForm({ mode, existing }: Props) {
                   className="w-28 h-8 px-2 text-right border rounded-md bg-background focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none tabular-nums"
                 />
               </div>
-              {isSale && (
-                <div className="flex justify-between items-center gap-2">
-                  <span className="text-muted-foreground">Shipping Charge</span>
-                  <NumInput
-                    value={inv.shippingCharge ?? 0}
-                    onValue={(n) => setShippingCharge(n)}
-                    className="w-28 h-8 px-2 text-right border rounded-md bg-background focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none tabular-nums"
-                  />
-                </div>
-              )}
+              {/* On purchases too: the shop pays courier on goods coming in
+                  just as it charges it on goods going out, and asked for the
+                  same box. recalc() already folded this into the total for
+                  either kind of document — only the field was hidden. */}
+              <div className="flex justify-between items-center gap-2">
+                <span className="text-muted-foreground">
+                  {isSale ? "Shipping Charge" : "Courier / Shipping"}
+                </span>
+                <NumInput
+                  value={inv.shippingCharge ?? 0}
+                  onValue={(n) => setShippingCharge(n)}
+                  className="w-28 h-8 px-2 text-right border rounded-md bg-background focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none tabular-nums"
+                />
+              </div>
               {!!inv.roundOff && Math.abs(inv.roundOff) > 0.001 && (
                 <Row
                   label="Round Off"
