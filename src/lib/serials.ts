@@ -337,7 +337,14 @@ export function serialTextsOn(
   // Scan order is kept: it is the order the counter picked them up in, and on
   // a warranty claim that is the only thing tying a row of identical adapters
   // to the one in the customer's hand.
-  return ids.map((id) => idx.get(id)).filter((s): s is string => !!s);
+  //
+  // Draft ids resolve to the text that was scanned. A purchase being entered
+  // holds its units as drafts until the bill is saved, so without this the
+  // form's own print preview would show an adapter bill with no numbers on
+  // it — the one document where the numbers are the point.
+  return ids
+    .map((id) => (isDraftSerial(id) ? draftSerialText(id) : idx.get(id)))
+    .filter((s): s is string => !!s);
 }
 
 export const serialIdsOn = (lines: { serialIds?: string[] }[]): string[] =>

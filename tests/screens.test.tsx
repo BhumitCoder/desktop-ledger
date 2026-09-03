@@ -1178,6 +1178,28 @@ async function runAll(): Promise<Results> {
     );
     SerialRepo.update("SN1", { voidedAt: undefined } as never);
 
+    /* A purchase being entered holds its units as drafts until it saves, and
+       the form mounts its own print preview. Without draft resolution that
+       preview is an adapter bill with no numbers on it. */
+    const draft = await render(
+      <PrintableInvoice
+        inv={doc({
+          lineItems: [{ ...serialLine, serialIds: ["draft:NEWUNIT01", "draft:NEWUNIT02"] }],
+        })}
+        company={CompanyRepo.get()}
+        mode="purchase"
+      />,
+    );
+    has(
+      draft,
+      "NEWUNIT01",
+      "printed bill: a purchase being entered previews the units just scanned, before they exist",
+    );
+    assert(
+      !draft.includes("draft:"),
+      "printed bill: and shows the number, not the placeholder id it is held under",
+    );
+
     printRoot.unmount();
     printHost.remove();
   }
