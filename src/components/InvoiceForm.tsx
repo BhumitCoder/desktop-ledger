@@ -244,6 +244,21 @@ export function InvoiceForm({ mode, existing }: Props) {
       (b) => b.name.toLowerCase().includes(q) || (b.accountNumber ?? "").toLowerCase().includes(q),
     );
   }, [banks, bankQ]);
+  /* Keep the arrow-key highlight visible. Guarded on the index ACTUALLY
+     moving, for the reason spelled out on the item picker's copy of this: an
+     unguarded version runs on every render and snaps a hand-scrolled list
+     back to the top, which feels exactly like a list that cannot be
+     scrolled. */
+  const bankOptionsRef = useRef<HTMLDivElement>(null);
+  const prevBankIdx = useRef(bankIdx);
+  useEffect(() => {
+    if (prevBankIdx.current === bankIdx) return;
+    prevBankIdx.current = bankIdx;
+    bankOptionsRef.current
+      ?.querySelector(`[data-bank-opt="${bankIdx}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [bankIdx]);
+
   const selectBank = (b: BankAccount) => {
     setInv({ ...inv, bankId: b.id });
     setBankQ(b.name);
@@ -1536,10 +1551,14 @@ export function InvoiceForm({ mode, existing }: Props) {
                     className="h-9 px-3 border rounded-md bg-background focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none text-[13px]"
                   />
                   {bankOpen && bankSuggests.length > 0 && (
-                    <div className="absolute z-20 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-elevated max-h-56 overflow-auto">
+                    <div
+                      ref={bankOptionsRef}
+                      className="absolute z-20 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-elevated max-h-56 overflow-auto"
+                    >
                       {bankSuggests.map((b, i) => (
                         <div
                           key={b.id}
+                          data-bank-opt={i}
                           onMouseDown={(e) => {
                             e.preventDefault();
                             selectBank(b);

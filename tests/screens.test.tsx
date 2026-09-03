@@ -2249,6 +2249,149 @@ async function runAll(): Promise<Results> {
     );
   }
 
+  /* ── The bank list has to follow the arrow keys ───────────────────────
+     Reported from the shop: "only 3 bank account have, other nothing
+     viewable". The list held every account and could be scrolled by hand —
+     what it never did was follow the keyboard, so the fourth account onward
+     could be highlighted and never seen. */
+  {
+    for (let n = 2; n <= 9; n++) {
+      BankRepo.add({
+        id: `BSC${n}`,
+        createdAt: "2026-01-01T00:00:00Z",
+        name: `Scroll Test Bank ${n}`,
+        accountNumber: `00000${n}`,
+        openingBalance: 0,
+        balance: 0,
+      } as never);
+    }
+
+    await renderRoute("/sales/new");
+    const bankPill = Array.from(document.querySelectorAll("button")).find(
+      (b) => (b.textContent ?? "").trim() === "Bank",
+    );
+    assert(!!bankPill, "bank scroll: found the Bank payment mode");
+    await act(async () => {
+      bankPill?.click();
+    });
+    await settleMs(120);
+
+    const box = document.querySelector(
+      'input[placeholder="Search bank account…"]',
+    ) as HTMLInputElement | null;
+    assert(!!box, "bank scroll: found the bank search box");
+    await act(async () => {
+      box?.focus();
+      box?.dispatchEvent(new FocusEvent("focus", { bubbles: true }));
+    });
+    await settleMs(100);
+
+    const list = () =>
+      document.querySelector("[data-bank-opt]")?.parentElement as HTMLElement | null;
+    assert(!!list(), "bank scroll: the account list is open");
+    assert(
+      (list()?.querySelectorAll("[data-bank-opt]").length ?? 0) >= 8,
+      `bank scroll: every account is in the list, not just the first few — ${list()?.querySelectorAll("[data-bank-opt]").length}`,
+    );
+    assert(list()?.scrollTop === 0, "bank scroll: it starts at the top");
+
+    // Walk past the fold. The container is capped at max-h-56, so eight
+    // accounts cannot all be visible at once.
+    for (let n = 0; n < 8; n++) {
+      await act(async () => {
+        box?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+      });
+    }
+    await settleMs(120);
+
+    const scroller = list();
+    assert(
+      (scroller?.scrollHeight ?? 0) > (scroller?.clientHeight ?? 0),
+      "bank scroll: the list is genuinely taller than its box, or this proves nothing",
+    );
+    assert(
+      (scroller?.scrollTop ?? 0) > 0,
+      `bank scroll: arrowing down the list scrolls it, instead of highlighting rows nobody can see — scrollTop ${scroller?.scrollTop}`,
+    );
+  }
+
+  /* ── The category picker has to answer a mouse ────────────────────────
+     Reported from the shop: in Bulk Update, the Category cell "only tab and
+     enter work" — clicking a suggestion did nothing. Driven here with a real
+     mousedown, which is the event the list actually listens for. */
+  {
+    /* An existing category to pick, so this proves SELECTING one rather than
+       creating one — the "Add …" row commits the typed text either way and
+       would pass even if picking were broken. */
+    ItemRepo.update("I1", { category: "Accessories" } as never);
+
+    const h = document.createElement("div");
+    document.body.appendChild(h);
+    const r = createRoot(h);
+    await act(async () => {
+      r.render(<BulkUpdateItemsDialog open onOpenChange={() => {}} onSaved={() => {}} />);
+    });
+    await settleMs(120);
+
+    const infoTab = Array.from(document.querySelectorAll('[role="radio"]')).find((b) =>
+      (b.textContent ?? "").trim().startsWith("Item Information"),
+    ) as HTMLButtonElement | undefined;
+    assert(!!infoTab, "category click: found the Item Information tab");
+    await act(async () => {
+      infoTab!.click();
+    });
+    await settleMs(100);
+
+    const catBox = Array.from(
+      document.querySelectorAll('input[placeholder="Search or add…"]'),
+    )[0] as HTMLInputElement | undefined;
+    assert(!!catBox, "category click: found a Category cell");
+
+    // Focus it the way a mouse does, then type enough to bring up the list.
+    await act(async () => {
+      catBox!.focus();
+      catBox!.dispatchEvent(new FocusEvent("focus", { bubbles: true }));
+    });
+    await settleMs(80);
+    await act(async () => {
+      setInput(catBox, "Access");
+    });
+    await settleMs(120);
+
+    const listbox = document.querySelector('[role="listbox"]');
+    assert(!!listbox, "category click: typing opens the suggestion list");
+    const option = listbox?.querySelector('[role="option"]') as HTMLElement | null;
+    assert(!!option, "category click: the list has something to pick");
+    const optionText = (option?.textContent ?? "").trim();
+
+    /* A real click fires pointerdown FIRST, and that is the event Radix's
+       dialog watches to decide something outside it was touched. The list is
+       portalled to document.body, so it IS outside the dialog's DOM — firing
+       only mousedown skips the whole interaction this bug lives in. */
+    await act(async () => {
+      option?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerId: 1 }),
+      );
+      option?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+      option?.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+      option?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    await settleMs(150);
+
+    assert(
+      optionText === "Accessories",
+      `category click: the existing category is offered, not just "Add" — ${JSON.stringify(optionText)}`,
+    );
+    assert(
+      catBox!.value === "Accessories",
+      `category click: and clicking it fills the cell with the whole name — ${JSON.stringify(catBox!.value)}`,
+    );
+
+    r.unmount();
+    h.remove();
+    ItemRepo.update("I1", { category: undefined } as never);
+  }
+
   /* ── One party, one outstanding figure, on every screen ───────────────
      Reported from the shop with these exact numbers. JAY MOBILE is both a
      customer and a supplier: ₹27,400 of unpaid sales, and ₹9,850 owed to
