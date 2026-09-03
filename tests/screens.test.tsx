@@ -2775,10 +2775,61 @@ async function runAll(): Promise<Results> {
     });
     await settleMs(100);
 
-    const catBox = Array.from(
+    /* The grid renders a desktop TABLE and a phone card list at once, one of
+       them hidden by CSS. Taking [0] blindly can test the copy nobody is
+       looking at — and the shop is on a desktop. */
+    const allCat = Array.from(
       document.querySelectorAll('input[placeholder="Search or add…"]'),
-    )[0] as HTMLInputElement | undefined;
+    ) as HTMLInputElement[];
+    const visibleCat = allCat.filter((el) => el.getClientRects().length > 0);
+    assert(
+      visibleCat.length > 0,
+      `category click: a Category cell is actually on screen — ${allCat.length} exist, ${visibleCat.length} visible`,
+    );
+    const inDesktopTable = visibleCat.filter((el) => !!el.closest("table"));
+    assert(
+      inDesktopTable.length > 0,
+      `category click: and the desktop table is the one being tested — ${visibleCat.length} visible, ${inDesktopTable.length} in a table`,
+    );
+    const catBox = inDesktopTable[0] as HTMLInputElement | undefined;
     assert(!!catBox, "category click: found a Category cell");
+
+    /* A real click focuses an input through the mousedown DEFAULT ACTION.
+       Anything that calls preventDefault on that mousedown leaves the box
+       unfocusable by mouse while Tab still reaches it — which is exactly the
+       symptom reported. Synthetic events cannot move focus, so the honest
+       test is whether the default survives. */
+    const md = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    catBox!.dispatchEvent(md);
+    assert(
+      !md.defaultPrevented,
+      "category click: nothing swallows the mousedown, so a real click can focus the box",
+    );
+    const pd = new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerId: 1 });
+    catBox!.dispatchEvent(pd);
+    assert(!pd.defaultPrevented, "category click: nor the pointerdown before it");
+
+    /* And the box is actually the thing at its own coordinates. A cell
+       covered by something — a sticky header, a stray portal — cannot be
+       clicked at all while Tab still reaches it, which is exactly the
+       reported symptom and is invisible to every other kind of assertion. */
+    const box = catBox!.getBoundingClientRect();
+    assert(
+      box.width > 0 && box.height > 0,
+      `category click: the box has a size to click — ${JSON.stringify(box)}`,
+    );
+    const atCentre = document.elementFromPoint(
+      Math.round(box.left + box.width / 2),
+      Math.round(box.top + box.height / 2),
+    );
+    assert(
+      atCentre === catBox || catBox!.contains(atCentre),
+      `category click: nothing is sitting on top of it — a click there would land on ${
+        atCentre
+          ? `<${atCentre.tagName.toLowerCase()} class="${(atCentre.className || "").toString().slice(0, 60)}">`
+          : "nothing"
+      }`,
+    );
 
     // Focus it the way a mouse does, then type enough to bring up the list.
     await act(async () => {
@@ -2819,6 +2870,34 @@ async function runAll(): Promise<Results> {
       catBox!.value === "Accessories",
       `category click: and clicking it fills the cell with the whole name — ${JSON.stringify(catBox!.value)}`,
     );
+
+    /* Arriving by click must leave the box in the same state as arriving by
+       Tab. Tab selects the contents; a click drops the caret where the
+       pointer landed, so the next keystroke inserts into the middle of the
+       existing category instead of replacing it — which is what "clicking
+       does nothing, only Tab works" actually looks like from the counter. */
+    {
+      const other = document.querySelector(
+        'input[placeholder="Search items…"]',
+      ) as HTMLInputElement | null;
+      assert(!!other, "category focus: found another box to come from");
+      await act(async () => {
+        other?.focus();
+      });
+      await settleMs(40);
+      await act(async () => {
+        catBox!.focus();
+      });
+      await settleMs(80);
+      assert(
+        document.activeElement === catBox,
+        "category focus: focus really moved to the category box",
+      );
+      assert(
+        catBox!.selectionStart === 0 && catBox!.selectionEnd === catBox!.value.length,
+        `category focus: and its contents are selected, so typing replaces the category rather than inserting into it — selection ${catBox!.selectionStart}..${catBox!.selectionEnd} of ${JSON.stringify(catBox!.value)}`,
+      );
+    }
 
     r.unmount();
     h.remove();
