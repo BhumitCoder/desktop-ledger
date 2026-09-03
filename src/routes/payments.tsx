@@ -635,6 +635,12 @@ function ReceivePaymentDialog({
         setDate(editing.date);
         setMode(editing.mode);
         setBankId(editing.bankId ?? "");
+        /* Reopening a split receipt must show it as the split it is. Without
+           this it opened as single-mode and SAVING destroyed the split:
+           the rows were reversed off their accounts and the whole amount
+           re-attributed to one mode. The money did not vanish, which is
+           worse — it moved somewhere nobody asked it to go. */
+        setSplitRows(editing.splits?.length ? editing.splits : null);
         setBankQ(BankRepo.all().find((b) => b.id === editing.bankId)?.name ?? "");
         setManualAmount(editing.allocations?.length ? 0 : editing.amount);
         setAllocMode("manual");

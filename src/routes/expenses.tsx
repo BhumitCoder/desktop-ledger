@@ -311,6 +311,9 @@ function ExpenseDialog({
   useEffect(() => {
     if (open) {
       setF(expense ?? { date: today(), paymentMode: "cash", amount: 0, category: "" });
+      // Same as the payment dialog: reopening a split expense must show the
+      // split, or saving it again quietly re-attributes the money.
+      setSplitRows(expense?.splits?.length ? expense.splits : null);
       setPayeeQ(expense?.payeeName ?? "");
       setSaving(false);
       savingRef.current = false;

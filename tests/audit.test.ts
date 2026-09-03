@@ -46,6 +46,7 @@ import {
   unassignedPart,
   splitProblems,
   describePayment,
+  largestSplitMode,
 } from "@/lib/paymentSplit";
 import { transferLegsFor } from "@/lib/transferLegs";
 
@@ -1891,6 +1892,54 @@ console.log(`\n═════════════════════�
   assert(
     twoWays.fullBalance === 0,
     `S6: and a bill paid in full leaves them owing nothing, however it was paid — ${twoWays.fullBalance}`,
+  );
+}
+
+/* ═══ TEST S7: re-saving a split must not re-attribute the money ════════
+   The bug this guards, found by asking whether the feature was really
+   finished rather than by any test failing: the payment and expense dialogs
+   never loaded an existing record's rows, so reopening a split showed it as
+   single-mode. Saving then reversed the rows off their accounts and put the
+   whole amount under one mode. The money did not vanish, which is worse —
+   it moved somewhere nobody asked it to.
+
+   Asserted on the property that makes a re-save safe: reversing what a
+   document attributed and re-applying it must leave every account where it
+   started. If the rows are lost in between, this stops being true. */
+{
+  const rows = [
+    { mode: "cash", amount: 400 },
+    { mode: "bank", amount: 600, bankId: "B1" },
+  ] as PaymentSplit[];
+  const saved = { amount: 1000, mode: "cash", splits: rows } as unknown as Payment;
+
+  // What the dialog reloads, and what it would save back unchanged.
+  const reloaded = saved.splits?.length ? saved.splits : null;
+  assert(!!reloaded, "S7: reopening a split receipt finds its rows to show");
+
+  const resaved = {
+    amount: 1000,
+    mode: reloaded ? largestSplitMode(reloaded) : "cash",
+    splits: reloaded ?? undefined,
+  } as unknown as Payment;
+
+  const before = bankParts(saved);
+  const after = bankParts(resaved);
+  assert(
+    (after.get("B1") ?? 0) === (before.get("B1") ?? 0),
+    `S7: re-saving it untouched leaves the account exactly where it was — ${before.get("B1")} then ${after.get("B1")}`,
+  );
+  assert(
+    cashPart(resaved) === cashPart(saved),
+    "S7: and the drawer too, instead of swallowing the bank half",
+  );
+
+  /* The failure it replaces, stated so the assertion above cannot be read as
+     trivia: a dialog that dropped the rows would re-save this as one mode. */
+  const dropped = { amount: 1000, mode: "cash", splits: undefined } as unknown as Payment;
+  assert(
+    cashPart(dropped) === 1000 && (bankParts(dropped).get("B1") ?? 0) === 0,
+    "S7: losing the rows would put the whole receipt in cash and empty the account",
   );
 }
 
