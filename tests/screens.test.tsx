@@ -2249,6 +2249,75 @@ async function runAll(): Promise<Results> {
     );
   }
 
+  /* ── An item created at the counter gets a category ───────────────────
+     Reported from the shop. Adding an item from the bill form asked for
+     name, unit, GST and prices but never a category, so anything created in
+     the middle of billing — which is most of the catalogue, in practice —
+     was invisible to every category filter afterwards and had to be found
+     and re-shelved by hand later. */
+  {
+    ItemRepo.update("I1", { category: "Accessories" } as never);
+    await renderRoute("/sales/new");
+
+    const addRow = document.querySelector(
+      'input[placeholder="Type item name to add…"]',
+    ) as HTMLInputElement | null;
+    assert(!!addRow, "new item category: found the item entry row");
+    await act(async () => {
+      setInput(addRow, "Tempered Glass X99");
+    });
+    await settleMs(120);
+    await act(async () => {
+      addRow?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    await settleMs(180);
+
+    const catBox = document.querySelector(
+      'input[aria-label="Category for the new item"]',
+    ) as HTMLInputElement | null;
+    assert(!!catBox, "new item category: the add-item dialog asks for a category at all");
+
+    await act(async () => {
+      setInput(catBox, "Access");
+    });
+    await settleMs(120);
+    const opt = document.querySelector('[role="listbox"] [role="option"]') as HTMLElement | null;
+    assert(!!opt, "new item category: it suggests the categories already in use");
+    assert(
+      (opt?.textContent ?? "").trim() === "Accessories",
+      `new item category: naming the existing one rather than only offering to invent one — ${JSON.stringify(opt?.textContent)}`,
+    );
+    await act(async () => {
+      opt?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    });
+    await settleMs(120);
+
+    const before = ItemRepo.all().length;
+    /* Scoped to the dialog. Searching the whole document finds "Add Sale" in
+       the top bar first, which is a different button on a different screen
+       and quietly makes this assert nothing. */
+    const addDialog = catBox?.closest('[role="dialog"]') as HTMLElement | null;
+    assert(!!addDialog, "new item category: the add-item dialog is on screen");
+    const create = Array.from(addDialog?.querySelectorAll("button") ?? []).find((b) =>
+      /^Add & Continue/i.test((b.textContent ?? "").trim()),
+    );
+    assert(!!create, "new item category: found the button that creates it");
+    await act(async () => {
+      create?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settleMs(200);
+
+    assert(ItemRepo.all().length === before + 1, "new item category: the item was created");
+    const made = ItemRepo.all().find((i) => i.name === "Tempered Glass X99");
+    assert(!!made, "new item category: and can be found by the name that was typed");
+    assert(
+      made?.category === "Accessories",
+      `new item category: carrying the category it was given — ${JSON.stringify(made?.category)}`,
+    );
+
+    ItemRepo.update("I1", { category: undefined } as never);
+  }
+
   /* ── The bank list has to follow the arrow keys ───────────────────────
      Reported from the shop: "only 3 bank account have, other nothing
      viewable". The list held every account and could be scrolled by hand —

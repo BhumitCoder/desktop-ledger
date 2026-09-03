@@ -4,6 +4,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/Field";
+import { ComboInput } from "@/components/ComboInput";
 import {
   PartyRepo,
   ItemRepo,
@@ -428,6 +429,7 @@ export function InvoiceForm({ mode, existing }: Props) {
   const confirmQuickAddItem = (details: {
     name: string;
     unit: string;
+    category: string;
     gstRate: number;
     salePrice: number;
     purchasePrice: number;
@@ -449,6 +451,10 @@ export function InvoiceForm({ mode, existing }: Props) {
       gstRate: Math.max(0, details.gstRate),
       purchasePrice: Math.max(0, details.purchasePrice),
       salePrice: Math.max(0, details.salePrice),
+      /* Left off entirely when blank rather than stored as "": an item with
+         no category and an item categorised as nothing are the same thing to
+         the shop, and only one of them shows up in a category filter. */
+      ...(details.category.trim() ? { category: details.category.trim() } : {}),
       stock: 0,
       openingStock: 0,
     }) as Item;
@@ -2309,6 +2315,7 @@ function QuickAddItemDialog({
   onConfirm: (details: {
     name: string;
     unit: string;
+    category: string;
     gstRate: number;
     salePrice: number;
     purchasePrice: number;
@@ -2316,6 +2323,13 @@ function QuickAddItemDialog({
 }) {
   const [name, setName] = useState("");
   const [unit, setUnit] = useState("pcs");
+  const [category, setCategory] = useState("");
+  /* Straight off the catalogue this dialog is already handed, so the picker
+     offers exactly the categories in use and nothing has to be plumbed in. */
+  const knownCategories = useMemo(
+    () => existingItems.map((i) => i.category ?? "").filter(Boolean),
+    [existingItems],
+  );
   const [gstRate, setGstRate] = useState(0);
   const [salePrice, setSalePrice] = useState(0);
   const [purchasePrice, setPurchasePrice] = useState(0);
@@ -2342,7 +2356,7 @@ function QuickAddItemDialog({
       toast.error("Name required");
       return;
     }
-    onConfirm({ name, unit, gstRate, salePrice, purchasePrice });
+    onConfirm({ name, unit, category, gstRate, salePrice, purchasePrice });
   };
 
   // Live "does this already exist?" hint — the name typed at the counter
@@ -2414,6 +2428,22 @@ function QuickAddItemDialog({
             )}
           </div>
           <Field label="Unit" value={unit} onChange={(e) => setUnit(e.target.value)} />
+          {/* A searchable picker rather than a free text box, for the reason
+              the bulk grid gives: this is the moment a third spelling of a
+              category that already exists gets invented. An item created
+              here used to have no category at all, which is worse — it
+              simply never appears under any of them. */}
+          <label className="flex flex-col gap-1 text-[12px]">
+            <span className="text-muted-foreground font-medium">Category</span>
+            <ComboInput
+              value={category}
+              onValue={setCategory}
+              options={knownCategories}
+              placeholder="Search or add…"
+              ariaLabel="Category for the new item"
+              className="h-9 px-3 border rounded-md bg-background focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none text-[13px] w-full"
+            />
+          </label>
           <NumField
             label="GST Rate (%)"
             value={gstRate}
