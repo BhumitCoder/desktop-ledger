@@ -4984,6 +4984,46 @@ console.log(`\n═════════════════════�
   );
 }
 
+/* ═══ TEST 50: units cannot follow a line to a different item ═══════════
+   Changing the item on a line keeps its quantity and discount, which is the
+   point of the feature. Its SERIALS are the one thing that cannot come with
+   it: a serial belongs to the item it was stamped on, so carrying them over
+   would mark units of one item as sold on a line for another and leave the
+   shelf count for both wrong from that moment.
+
+   Asserted on the library the save path uses, because that is what turns a
+   stale id into a written record. */
+{
+  const adapter = { id: "A", name: "Adapter", trackSerials: true } as unknown as Item;
+  const cable = { id: "C", name: "Cable" } as unknown as Item;
+  const itemOf = (id: string) => (id === "A" ? adapter : id === "C" ? cable : undefined);
+
+  // A line that still carried the adapter's units after being changed to the
+  // cable: the cable is not serialised, so nothing should move at all.
+  const stale = {
+    id: "S1",
+    date: "2026-06-01",
+    partyId: "P",
+    partyName: "X",
+    lineItems: [{ itemId: "C", qty: 1, serialIds: ["u1"] }],
+  } as unknown as Invoice;
+  assert(
+    planSaleSerials(stale, null, itemOf).update.length === 0,
+    "T50: a line whose item is not serialised moves no units, whatever ids are stuck to it",
+  );
+
+  // And the reverse: ids belonging to the OLD item on a line that is now a
+  // serialised one is exactly the corruption the form must not produce.
+  const wrong = {
+    ...stale,
+    lineItems: [{ itemId: "A", qty: 1, serialIds: ["u-belongs-to-cable"] }],
+  } as unknown as Invoice;
+  assert(
+    planSaleSerials(wrong, null, itemOf).update[0]?.id === "u-belongs-to-cable",
+    "T50: which is why the FORM clears them on a change rather than the plan guessing",
+  );
+}
+
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
 if (fails.length) {
   console.log(`\nFailures:`);

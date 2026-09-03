@@ -133,7 +133,10 @@ function InventoryPage() {
 
   const filtered = rows.filter((r) => {
     const s = q.toLowerCase();
-    return matchesQuery(s, r.name, r.sku);
+    // Category too: "show me all the chargers" is how a shop thinks about
+    // its shelves, and it was the one field on this screen you could read
+    // but not search.
+    return matchesQuery(s, r.name, r.sku, r.category);
   });
 
   // Footer totals cover the filtered rows the table actually shows

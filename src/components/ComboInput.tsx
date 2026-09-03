@@ -102,7 +102,19 @@ export function ComboInput({
           setOpen(true);
           setIdx(0);
         }}
-        onFocus={() => setOpen(true)}
+        /* Select what is there, so arriving by CLICK behaves the way
+           arriving by Tab already did.
+           Reported from the shop as "clicking the category does nothing, only
+           Tab works". Both focus the box; the difference is that Tab selects
+           the contents and a click drops the caret wherever the pointer
+           landed. Typing then inserts into the middle of the existing
+           category — "Chaacrger" — the list matches nothing, and the box
+           looks broken. Every other focus move in this app already selects
+           (see useFormKeys); this one did not. */
+        onFocus={(e) => {
+          setOpen(true);
+          e.currentTarget.select();
+        }}
         // A click on a row must land before the blur closes the list, which
         // is what the delay buys; the rows also use mousedown for the same
         // reason.

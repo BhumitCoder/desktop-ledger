@@ -33,6 +33,7 @@ import {
   Plus,
   Search,
   ArrowUpDown,
+  Trash2,
   Pencil,
   History,
   Download,
@@ -122,6 +123,49 @@ function ItemsPage() {
 
   const pg = usePagination(filtered, "items");
 
+  /**
+   * Deleting an item, with the guard that makes it safe.
+   *
+   * Lifted out of the table's onDelete because it was reachable ONLY from
+   * there — bound to Ctrl+Delete on a keyboard-selected row and nothing else.
+   * There was no button anywhere on this screen, which is why the shop
+   * reported items as having no delete option: they were right, for every
+   * way of working that involves a mouse.
+   */
+  const deleteItem = (r: Item) => {
+    if (!deleteAllowed) {
+      toast.error("You don't have permission to delete items");
+      return;
+    }
+    // An item that still appears on any bill/return can't be safely
+    // removed: its stock movements would orphan (Inventory & Stock
+    // reports drop it silently), its history page would 404, and
+    // editing/deleting one of those old bills later would skip the
+    // stock reversal for it entirely. Block it — same protection
+    // parties and payees already have.
+    const onDoc =
+      // allWithVoided: a cancelled bill still names this item, and its cost is
+      // still what the ledger reversed. Deleting the item would break the
+      // stock and profit history of those records — which is exactly what
+      // this guard exists to prevent. StockAdjustment is not voidable.
+      SalesRepo.allWithVoided().some((i) => i.lineItems.some((l) => l.itemId === r.id)) ||
+      PurchaseRepo.allWithVoided().some((i) => i.lineItems.some((l) => l.itemId === r.id)) ||
+      SaleReturnRepo.allWithVoided().some((i) => i.lineItems.some((l) => l.itemId === r.id)) ||
+      PurchaseReturnRepo.allWithVoided().some((i) => i.lineItems.some((l) => l.itemId === r.id)) ||
+      StockAdjustmentRepo.all().some((a) => a.itemId === r.id);
+    if (onDoc) {
+      toast.error(
+        `Can't delete "${r.name}" — it's used on bills, returns or stock adjustments. Deleting it would break stock and profit reports for those records.`,
+      );
+      return;
+    }
+    if (confirm(`Delete ${r.name}?`)) {
+      ItemRepo.remove(r.id);
+      refresh();
+      toast.success("Item deleted");
+    }
+  };
+
   const columns: Column<Item>[] = [
     {
       key: "name",
@@ -203,6 +247,18 @@ function ItemsPage() {
               title="Adjust stock (damage, counting correction…)"
             >
               <ArrowUpDown className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {deleteAllowed && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                deleteItem(r);
+              }}
+              className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-transparent text-gray-400 transition hover:bg-destructive/10 hover:text-destructive hover:border-destructive/25"
+              title="Delete item"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
             </button>
           )}
         </span>
@@ -370,45 +426,7 @@ function ItemsPage() {
           rowKey={(r) => r.id}
           activateOnClick
           onRowActivate={(r) => navigate({ to: "/items/$id", params: { id: r.id } })}
-          onDelete={(r) => {
-            if (!deleteAllowed) {
-              toast.error("You don't have permission to delete items");
-              return;
-            }
-            // An item that still appears on any bill/return can't be safely
-            // removed: its stock movements would orphan (Inventory & Stock
-            // reports drop it silently), its history page would 404, and
-            // editing/deleting one of those old bills later would skip the
-            // stock reversal for it entirely. Block it — same protection
-            // parties and payees already have.
-            const onDoc =
-              // allWithVoided: a cancelled bill still names this item, and
-              // its cost is still what the ledger reversed. Deleting the item
-              // would break the stock and profit history of those records —
-              // which is exactly what this guard exists to prevent.
-              SalesRepo.allWithVoided().some((i) => i.lineItems.some((l) => l.itemId === r.id)) ||
-              PurchaseRepo.allWithVoided().some((i) =>
-                i.lineItems.some((l) => l.itemId === r.id),
-              ) ||
-              SaleReturnRepo.allWithVoided().some((i) =>
-                i.lineItems.some((l) => l.itemId === r.id),
-              ) ||
-              PurchaseReturnRepo.allWithVoided().some((i) =>
-                i.lineItems.some((l) => l.itemId === r.id),
-              ) ||
-              StockAdjustmentRepo.all().some((a) => a.itemId === r.id);
-            if (onDoc) {
-              toast.error(
-                `Can't delete "${r.name}" — it's used on bills, returns or stock adjustments. Deleting it would break stock and profit reports for those records.`,
-              );
-              return;
-            }
-            if (confirm(`Delete ${r.name}?`)) {
-              ItemRepo.remove(r.id);
-              refresh();
-              toast.success("Item deleted");
-            }
-          }}
+          onDelete={deleteItem}
         />
       </div>
       <ItemDialog open={open} onOpenChange={setOpen} item={edit} onSaved={refresh} />
