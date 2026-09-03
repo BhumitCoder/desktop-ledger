@@ -39,7 +39,14 @@ import type {
 import { Repository } from "@/repositories/base";
 import { correctBankPaidAmount, planBankRepair } from "@/lib/bankRepair";
 import { planStockRepair } from "@/lib/dataRepair";
-import { splitsOf, cashPart, bankParts, unassignedPart, splitProblems } from "@/lib/paymentSplit";
+import {
+  splitsOf,
+  cashPart,
+  bankParts,
+  unassignedPart,
+  splitProblems,
+  describePayment,
+} from "@/lib/paymentSplit";
 import { transferLegsFor } from "@/lib/transferLegs";
 
 let passed = 0,
@@ -1712,6 +1719,54 @@ console.log(`\n═════════════════════�
   assert(
     netFlow(cashFlows([plainBank], [], [], [], [])) === 0,
     "S3: and a plain bank bill still contributes nothing to cash",
+  );
+}
+
+/* ═══ TEST S4: how a document says it was paid ══════════════════════════
+   A bill printing "Cash" when half of it went to a bank is the original
+   complaint restated. Asserted on the exact string, because the printed page
+   contains the total and every other figure too — "does the page mention
+   ₹1,000" cannot tell a payment label from an invoice line. */
+{
+  const named = (id: string) => (id === "B1" ? "HDFC Current" : undefined);
+
+  const one = { paid: 1000, paymentMode: "cash" } as unknown as Invoice;
+  assert(
+    describePayment(one, named) === "Cash",
+    `S4: a single-mode bill says just the mode — "${describePayment(one, named)}"`,
+  );
+
+  const bank = {
+    paid: 1000,
+    paymentMode: "bank",
+    bankId: "B1",
+    bankPaidAmount: 1000,
+  } as unknown as Invoice;
+  assert(
+    describePayment(bank, named) === "HDFC Current",
+    `S4: and a bank one names the ACCOUNT rather than the word Bank — "${describePayment(bank, named)}"`,
+  );
+  assert(
+    describePayment(bank) === "Bank",
+    "S4: falling back to the mode when no name is available",
+  );
+
+  const split = {
+    paid: 1000,
+    paymentMode: "cash",
+    paidSplits: [
+      { mode: "cash", amount: 400 },
+      { mode: "bank", amount: 600, bankId: "B1" },
+    ],
+  } as unknown as Invoice;
+  assert(
+    describePayment(split, named) === "Cash ₹400.00 + HDFC Current ₹600.00",
+    `S4: a split says both parts and how much each was — "${describePayment(split, named)}"`,
+  );
+
+  assert(
+    describePayment({ paid: 0, paymentMode: "credit" } as unknown as Invoice, named) === "Credit",
+    "S4: a credit bill still reads as credit",
   );
 }
 

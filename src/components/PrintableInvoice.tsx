@@ -1,6 +1,12 @@
 import type { Invoice, Company } from "@/types";
 import { fmtMoney, fmtDate } from "@/lib/format";
+import { describePayment } from "@/lib/paymentSplit";
 import { fmtMode } from "@/lib/paymentMode";
+
+import { BankRepo } from "@/repositories";
+/** An account's name for display. The word "Bank" three times over is
+ *  exactly what a split is meant to stop being ambiguous. */
+const bankName = (id: string) => BankRepo.get(id)?.name;
 
 interface Props {
   inv: Invoice;
@@ -184,7 +190,7 @@ export function PrintableInvoice({
                   </tr>
                   <tr>
                     <td style={{ fontWeight: 600 }}>Payment:</td>
-                    <td>{fmtMode(inv.paymentMode)}</td>
+                    <td>{describePayment(inv, bankName)}</td>
                   </tr>
                 </tbody>
               </table>

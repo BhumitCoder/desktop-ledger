@@ -3,6 +3,7 @@ import { useGoBack } from "@/hooks/useGoBack";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PayeeRepo, ExpenseRepo, BankRepo, CompanyRepo } from "@/repositories";
 import { fmtDate, fmtDateShort, fmtMoney } from "@/lib/format";
+import { describePayment } from "@/lib/paymentSplit";
 import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
@@ -13,6 +14,10 @@ import { fmtMode } from "@/lib/paymentMode";
 import type { Payee } from "@/types";
 import { ArrowLeft, Printer, FileDown, Share2, Download, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+
+/** An account's name for display. The word "Bank" three times over is
+ *  exactly what a split is meant to stop being ambiguous. */
+const bankName = (id: string) => BankRepo.get(id)?.name;
 
 export const Route = createFileRoute("/payees_/$id")({ component: PayeeLedgerPage });
 
@@ -114,7 +119,7 @@ function PayeeLedgerPage() {
       r.category,
       r.paymentMode === "bank"
         ? `Bank — ${bankNameById.get(r.bankId ?? "") ?? "unspecified"}`
-        : fmtMode(r.paymentMode),
+        : describePayment(r, bankName),
       r.notes ?? "",
       r.amount,
       r.running,
@@ -260,7 +265,7 @@ function PayeeLedgerPage() {
                           {fmtDate(r.date)} ·{" "}
                           {r.paymentMode === "bank"
                             ? `Bank — ${bankNameById.get(r.bankId ?? "") ?? "unspecified"}`
-                            : fmtMode(r.paymentMode)}
+                            : describePayment(r, bankName)}
                         </p>
                       </div>
                       <p className="font-bold tabular-nums shrink-0 text-gray-800">
@@ -312,7 +317,7 @@ function PayeeLedgerPage() {
                       <td className="px-3 py-2.5 text-gray-500 text-xs whitespace-nowrap">
                         {r.paymentMode === "bank"
                           ? `Bank — ${bankNameById.get(r.bankId ?? "") ?? "unspecified"}`
-                          : fmtMode(r.paymentMode)}
+                          : describePayment(r, bankName)}
                       </td>
                       <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap">
                         {r.notes ?? "—"}

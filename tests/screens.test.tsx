@@ -29,6 +29,7 @@ import { CashBankTransferDialog } from "@/components/CashBankTransferDialog";
 import { PartyDialog } from "@/routes/parties";
 import { DataTable } from "@/components/DataTable";
 import { PrintableInvoice } from "@/components/PrintableInvoice";
+import { ThermalReceipt } from "@/components/ThermalReceipt";
 import { PrintableReturn } from "@/components/PrintableReturn";
 import { fmtMoney, ymd } from "@/lib/format";
 import { planStockRepair } from "@/lib/dataRepair";
@@ -2680,6 +2681,96 @@ async function runAll(): Promise<Results> {
     );
 
     ItemRepo.update("I1", { category: undefined } as never);
+  }
+
+  /* ── The customer's copy says how it was actually paid ────────────────
+     A bill printing "Cash" when half of it went to a bank is the original
+     complaint restated. The printed copy, the thermal receipt and every list
+     that showed a single mode now say both parts — and name the ACCOUNT,
+     because three accounts all reading "Bank" is the ambiguity this exists
+     to remove. */
+  {
+    BankRepo.add({
+      id: "BPRN",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "HDFC Current",
+      openingBalance: 0,
+      balance: 0,
+    } as never);
+
+    const splitInv = {
+      id: "PRNSPL",
+      createdAt: `${D4}T09:00:00Z`,
+      number: "INV-PRNSPL",
+      date: D4,
+      partyId: "P1",
+      partyName: "Ramesh Traders",
+      gstEnabled: false,
+      lineItems: [
+        {
+          id: "L",
+          itemId: "I1",
+          name: "USB Cable",
+          unit: "pcs",
+          qty: 1,
+          price: 1000,
+          discountPct: 0,
+          gstRate: 0,
+          costPrice: 0,
+          amount: 1000,
+        },
+      ],
+      subtotal: 1000,
+      discount: 0,
+      shippingCharge: 0,
+      taxAmount: 0,
+      total: 1000,
+      paid: 1000,
+      paymentMode: "cash",
+      paidSplits: [
+        { mode: "cash", amount: 400 },
+        { mode: "bank", amount: 600, bankId: "BPRN" },
+      ],
+    } as never;
+
+    const h = document.createElement("div");
+    document.body.appendChild(h);
+    const r = createRoot(h);
+    const show = async (el: ReactNode) => {
+      await act(async () => {
+        r.render(el);
+      });
+      return h.textContent ?? "";
+    };
+
+    const bill = await show(
+      <PrintableInvoice inv={splitInv} company={CompanyRepo.get()} mode="sale" />,
+    );
+    has(bill, "Cash", "printed split: the printed bill names the cash part");
+    has(bill, "HDFC Current", "printed split: and names the ACCOUNT, not just the word Bank");
+    has(bill, fmtMoney(400), "printed split: with how much was cash");
+    has(bill, fmtMoney(600), "printed split: and how much went to the account");
+
+    const receipt = await show(
+      <ThermalReceipt inv={splitInv} company={CompanyRepo.get()} mode="sale" />,
+    );
+    has(receipt, "HDFC Current", "printed split: the thermal receipt says it too");
+    has(receipt, fmtMoney(400), "printed split: including the cash part");
+
+    /* An ordinary bill must read exactly as it always did — one mode, named,
+       and NO amount, because "Cash ₹1,000" on a ₹1,000 bill is noise. */
+    const plain = await show(
+      <PrintableInvoice
+        inv={{ ...splitInv, id: "PRNPLAIN", paidSplits: undefined } as never}
+        company={CompanyRepo.get()}
+        mode="sale"
+      />,
+    );
+    has(plain, "Cash", "printed split: a single-mode bill still just says Cash");
+    assert(!plain.includes("HDFC Current"), "printed split: with no account it never touched");
+
+    r.unmount();
+    h.remove();
   }
 
   /* ── A bill settled part cash, part bank ──────────────────────────────

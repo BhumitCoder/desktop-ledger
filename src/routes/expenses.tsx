@@ -23,9 +23,13 @@ import { fmtMode } from "@/lib/paymentMode";
 import { fmtDate, fmtDateShort, fmtMoney, today } from "@/lib/format";
 import { Plus, Receipt, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
-import { bankParts, splitProblems, largestSplitMode } from "@/lib/paymentSplit";
+import { bankParts, splitProblems, largestSplitMode, describePayment } from "@/lib/paymentSplit";
 import { SplitPaymentRows } from "@/components/SplitPaymentRows";
 import { usePermissions } from "@/hooks/usePermissions";
+
+/** An account's name for display. The word "Bank" three times over is
+ *  exactly what a split is meant to stop being ambiguous. */
+const bankName = (id: string) => BankRepo.get(id)?.name;
 
 export const Route = createFileRoute("/expenses")({ component: ExpensesPage });
 
@@ -107,7 +111,7 @@ function ExpensesPage() {
       key: "mode",
       label: "Mode",
       width: "80px",
-      render: (r) => <span className="text-xs">{fmtMode(r.paymentMode)}</span>,
+      render: (r) => <span className="text-xs">{describePayment(r, bankName)}</span>,
     },
     {
       key: "amount",
@@ -213,7 +217,7 @@ function ExpensesPage() {
                     </p>
                   </div>
                   <p className="text-[11px] text-gray-400 mt-1 truncate">
-                    {fmtDate(r.date)} · {r.payeeName ?? "—"} · {fmtMode(r.paymentMode)}
+                    {fmtDate(r.date)} · {r.payeeName ?? "—"} · {describePayment(r, bankName)}
                     {r.notes ? ` · ${r.notes}` : ""}
                   </p>
                 </div>

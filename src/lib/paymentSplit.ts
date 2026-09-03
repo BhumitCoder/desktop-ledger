@@ -17,6 +17,8 @@
  */
 
 import type { Expense, Invoice, Payment, PaymentMode, PaymentSplit } from "@/types";
+import { MODE_LABELS } from "@/lib/paymentMode";
+import { fmtMoney } from "@/lib/format";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -121,6 +123,40 @@ export function unassignedPart(doc: Parameters<typeof splitsOf>[0], settledElsew
  */
 export function largestSplitMode(rows: PaymentSplit[]): PaymentMode {
   return rows.reduce((best, r) => (r.amount > best.amount ? r : best), rows[0]).mode;
+}
+
+/**
+ * How a document was paid, in words — "Cash ₹400 + HDFC ₹600".
+ *
+ * The customer's copy saying "Cash" when half of it went to a bank is the
+ * original complaint restated, so every screen and every printout that used
+ * to show a single mode shows this instead.
+ *
+ * A document with no rows reads exactly as it always did, which is most of
+ * them: one mode, named. Amounts only appear when there is more than one
+ * part, because "Cash ₹1,000" on a ₹1,000 bill is noise.
+ */
+export function describePayment(
+  doc: Parameters<typeof splitsOf>[0],
+  bankName?: (id: string) => string | undefined,
+): string {
+  const rows = splitsOf(doc);
+  const d = doc as Record<string, unknown>;
+  const own = (d.paymentMode ?? d.mode) as PaymentMode | undefined;
+
+  // Nothing was settled — a credit bill, or one not yet paid. Say what it
+  // always said.
+  if (!rows.length) return own ? MODE_LABELS[own] : "—";
+
+  const label = (s: PaymentSplit) => {
+    const named = s.bankId ? bankName?.(s.bankId) : undefined;
+    // The account's own name beats the word "Bank": three accounts all
+    // reading "Bank" is the thing this is meant to stop.
+    return named ?? MODE_LABELS[s.mode];
+  };
+
+  if (rows.length === 1) return label(rows[0]);
+  return rows.map((s) => `${label(s)} ${fmtMoney(s.amount)}`).join(" + ");
 }
 
 export interface SplitProblem {

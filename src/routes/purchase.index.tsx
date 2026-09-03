@@ -24,7 +24,7 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { toast } from "sonner";
-import { bankParts } from "@/lib/paymentSplit";
+import { bankParts, describePayment } from "@/lib/paymentSplit";
 import { PaginationBar } from "@/components/Pagination";
 import { usePagination } from "@/hooks/usePagination";
 import { DataTable } from "@/components/DataTable";
@@ -32,6 +32,10 @@ import { fmtMode } from "@/lib/paymentMode";
 import { PageHeader } from "@/components/PageHeader";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { usePermissions } from "@/hooks/usePermissions";
+
+/** An account's name for display. The word "Bank" three times over is
+ *  exactly what a split is meant to stop being ambiguous. */
+const bankName = (id: string) => BankRepo.get(id)?.name;
 
 export const Route = createFileRoute("/purchase/")({ component: PurchasePage });
 
@@ -497,7 +501,7 @@ function PurchasePage() {
                     </div>
                     <div className="flex items-center justify-between gap-2 mt-1">
                       <p className="text-[11px] text-gray-400 font-mono truncate">
-                        {r.number} · {fmtDate(r.date)} · {fmtMode(r.paymentMode)}
+                        {r.number} · {fmtDate(r.date)} · {describePayment(r, bankName)}
                       </p>
                       {balance > 0 ? (
                         <span className="text-[11px] font-semibold text-rose-600 shrink-0">
@@ -617,7 +621,7 @@ function PurchasePage() {
             {
               key: "mode",
               label: "Mode",
-              render: (r) => fmtMode(r.paymentMode),
+              render: (r) => describePayment(r, bankName),
             },
             {
               key: "action",

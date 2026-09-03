@@ -10,9 +10,11 @@ import {
   PurchaseReturnRepo,
   PaymentRepo,
   CompanyRepo,
+  BankRepo,
 } from "@/repositories";
 import { matchesQuery } from "@/lib/search";
 import { fmtMoney, fmtDate, today, ymd } from "@/lib/format";
+import { describePayment } from "@/lib/paymentSplit";
 import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
@@ -50,6 +52,10 @@ import {
   SlidersHorizontal,
   Loader2,
 } from "lucide-react";
+
+/** An account's name for display. The word "Bank" three times over is
+ *  exactly what a split is meant to stop being ambiguous. */
+const bankName = (id: string) => BankRepo.get(id)?.name;
 
 export const Route = createFileRoute("/reports")({
   component: ReportsPage,
@@ -504,7 +510,7 @@ function ReportView({
               s.number,
               fmtDate(s.date),
               s.partyName,
-              fmtMode(s.paymentMode),
+              describePayment(s, bankName),
               fmtMoney(s.total),
               fmtMoney(s.paid),
               fmtMoney(bal),
@@ -536,7 +542,7 @@ function ReportView({
               s.number,
               fmtDate(s.date),
               s.partyName,
-              fmtMode(s.paymentMode),
+              describePayment(s, bankName),
               fmtMoney(s.total),
               fmtMoney(s.paid),
               fmtMoney(bal),
@@ -607,7 +613,7 @@ function ReportView({
             fmtDate(p.date),
             p.type === "in" ? "In" : "Out",
             p.partyName,
-            fmtMode(p.mode),
+            describePayment(p, bankName),
             p.ref || "—",
             `${p.type === "in" ? "+" : "−"}${fmtMoney(p.amount)}`,
           ])}

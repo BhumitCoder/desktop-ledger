@@ -39,7 +39,7 @@ import {
 } from "lucide-react";
 import { usePermissions } from "@/hooks/usePermissions";
 import { toast } from "sonner";
-import { bankParts, splitProblems, largestSplitMode } from "@/lib/paymentSplit";
+import { bankParts, splitProblems, largestSplitMode, describePayment } from "@/lib/paymentSplit";
 import { SplitPaymentRows } from "@/components/SplitPaymentRows";
 import { genId } from "@/repositories/base";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -50,6 +50,10 @@ import { NumInput } from "@/components/NumInput";
 import { ModePills } from "@/components/ModePills";
 import { fmtMode } from "@/lib/paymentMode";
 import { PageHeader } from "@/components/PageHeader";
+
+/** An account's name for display. The word "Bank" three times over is
+ *  exactly what a split is meant to stop being ambiguous. */
+const bankName = (id: string) => BankRepo.get(id)?.name;
 
 export const Route = createFileRoute("/payments")({ component: PaymentsPage });
 
@@ -220,7 +224,7 @@ function PaymentsPage() {
       key: "mode",
       label: "Mode",
       width: "90px",
-      render: (r) => <span className="text-gray-600">{fmtMode(r.mode)}</span>,
+      render: (r) => <span className="text-gray-600">{describePayment(r, bankName)}</span>,
     },
     {
       key: "ref",
@@ -445,7 +449,8 @@ function PaymentsPage() {
                     </div>
                     <div className="flex items-center justify-between gap-2 mt-1">
                       <p className="text-[11px] text-gray-400 truncate">
-                        {fmtDate(r.date)} · {isIn ? "Received" : "Paid Out"} · {fmtMode(r.mode)}
+                        {fmtDate(r.date)} · {isIn ? "Received" : "Paid Out"} ·{" "}
+                        {describePayment(r, bankName)}
                       </p>
                       {refText && (
                         <span className="font-mono text-[11px] text-gray-400 truncate shrink-0 max-w-[38%]">
