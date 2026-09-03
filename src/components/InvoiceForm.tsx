@@ -688,7 +688,12 @@ export function InvoiceForm({ mode, existing }: Props) {
        than corrected, because only the person at the counter knows which of
        the two figures is the true one. */
     if (splitRows) {
-      const problems = splitProblems(splitRows, inv.paid);
+      /* Against `paid`, the figure actually being written — not inv.paid.
+         save() clamps paid to the bill total before handing it here, so the
+         two can differ, and validating the rows against a number the
+         document will not carry rejects a document that is in fact correct.
+         That is what made a reopened split bill impossible to save. */
+      const problems = splitProblems(splitRows, paid);
       if (problems.length) {
         toast.error(problems[0].message, { duration: 8000 });
         savingRef.current = false;
@@ -949,7 +954,12 @@ export function InvoiceForm({ mode, existing }: Props) {
       setTimeout(() => numberRef.current?.focus(), 50);
       return;
     }
-    if (inv.paymentMode === "bank" && !inv.bankId) {
+    /* Only when the bill is settled one way. A split carries its accounts in
+       its rows and deliberately leaves bankId empty, while paymentMode holds
+       the LARGEST part — so a ₹400 cash + ₹600 bank bill reports "bank" with
+       no bankId and this guard refused to save it at all. The rows are
+       checked on their own terms just below. */
+    if (!splitRows && inv.paymentMode === "bank" && !inv.bankId) {
       toast.error("Select which bank account this goes to");
       return;
     }

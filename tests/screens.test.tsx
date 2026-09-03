@@ -2962,6 +2962,60 @@ async function runAll(): Promise<Results> {
       netFlow(flows) === 400,
       `split bill: the cash part reaches Cash on Hand, and only that part — ${netFlow(flows)}`,
     );
+
+    /* THE SECOND SAVE — the path that broke on the payment and expense
+       dialogs, and which a create-only test cannot see: the first save is
+       correct and the damage happens on the second.
+
+       Reopened, then genuinely EDITED — ₹400/₹600 becomes ₹300/₹700 — so the
+       assertions cannot pass by the save quietly doing nothing. The account
+       must follow the change exactly, and the rows must survive it. */
+    {
+      const bankAfterFirst = BankRepo.get("BSPL")?.balance ?? 0;
+      await renderRoute(`/sales/edit/${saved.id}`);
+      has(
+        document.body.textContent ?? "",
+        "How it was paid",
+        "split re-save: reopening the bill shows it as the split it is",
+      );
+      const part = (n: number) =>
+        document.querySelector(
+          `input[aria-label="Amount for part ${n}"]`,
+        ) as HTMLInputElement | null;
+      assert(!!part(2), "split re-save: with both parts still there, not collapsed to one");
+
+      await act(async () => {
+        setInput(part(1), "300");
+      });
+      await settleMs(120);
+      await act(async () => {
+        setInput(part(2), "700");
+      });
+      await settleMs(140);
+
+      const saveAgain = Array.from(document.querySelectorAll("button")).find(
+        (b) => (b.textContent ?? "").trim() === "Save",
+      );
+      assert(!!saveAgain, "split re-save: found Save on the edit form");
+      await act(async () => {
+        saveAgain?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      await settleMs(340);
+
+      const again = SalesRepo.get(saved.id);
+      assert(
+        JSON.stringify((again?.paidSplits ?? []).map((r) => r.amount)) === "[300,700]",
+        `split re-save: the edited split is what was stored — ${JSON.stringify(again?.paidSplits)}`,
+      );
+      assert(
+        r2((BankRepo.get("BSPL")?.balance ?? 0) - bankAfterFirst) === 100,
+        `split re-save: and the account moved by exactly the difference, once — ${bankAfterFirst} then ${BankRepo.get("BSPL")?.balance}`,
+      );
+      assert(
+        netFlow(cashFlows([again!], [], [], [], [])) === 300,
+        `split re-save: with the cash half following too — ${netFlow(cashFlows([again!], [], [], [], []))}`,
+      );
+    }
   }
 
   /* ── The bank list has to follow the arrow keys ───────────────────────
