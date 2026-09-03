@@ -1834,6 +1834,66 @@ console.log(`\n═════════════════════�
   );
 }
 
+/* ═══ TEST S6: a split changes nothing a party can see ══════════════════
+   Asked directly what "the party ledger is unaffected by design" means, and
+   it deserves an assertion rather than a reading of the code — that same
+   reasoning is what missed the passbook.
+
+   The claim: a split decides which of the SHOP's accounts holds the money.
+   It never changes what the party owes. So the same bill, settled the same
+   total, must produce a byte-for-byte identical statement whether it was
+   taken one way or two. If this ever fails, the split work is wrong. */
+{
+  const party = { id: "PX", openingBalance: 0 };
+  const bill = (id: string, paidSplits?: unknown) =>
+    ({
+      id,
+      number: "INV-" + id,
+      date: "2026-06-01",
+      partyId: "PX",
+      partyName: "Someone",
+      lineItems: [],
+      total: 1000,
+      paid: 1000,
+      paymentMode: "cash",
+      createdAt: "2026-06-01T09:00:00Z",
+      ...(paidSplits ? { paidSplits } : {}),
+    }) as unknown as Invoice;
+
+  const oneWay = buildPartyStatement(party, {
+    sales: [bill("A")],
+    purchases: [],
+    saleReturns: [],
+    purchaseReturns: [],
+    payments: [],
+  });
+  const twoWays = buildPartyStatement(party, {
+    sales: [
+      bill("A", [
+        { mode: "cash", amount: 400 },
+        { mode: "bank", amount: 600, bankId: "B1" },
+      ]),
+    ],
+    purchases: [],
+    saleReturns: [],
+    purchaseReturns: [],
+    payments: [],
+  });
+
+  assert(
+    oneWay.fullBalance === twoWays.fullBalance,
+    `S6: splitting a bill does not move the party's balance — ${oneWay.fullBalance} vs ${twoWays.fullBalance}`,
+  );
+  assert(
+    JSON.stringify(oneWay.rows) === JSON.stringify(twoWays.rows),
+    "S6: nor any row of their statement — a split is about the shop's accounts, not the party",
+  );
+  assert(
+    twoWays.fullBalance === 0,
+    `S6: and a bill paid in full leaves them owing nothing, however it was paid — ${twoWays.fullBalance}`,
+  );
+}
+
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
 if (fails.length) {
   console.log(`\nFailures:`);
