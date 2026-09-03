@@ -406,7 +406,7 @@ its year label.
 - **Risk** MEDIUM. The rule that keeps it safe: nothing except the line's own
   display reads `unitUsed`.
 
-### 4.9 Serial / IMEI tracking — **PLANNED in docs/SERIALS-PLAN.md**
+### 4.9 Serial / IMEI tracking — **DONE, all 8 steps (docs/SERIALS-PLAN.md)**
 
 - **Add** `Item.trackSerials`; `serialUnits { id, itemId, serial, status,
 purchaseDocId, saleDocId }`; `LineItem.serials: string[]`.
@@ -456,19 +456,19 @@ purchaseDocId, saleDocId }`; `LineItem.serials: string[]`.
 
 Dependency-driven, cheapest-safest first:
 
-| #   | Phase                                                  | Depends on         | State       |
-| --- | ------------------------------------------------------ | ------------------ | ----------- |
-| 0   | Audit trail · Period lock · Voucher numbers            | —                  | **done**    |
-| 1   | Reason categories on cash                              | 0                  | **done**    |
-| 2   | Posting ledger + reconciliation report + Trial Balance | 0                  | **done**    |
-| 3   | Balance Sheet · P&L from ledger · Year close           | 2 reconciled       | **done**    |
-| 4   | Append-only corrections                                | 2                  | **done**    |
-| 5   | Unit conversion                                        | —                  |             |
-| 6   | Serial / IMEI                                          | — (see note)       | **planned** |
-| 7   | Document workflow                                      | —                  |             |
-| 8   | Multi-location                                         | 5, 7               |             |
-| 9   | Cost centres · budgets · TDS/TCS                       | 2                  |             |
-| 10  | e-Invoicing                                            | client credentials |             |
+| #   | Phase                                                  | Depends on         | State    |
+| --- | ------------------------------------------------------ | ------------------ | -------- |
+| 0   | Audit trail · Period lock · Voucher numbers            | —                  | **done** |
+| 1   | Reason categories on cash                              | 0                  | **done** |
+| 2   | Posting ledger + reconciliation report + Trial Balance | 0                  | **done** |
+| 3   | Balance Sheet · P&L from ledger · Year close           | 2 reconciled       | **done** |
+| 4   | Append-only corrections                                | 2                  | **done** |
+| 5   | Unit conversion                                        | —                  |          |
+| 6   | Serial / IMEI                                          | — (see note)       | **done** |
+| 7   | Document workflow                                      | —                  |          |
+| 8   | Multi-location                                         | 5, 7               |          |
+| 9   | Cost centres · budgets · TDS/TCS                       | 2                  |          |
+| 10  | e-Invoicing                                            | client credentials |          |
 
 **Note on 6 (Serial / IMEI):** listed above as depending on unit conversion.
 It does not, for this shop — adapters are bought and sold as single pieces, so
