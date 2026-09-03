@@ -896,6 +896,7 @@ function ReturnItemSearchRow({
             <div
               style={{
                 position: "fixed",
+                pointerEvents: "auto",
                 top: dropdownRect.top,
                 left: dropdownRect.left,
                 width: dropdownRect.width,

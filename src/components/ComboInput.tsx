@@ -144,9 +144,28 @@ export function ComboInput({
         rect &&
         rows.length > 0 &&
         createPortal(
+          /* pointerEvents: "auto" below is not decoration.
+             A modal Radix dialog sets pointer-events:none on <body> while it
+             is open, and this list is portalled to <body> — so it inherits
+             that and becomes unclickable, while the keyboard, which does not
+             consult pointer-events at all, keeps working perfectly. That is
+             the exact shape of the bug the shop reported twice: "clicking a
+             category does nothing, only Tab works".
+             It also hid from every test here, because dispatchEvent ignores
+             pointer-events too. Only elementFromPoint asks the question a
+             mouse actually asks, and that is what the test now uses. */
           <div
             role="listbox"
-            style={{ position: "fixed", top: rect.top, left: rect.left, width: rect.width }}
+            style={{
+              position: "fixed",
+              top: rect.top,
+              left: rect.left,
+              width: rect.width,
+              // See the note in ComboInput: a modal Radix dialog switches
+              // pointer events off on <body>, and anything portalled there
+              // goes with it unless it says otherwise.
+              pointerEvents: "auto",
+            }}
             className="z-50 border rounded-md bg-popover shadow-elevated max-h-56 overflow-auto"
           >
             {rows.map((opt, i) => (

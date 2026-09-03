@@ -2844,6 +2844,31 @@ async function runAll(): Promise<Results> {
 
     const listbox = document.querySelector('[role="listbox"]');
     assert(!!listbox, "category click: typing opens the suggestion list");
+
+    /* THE ONE THAT MATTERS. A modal Radix dialog sets pointer-events:none on
+       document.body while it is open, and this list is portalled to body —
+       so it inherits that and becomes unclickable, while the keyboard, which
+       does not care about pointer-events, keeps working perfectly.
+
+       dispatchEvent ignores pointer-events too, which is why every earlier
+       assertion here passed against broken code. elementFromPoint does NOT
+       ignore it: it is the only probe in this file that answers the question
+       a mouse actually asks. */
+    const firstOpt = listbox?.querySelector('[role="option"]') as HTMLElement | null;
+    assert(!!firstOpt, "category click: the list has an option to aim at");
+    const ob = firstOpt!.getBoundingClientRect();
+    const underPointer = document.elementFromPoint(
+      Math.round(ob.left + ob.width / 2),
+      Math.round(ob.top + ob.height / 2),
+    );
+    assert(
+      underPointer === firstOpt || firstOpt!.contains(underPointer),
+      `category click: the option is what a mouse would hit — instead the pointer finds ${
+        underPointer
+          ? `<${underPointer.tagName.toLowerCase()}> (body pointer-events: ${getComputedStyle(document.body).pointerEvents})`
+          : "nothing"
+      }`,
+    );
     const option = listbox?.querySelector('[role="option"]') as HTMLElement | null;
     assert(!!option, "category click: the list has something to pick");
     const optionText = (option?.textContent ?? "").trim();

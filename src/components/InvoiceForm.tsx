@@ -1945,6 +1945,7 @@ function ItemEntryRow({
                 top: dropdownRect.top,
                 left: dropdownRect.left,
                 width: dropdownRect.width,
+                pointerEvents: "auto",
               }}
               className="z-50 border rounded-md bg-popover shadow-elevated max-h-72 flex flex-col"
             >
@@ -2226,7 +2227,16 @@ function ItemNameCell({
       {rect &&
         createPortal(
           <div
-            style={{ position: "fixed", top: rect.top, left: rect.left, width: rect.width }}
+            style={{
+              position: "fixed",
+              top: rect.top,
+              left: rect.left,
+              width: rect.width,
+              // See the note in ComboInput: a modal Radix dialog switches
+              // pointer events off on <body>, and anything portalled there
+              // goes with it unless it says otherwise.
+              pointerEvents: "auto",
+            }}
             className="z-50 border rounded-md bg-popover shadow-elevated max-h-72 flex flex-col"
           >
             <div ref={optionsRef} className="overflow-auto flex-1 min-h-0">
@@ -2340,7 +2350,16 @@ function PriceHistoryCell({
         rect &&
         createPortal(
           <div
-            style={{ position: "fixed", top: rect.top, left: rect.left, width: rect.width }}
+            style={{
+              position: "fixed",
+              top: rect.top,
+              left: rect.left,
+              width: rect.width,
+              // See the note in ComboInput: a modal Radix dialog switches
+              // pointer events off on <body>, and anything portalled there
+              // goes with it unless it says otherwise.
+              pointerEvents: "auto",
+            }}
             className="z-50 border rounded-md bg-popover shadow-elevated overflow-hidden"
           >
             <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground bg-muted/50 border-b">
