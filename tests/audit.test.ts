@@ -22,6 +22,7 @@ import {
   spreadFifo,
 } from "@/lib/ledger";
 import type {
+  PaymentSplit,
   StockAdjustment,
   BankTxn,
   CashAdjustment,
@@ -38,6 +39,7 @@ import type {
 import { Repository } from "@/repositories/base";
 import { correctBankPaidAmount, planBankRepair } from "@/lib/bankRepair";
 import { planStockRepair } from "@/lib/dataRepair";
+import { splitsOf, cashPart, bankParts, unassignedPart, splitProblems } from "@/lib/paymentSplit";
 import { transferLegsFor } from "@/lib/transferLegs";
 
 let passed = 0,
@@ -1460,6 +1462,117 @@ console.log(`\n═════════════════════�
     transferLegsFor(cash({ reason: undefined }), [leg({ notes: undefined })]).length === 0,
     "T22: an entry with no note is never paired by note",
   );
+}
+
+/* ═══ TEST S1: splits describe today's documents without changing them ══
+   The seam has one job before anything can create a split: report, for every
+   document that already exists, exactly the attribution the current readers
+   compute. If it disagrees with them by a rupee, routing them through it
+   moves money on screens the shop is using right now. */
+{
+  const cashBill = { paid: 1000, paymentMode: "cash" } as unknown as Invoice;
+  assert(splitsOf(cashBill).length === 1, "S1: a cash bill is one row");
+  assert(cashPart(cashBill) === 1000, "S1: and all of it is in the drawer");
+  assert(bankParts(cashBill).size === 0, "S1: with no account involved");
+
+  /* A bank bill reports bankPaidAmount, NOT paid. They differ whenever a
+     receipt was allocated to this invoice afterwards, and the bank ledger has
+     always used the smaller figure — reporting paid here would credit the
+     account with money that arrived as a separate Payment. */
+  const bankBill = {
+    paid: 5000,
+    paymentMode: "bank",
+    bankId: "B1",
+    bankPaidAmount: 3000,
+  } as unknown as Invoice;
+  assert(bankParts(bankBill).get("B1") === 3000, "S1: a bank bill reports what it attributed");
+  assert(
+    cashPart(bankBill) === 0,
+    "S1: and nothing to cash — the rest of paid came from a Payment with its own mode",
+  );
+
+  // Credit is the absence of payment, not a way of paying.
+  assert(
+    splitsOf({ paid: 0, paymentMode: "credit" } as unknown as Invoice).length === 0,
+    "S1: a credit bill attributes nothing",
+  );
+  assert(
+    splitsOf({ paid: 0, paymentMode: "cash" } as unknown as Invoice).length === 0,
+    "S1: nor does an unpaid one, whatever mode it names",
+  );
+
+  /* upi and cheque name no account. That is a pre-existing wart the daybook
+     already buckets, and it must stay visible rather than being quietly
+     credited to some account it never reached. */
+  const upi = { paid: 700, paymentMode: "upi" } as unknown as Invoice;
+  assert(bankParts(upi).size === 0, "S1: unassigned money is not credited to an account");
+  assert(cashPart(upi) === 0, "S1: nor counted as cash");
+  assert(unassignedPart(upi) === 700, "S1: it is reported as unassigned, which is the truth");
+
+  // Payments and expenses use different field names for the same idea.
+  assert(
+    cashPart({ amount: 250, mode: "cash" } as unknown as Payment) === 250,
+    "S1: a Payment reads the same way",
+  );
+  assert(
+    bankParts({ amount: 400, paymentMode: "bank", bankId: "B2" } as unknown as Expense).get(
+      "B2",
+    ) === 400,
+    "S1: and so does an Expense",
+  );
+
+  // Stored rows win, and are the only case with more than one.
+  const split = {
+    paid: 10000,
+    paymentMode: "cash",
+    paidSplits: [
+      { mode: "cash", amount: 4000 },
+      { mode: "bank", amount: 6000, bankId: "B1" },
+    ],
+  } as unknown as Invoice;
+  assert(cashPart(split) === 4000, "S1: a split bill reports its cash row");
+  assert(bankParts(split).get("B1") === 6000, "S1: and its bank row");
+  assert(
+    cashPart(split) + (bankParts(split).get("B1") ?? 0) === split.paid,
+    "S1: and together they are the whole of what was paid",
+  );
+}
+
+/* ═══ TEST S2: a document may not disagree with itself ══════════════════ */
+{
+  const ok = [
+    { mode: "cash", amount: 4000 },
+    { mode: "bank", amount: 6000, bankId: "B1" },
+  ] as PaymentSplit[];
+  assert(splitProblems(ok, 10000).length === 0, "S2: rows that add up are accepted");
+  assert(
+    splitProblems(ok, 9500).some((p) => p.message.includes("add up")),
+    "S2: rows that do not add up to the amount are refused, and say both figures",
+  );
+  /* No assertion about sub-paisa dust: splitProblems rounds BOTH sides to
+     paise before comparing, so dust cannot reach the comparison at all and
+     any test of the tolerance passes with the tolerance removed. The
+     tolerance stays as belt-and-braces should the rounding ever go, but
+     claiming it is covered would be claiming coverage that does not exist. */
+  assert(
+    splitProblems([{ mode: "bank", amount: 500 }] as PaymentSplit[], 500).some((p) =>
+      p.message.includes("which account"),
+    ),
+    "S2: bank money must say which account it went to",
+  );
+  assert(
+    splitProblems([{ mode: "cash", amount: 0 }] as PaymentSplit[], 0).some((p) =>
+      p.message.includes("enter an amount"),
+    ),
+    "S2: a row with no amount is not a row",
+  );
+  assert(
+    splitProblems([{ mode: "credit", amount: 100 }] as PaymentSplit[], 100).some((p) =>
+      p.message.includes("credit"),
+    ),
+    "S2: credit is what is left unpaid, not a way of paying",
+  );
+  assert(splitProblems([], 1000).length === 0, "S2: no rows at all is a single-mode document");
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
