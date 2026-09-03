@@ -530,6 +530,15 @@ export function InvoiceForm({ mode, existing }: Props) {
     setInv({ ...merged, lineItems: lines, ...recalc(lines) });
   };
 
+  /* What the footing under the grid adds up.
+     Total Price is the sum of the per-unit prices, NOT the value of the bill —
+     it is there to be read across against the quantity beside it, which is
+     how somebody spots a price typed into the wrong row. The value of the
+     bill is Total Amount, and the summary panel below it. */
+  const totalQty = r2(inv.lineItems.reduce((s, l) => s + (l.qty || 0), 0));
+  const totalPrice = r2(inv.lineItems.reduce((s, l) => s + (l.price || 0), 0));
+  const totalLineAmount = r2(inv.lineItems.reduce((s, l) => s + (l.amount || 0), 0));
+
   const removeLine = (id: string) => {
     const lines = inv.lineItems.filter((l) => l.id !== id);
     setInv({ ...inv, lineItems: lines, ...recalc(lines) });
@@ -1462,6 +1471,38 @@ export function InvoiceForm({ mode, existing }: Props) {
                   />
                 ))}
               </tbody>
+              {/* A footing that adds the column up.
+                  Asked for so the counter can check a bill against the pile
+                  of goods in front of them: eleven pieces on the counter, so
+                  the bill had better say eleven. The printed copy has carried
+                  this line for a long time; the screen where the mistake
+                  actually gets made did not.
+
+                  Every span is computed from the same flags the header uses,
+                  so a hidden Unit or Disc% column cannot knock it out of
+                  alignment. */}
+              {inv.lineItems.length > 0 && (
+                <tfoot className="border-t-2 bg-muted/30 font-semibold">
+                  <tr>
+                    <td className="px-3 py-2" />
+                    <td className="px-3 py-2 text-[12px] uppercase tracking-wider text-muted-foreground">
+                      Total
+                    </td>
+                    <td className="text-right py-2 px-2 tabular-nums">{totalQty}</td>
+                    {showUnitCol && <td />}
+                    {inv.isInternational && <td />}
+                    <td className="text-right py-2 px-2 tabular-nums text-muted-foreground">
+                      {fmtMoney(totalPrice)}
+                    </td>
+                    {showDiscCol && <td />}
+                    {gstOn && <td />}
+                    <td className="text-right py-2 pr-3 tabular-nums">
+                      {fmtMoney(totalLineAmount)}
+                    </td>
+                    <td />
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         </div>

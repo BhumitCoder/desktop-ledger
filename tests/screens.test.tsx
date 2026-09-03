@@ -2263,6 +2263,100 @@ async function runAll(): Promise<Results> {
     );
   }
 
+  /* ── The grid adds its own column up ──────────────────────────────────
+     Asked for so a bill can be checked against the pile of goods on the
+     counter: eleven pieces there, so the bill had better say eleven. The
+     printed copy has carried this line for years; the screen where the
+     mistake actually gets made did not. */
+  {
+    await renderRoute("/sales/new");
+    const add = async (name: string) => {
+      const box = document.querySelector(
+        'input[placeholder="Type item name to add…"]',
+      ) as HTMLInputElement | null;
+      await act(async () => {
+        setInput(box, name);
+      });
+      await settleMs(120);
+      await act(async () => {
+        box?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      });
+      await settleMs(150);
+    };
+
+    const foot = () => document.querySelector("tfoot");
+    assert(!foot(), "grid total: an empty bill has nothing to total");
+
+    await add("USB Cable");
+    await add("USB Cable");
+    assert(!!foot(), "grid total: a bill with lines gets a footing");
+
+    const qtyBox = document.querySelector('[id^="qty-"]') as HTMLInputElement | null;
+    assert(!!qtyBox, "grid total: found a quantity box to change");
+    await act(async () => {
+      setInput(qtyBox, "7");
+    });
+    await settleMs(150);
+
+    const footText = foot()?.textContent ?? "";
+    has(footText, "Total", "grid total: the footing says what it is");
+    /* The QTY CELL, not the footing's text. Searching the text for "8" is
+       satisfied by any amount that happens to contain an eight — ₹800.00
+       among them — so it would pass with the quantity hard-wired to zero. */
+    const footCellsList = Array.from(foot()?.querySelectorAll("td") ?? []);
+    assert(
+      (footCellsList[2]?.textContent ?? "").trim() === "8",
+      `grid total: the quantity column adds up — 7 and 1 should read 8, cell says ${JSON.stringify(footCellsList[2]?.textContent)}`,
+    );
+
+    /* The footing must survive a column being hidden, or it slides out of
+       line with the header above it. Disc% and Unit are both off by default
+       on this build. */
+    // Both counted from the SAME table: the page holds more than one, and
+    // counting across all of them compares a header to somebody else's footing.
+    const gridTable = foot()?.closest("table");
+    const headCells = gridTable?.querySelectorAll("thead th").length ?? 0;
+    const footCells = foot()?.querySelectorAll("td").length ?? 0;
+    assert(
+      headCells === footCells,
+      `grid total: the footing spans exactly the columns the header does — ${footCells} against ${headCells}`,
+    );
+  }
+
+  /* ── A report can be searched, category included ──────────────────────
+     Asked for on the Stock report, where Category was a column you could
+     read but not search. Added to the shared table report, so every one of
+     them gains it rather than the one that was complained about. */
+  {
+    ItemRepo.update("I1", { category: "Cables & Chargers" } as never);
+    await renderRoute("/reports?r=stock");
+    const page = () => document.body.textContent ?? "";
+    has(page(), "Cables & Chargers", "report search: the category is on the stock report");
+
+    const box = document.querySelector(
+      'input[placeholder="Search this report…"]',
+    ) as HTMLInputElement | null;
+    assert(!!box, "report search: the report has a search box");
+
+    await act(async () => {
+      setInput(box, "Cables & Chargers");
+    });
+    await settleMs(150);
+    has(page(), "USB Cable", "report search: searching a category keeps the items in it");
+    has(page(), "of", "report search: and says how much of the report is being shown");
+
+    await act(async () => {
+      setInput(box, "zzz-nothing-matches-this");
+    });
+    await settleMs(150);
+    assert(
+      !(document.querySelector("tbody")?.textContent ?? "").includes("USB Cable"),
+      "report search: a search that matches nothing shows nothing, rather than everything",
+    );
+
+    ItemRepo.update("I1", { category: undefined } as never);
+  }
+
   /* ── The same item twice is two lines ─────────────────────────────────
      This shop sells phones, and two of the same model routinely go out at
      different prices on one bill — a trade-in, a haggle, a damaged box.
