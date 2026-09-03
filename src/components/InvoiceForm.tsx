@@ -29,6 +29,7 @@ const MAX_SUGGESTIONS = 200;
 import type { Invoice, LineItem, Party, Item, PaymentMode, BankAccount } from "@/types";
 import { fmtMoney, fmtDate, today } from "@/lib/format";
 import { toast } from "sonner";
+import { bankParts } from "@/lib/paymentSplit";
 import {
   Trash2,
   Plus,
@@ -685,21 +686,18 @@ export function InvoiceForm({ mode, existing }: Props) {
     // later via unrelated Payment-page allocations that never touched this
     // bank account) before applying what it moves now, in the same batch as
     // everything else in this save.
-    if (existing?.paymentMode === "bank" && existing.bankId && (existing.bankPaidAmount ?? 0) > 0) {
-      BankRepo.adjustFieldBatched(
-        batch,
-        existing.bankId,
-        "balance",
-        isSale ? -existing.bankPaidAmount! : existing.bankPaidAmount!,
-      );
+    /* Every account the bill USED to touch is reversed, and every account it
+       touches now is applied — a set at a time, because a split bill can name
+       two accounts, and an edit can move money from one to another. Reading
+       them through bankParts means a bill with no splits produces exactly the
+       single bankPaidAmount adjustment this always made. */
+    if (existing) {
+      for (const [id, amount] of bankParts(existing)) {
+        BankRepo.adjustFieldBatched(batch, id, "balance", isSale ? -amount : amount);
+      }
     }
-    if (finalInv.paymentMode === "bank" && finalInv.bankId && (finalInv.bankPaidAmount ?? 0) > 0) {
-      BankRepo.adjustFieldBatched(
-        batch,
-        finalInv.bankId,
-        "balance",
-        isSale ? finalInv.bankPaidAmount! : -finalInv.bankPaidAmount!,
-      );
+    for (const [id, amount] of bankParts(finalInv)) {
+      BankRepo.adjustFieldBatched(batch, id, "balance", isSale ? amount : -amount);
     }
 
     // If editing dropped the settled amount (bill total reduced, or paid

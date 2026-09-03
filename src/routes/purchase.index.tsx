@@ -24,6 +24,7 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { toast } from "sonner";
+import { bankParts } from "@/lib/paymentSplit";
 import { PaginationBar } from "@/components/Pagination";
 import { usePagination } from "@/hooks/usePagination";
 import { DataTable } from "@/components/DataTable";
@@ -187,8 +188,10 @@ function PurchasePage() {
     // Undo whatever this bill moved out of a specific bank account at
     // billing time, or that account's balance stays permanently wrong
     // after delete.
-    if (live.paymentMode === "bank" && live.bankId && (live.bankPaidAmount ?? 0) > 0) {
-      BankRepo.adjustFieldBatched(batch, live.bankId, "balance", live.bankPaidAmount!);
+    // Every account it touched, not just one: a split purchase can name two,
+    // and leaving either behind makes that balance permanently wrong.
+    for (const [bankId, amount] of bankParts(live)) {
+      BankRepo.adjustFieldBatched(batch, bankId, "balance", amount);
     }
     PurchaseRepo.removeBatched(batch, live.id);
     commitBatch(batch, "delete purchase");
