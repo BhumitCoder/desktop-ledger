@@ -11,6 +11,7 @@ import {
   PurchaseReturnRepo,
   PaymentRepo,
   CompanyRepo,
+  SerialRepo,
 } from "@/repositories";
 import { fmtMoney, fmtDate, today, ymd } from "@/lib/format";
 import { printOrEscapeStandalone } from "@/lib/print";
@@ -418,6 +419,7 @@ function ReportView({
   );
   const parties = useRepoMemo(() => PartyRepo.all());
   const items = useRepoMemo(() => ItemRepo.all());
+  const serials = useRepoMemo(() => SerialRepo.all());
   const [partySearch, setPartySearch] = useState("");
 
   // Every party's full statement, built ONCE per (report, date-range) — not on
@@ -453,7 +455,7 @@ function ReportView({
     const netRevenue = r2(revenue - saleReturnTotal);
     // Stock-based COGS: cost of items actually sold (net of returned goods),
     // not total purchases — unsold stock does not reduce profit.
-    const cogs = computeCogs(sales, saleReturns, items);
+    const cogs = computeCogs(sales, saleReturns, items, serials);
     const netPurchases = r2(valueExTax(purchases) - valueExTax(purchaseReturns));
     const grossProfit = r2(netRevenue - cogs);
     const exp = expenses.reduce((a, s) => a + s.amount, 0);

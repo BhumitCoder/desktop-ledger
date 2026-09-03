@@ -39,6 +39,7 @@ import { Repository } from "@/repositories/base";
 import { correctBankPaidAmount, planBankRepair } from "@/lib/bankRepair";
 import { planStockRepair } from "@/lib/dataRepair";
 import { checkSerialIntegrity } from "@/lib/serialAudit";
+import { serialCostIndex, lineCostBasis } from "@/lib/serialCost";
 import {
   isSerialised,
   inStockCounts,
@@ -4802,6 +4803,184 @@ console.log(`\n═════════════════════�
   assert(
     vendor.issues[0]?.kind === "returned-but-no-note",
     "T47: a unit sent back with no debit note behind it is found",
+  );
+}
+
+/* ═══ TEST 48: a named unit is costed at what THAT unit cost ════════════
+   An ordinary item can only be costed on an average: twelve identical cables
+   arrived at three prices and nobody can say which one left. A serialised
+   item has no such excuse — the unit that went is named on the bill, and what
+   it cost was stamped on it the day it arrived. */
+{
+  const costs = serialCostIndex([
+    { id: "s1", cost: 1000 },
+    // 1500, not 1400: at 1400 the exact sum (2400) equals 2 x the 1200
+    // snapshot, and every assertion below would pass on either basis.
+    { id: "s2", cost: 1500 },
+    { id: "s3" },
+  ] as unknown as Serial[]);
+  assert(costs.size === 2, "T48: a unit with no recorded cost is not a unit costing zero");
+
+  const fallback = () => 1200;
+
+  const exact = lineCostBasis(
+    { itemId: "A", qty: 2, costPrice: 1200, serialIds: ["s1", "s2"] },
+    costs,
+    fallback,
+  );
+  assert(exact.exact, "T48: a line whose units are all costed is costed exactly");
+  assert(
+    exact.amount === 2500,
+    `T48: at the sum of what those two units cost, not 2 x the average of 2400 — ${exact.amount}`,
+  );
+
+  // One basis per line, never a mixture: a half-exact figure is neither, and
+  // nobody could later say which lines it applied to.
+  const partial = lineCostBasis(
+    { itemId: "A", qty: 2, costPrice: 1200, serialIds: ["s1", "s3"] },
+    costs,
+    fallback,
+  );
+  assert(!partial.exact, "T48: one uncosted unit drops the WHOLE line back to the snapshot");
+  assert(partial.amount === 2400, `T48: which is qty x the snapshot — ${partial.amount}`);
+
+  const plain = lineCostBasis({ itemId: "A", qty: 3, costPrice: 100 }, costs, fallback);
+  assert(
+    !plain.exact && plain.amount === 300,
+    "T48: a line that names no units is costed the way it always was",
+  );
+
+  const legacy = lineCostBasis({ itemId: "A", qty: 2 }, costs, fallback);
+  assert(
+    legacy.amount === 2400,
+    "T48: and one saved before costPrice existed falls back to the item's price",
+  );
+}
+
+/* ═══ TEST 49: the ledger and the P&L must cost goods the same way ══════
+   Reports → Ledger Reconciliation compares these two directly. If one moves
+   to exact serial costing and the other does not, the difference is not
+   rounding — it is a permanent gap the size of the shop's entire
+   serial-tracked margin, reported forever as a fault that cannot be fixed. */
+{
+  const items = [
+    { id: "A", name: "Adapter", trackSerials: true, purchasePrice: 1200, salePrice: 1900 },
+  ] as unknown as Item[];
+  const serials = [
+    { id: "s1", itemId: "A", serial: "X1", status: "sold", cost: 1000 },
+    { id: "s2", itemId: "A", serial: "X2", status: "sold", cost: 1500 },
+  ] as unknown as Serial[];
+  const sale = {
+    id: "S1",
+    number: "INV-1",
+    date: "2026-06-01",
+    partyId: "P1",
+    partyName: "A Customer",
+    gstEnabled: false,
+    lineItems: [
+      {
+        id: "L1",
+        itemId: "A",
+        name: "Adapter",
+        unit: "pcs",
+        qty: 2,
+        price: 1900,
+        discountPct: 0,
+        gstRate: 0,
+        costPrice: 1200,
+        amount: 3800,
+        serialIds: ["s1", "s2"],
+      },
+    ],
+    subtotal: 3800,
+    discount: 0,
+    shippingCharge: 0,
+    taxAmount: 0,
+    total: 3800,
+    paid: 3800,
+    paymentMode: "cash",
+    createdAt: "2026-06-01T09:00:00Z",
+  } as unknown as Invoice;
+
+  const appCogs = computeCogs([sale], [], items, serials);
+  assert(
+    appCogs === 2500,
+    `T49: the P&L costs the two named units at 1000 + 1500, not 2 x 1200 — ${appCogs}`,
+  );
+
+  const book = {
+    parties: [],
+    items,
+    banks: [],
+    sales: [sale],
+    purchases: [],
+    saleReturns: [],
+    purchaseReturns: [],
+    payments: [],
+    expenses: [],
+    cashAdjustments: [],
+    bankTxns: [],
+    stockAdjustments: [],
+    serials,
+  } as unknown as Book;
+  const entries = buildJournal(book);
+  const cogsPostings = entries
+    .flatMap((e) => e.lines)
+    .filter((l) => l.accountId === "cogs")
+    .reduce((s, l) => s + (l.debit ?? 0) - (l.credit ?? 0), 0);
+  assert(
+    Math.abs(cogsPostings - 2500) < 0.005,
+    `T49: and the posting ledger charges the identical figure — ${cogsPostings}`,
+  );
+  assert(
+    Math.abs(cogsPostings - appCogs) < 0.005,
+    "T49: the two bases agree, which is the only reason reconciliation can compare them",
+  );
+
+  // A sale return gives the same units back at the same cost, so a bill
+  // returned in full leaves no profit and no COGS behind it.
+  const ret = {
+    id: "R1",
+    number: "CR-1",
+    date: "2026-06-02",
+    partyId: "P1",
+    partyName: "A Customer",
+    gstEnabled: false,
+    lineItems: [
+      {
+        id: "RL1",
+        itemId: "A",
+        name: "Adapter",
+        unit: "pcs",
+        qty: 2,
+        price: 1900,
+        discountPct: 0,
+        gstRate: 0,
+        costPrice: 1200,
+        amount: 3800,
+        serialIds: ["s1", "s2"],
+      },
+    ],
+    subtotal: 3800,
+    taxAmount: 0,
+    total: 3800,
+    createdAt: "2026-06-02T09:00:00Z",
+  } as unknown as Return;
+  assert(
+    computeCogs([sale], [ret], items, serials) === 0,
+    "T49: a bill returned in full costs nothing, on the same exact basis both ways",
+  );
+
+  /* And the screen that actually compares them agrees. This is the assertion
+     that matters: reconcile() is what the shop opens to decide whether to
+     trust the ledger, and a basis mismatch would show there as a red row it
+     could never clear — the gap is structural, not a data error. */
+  const recon = reconcile(book);
+  const profitRow = recon.rows.find((r) => /profit/i.test(r.label));
+  assert(!!profitRow, "T49: reconciliation has a profit row to compare at all");
+  assert(
+    Math.abs(profitRow?.diff ?? 1) < 0.02,
+    `T49: and it reports no gap for a book of serial-tracked sales — ${JSON.stringify(profitRow)}`,
   );
 }
 

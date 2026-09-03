@@ -433,7 +433,10 @@ export function reconcile(book: Book): Reconciliation {
   const appProfit = r2(
     valueExTax(app.sales) -
       valueExTax(app.saleReturns) -
-      computeCogs(app.sales, app.saleReturns, app.items) -
+      // app.serials, so this side costs serial-tracked units exactly the way
+      // the posting ledger above does. Omit it and the two disagree by the
+      // shop's whole serial margin, and THIS function is what reports that.
+      computeCogs(app.sales, app.saleReturns, app.items, app.serials) -
       app.expenses.reduce((s, e) => s + (e.amount || 0), 0) -
       totalSettlementDiscount(app.payments.filter((p) => p.type === "in")) +
       totalSettlementDiscount(app.payments.filter((p) => p.type === "out")),

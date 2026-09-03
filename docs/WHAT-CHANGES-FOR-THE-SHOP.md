@@ -114,6 +114,12 @@ The purchase one is not a limitation. A unit in a customer's hands cannot stop
 having arrived, and the purchase record is the only thing that lets the shop
 claim a faulty one back from the vendor.
 
+Profit on these items is now **exact**. An ordinary item can only be costed on
+an average — twelve identical cables came in at three prices and nobody can
+say which one went out. An adapter has no such excuse: the unit that left is
+named on the bill, and what that one cost is on its record. So the margin on
+each adapter is the real margin, not a shop-wide average.
+
 **Why:** the shop sells by name _and_ serial because the warranty is against
 the unit, not the item. A single stock number cannot answer "is this one
 still covered", and once one unit's warranty differs from another's, a count

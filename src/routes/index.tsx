@@ -12,6 +12,7 @@ import {
   SaleReturnRepo,
   PurchaseReturnRepo,
   CashAdjustmentRepo,
+  SerialRepo,
 } from "@/repositories";
 import { useRepoData } from "@/hooks/useRepoData";
 import type {
@@ -23,6 +24,7 @@ import type {
   BankAccount,
   Payment,
   CashAdjustment,
+  Serial,
 } from "@/types";
 import { fmtMoney, ymd } from "@/lib/format";
 import {
@@ -121,6 +123,7 @@ function Dashboard() {
     purchases: Invoice[];
     parties: Party[];
     items: Item[];
+    serials: Serial[];
     expenses: Expense[];
     banks: BankAccount[];
     payments: Payment[];
@@ -132,6 +135,7 @@ function Dashboard() {
     purchases: [],
     parties: [],
     items: [],
+    serials: [],
     expenses: [],
     banks: [],
     payments: [],
@@ -146,6 +150,7 @@ function Dashboard() {
       purchases: PurchaseRepo.all(),
       parties: PartyRepo.all(),
       items: ItemRepo.all(),
+      serials: SerialRepo.all(),
       expenses: ExpenseRepo.all(),
       banks: BankRepo.all(),
       payments: PaymentRepo.all(),
@@ -240,6 +245,7 @@ function Dashboard() {
         data.sales.filter((s) => inRange(s.date, start, end)),
         data.saleReturns.filter((r) => inRange(r.date, start, end)),
         data.items,
+        data.serials,
       ),
     [data, start, end],
   );

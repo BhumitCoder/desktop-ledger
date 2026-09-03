@@ -285,19 +285,19 @@ adapter, and it is strictly more than they asked for.
 
 ## 8. Order of work
 
-| #   | Step                                                                                                                                        | Why this order                                                |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| 1   | **DONE** — `Serial` type, `SerialRepo`, `stockOf()` accessor, readers routed through it                                                     | Nothing behaves differently yet; the seam exists              |
-| 2   | **DONE** — Purchase capture + serial list on the item page                                                                                  | Serials exist and are visible before anything depends on them |
-| 3   | **DONE** — Sale picking + the count-equals-qty rule                                                                                         | The state machine closes                                      |
-| 4   | **DONE** — voids, deletes, stock adjustments and both returns move their units or refuse and say why                                        | Every other path that moves stock                             |
-| 5   | **DONE** — Serial Lookup screen, warranty + vendor claim state, Units panel on the item page                                                | The payoff                                                    |
-| 6   | **DONE** — serials print on the bill, the thermal receipt and both notes; no export is line-level, so none needed them                      | Reaches the customer                                          |
-| 7   | **DONE** — Settings → Check Serial Numbers reports units that disagree with their documents; planStockRepair already skips serialised items | The old repair stops being wrong for them                     |
-| 8   | Exact COGS from serial cost; Inventory reconciliation row                                                                                   | The ledger gets better numbers                                |
+| #   | Step                                                                                                                                                                       | Why this order                                                |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| 1   | **DONE** — `Serial` type, `SerialRepo`, `stockOf()` accessor, readers routed through it                                                                                    | Nothing behaves differently yet; the seam exists              |
+| 2   | **DONE** — Purchase capture + serial list on the item page                                                                                                                 | Serials exist and are visible before anything depends on them |
+| 3   | **DONE** — Sale picking + the count-equals-qty rule                                                                                                                        | The state machine closes                                      |
+| 4   | **DONE** — voids, deletes, stock adjustments and both returns move their units or refuse and say why                                                                       | Every other path that moves stock                             |
+| 5   | **DONE** — Serial Lookup screen, warranty + vendor claim state, Units panel on the item page                                                                               | The payoff                                                    |
+| 6   | **DONE** — serials print on the bill, the thermal receipt and both notes; no export is line-level, so none needed them                                                     | Reaches the customer                                          |
+| 7   | **DONE** — Settings → Check Serial Numbers reports units that disagree with their documents; planStockRepair already skips serialised items                                | The old repair stops being wrong for them                     |
+| 8   | **DONE** — a named unit is costed at what that unit cost, in the posting ledger and the P&L together; Inventory reconciliation row was already derived from the unit count | The ledger gets better numbers                                |
 
-Steps 1–3 are the feature. 4–8 are what make it survive contact with a real
-shop.
+Steps 1-3 are the feature. 4-8 are what make it survive contact with a real
+shop. **All eight are done.**
 
 ---
 
