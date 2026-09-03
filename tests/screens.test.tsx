@@ -31,6 +31,7 @@ import { PartyDialog } from "@/routes/parties";
 import { DataTable } from "@/components/DataTable";
 import { PrintableInvoice } from "@/components/PrintableInvoice";
 import { PrintableReturn } from "@/components/PrintableReturn";
+import { ThermalReceipt } from "@/components/ThermalReceipt";
 import { fmtMoney, today, ymd } from "@/lib/format";
 import { planStockRepair } from "@/lib/dataRepair";
 import { stockOf } from "@/lib/serials";
@@ -1073,6 +1074,112 @@ async function runAll(): Promise<Results> {
     }
     gridRoot.unmount();
     gridHost.remove();
+  }
+
+  /* ── The customer's copy has to name the units ────────────────────────
+     The shop can always look a unit up. The customer cannot — so when they
+     come back in eight months holding an adapter and a piece of paper, the
+     paper has to say which unit it was, or the claim comes down to whether
+     the counter believes them. */
+  {
+    const printHost = document.createElement("div");
+    document.body.appendChild(printHost);
+    const printRoot = createRoot(printHost);
+
+    const serialLine = {
+      id: "SL1",
+      itemId: "I9",
+      name: "Apple 20W Adapter",
+      unit: "pcs",
+      qty: 2,
+      price: 1900,
+      discountPct: 0,
+      gstRate: 0,
+      amount: 3800,
+      serialIds: ["SN1", "SN3"],
+    };
+    const doc = (over: Record<string, unknown> = {}) =>
+      ({
+        id: "PRN1",
+        number: "INV-PRN1",
+        date: D4,
+        partyId: "P1",
+        partyName: "Ramesh Traders",
+        gstEnabled: false,
+        lineItems: [serialLine],
+        subtotal: 3800,
+        discount: 0,
+        shippingCharge: 0,
+        taxAmount: 0,
+        total: 3800,
+        paid: 3800,
+        paymentMode: "cash",
+        createdAt: `${D4}T09:00:00Z`,
+        ...over,
+      }) as never;
+
+    const render = async (el: ReactNode) => {
+      await act(async () => {
+        printRoot.render(el);
+      });
+      return printHost.textContent ?? "";
+    };
+
+    const bill = await render(
+      <PrintableInvoice inv={doc()} company={CompanyRepo.get()} mode="sale" />,
+    );
+    has(bill, "F2LX9K3AAA", "printed bill: the unit the customer walked out with is on it");
+    has(bill, "QQ7700ZZZ", "printed bill: and every other unit on that line");
+    has(bill, "S/N:", "printed bill: labelled, so nobody has to guess what the number is");
+
+    const receipt = await render(
+      <ThermalReceipt inv={doc()} company={CompanyRepo.get()} mode="sale" />,
+    );
+    has(
+      receipt,
+      "F2LX9K3AAA",
+      "thermal receipt: carries the units too — it is often the only copy",
+    );
+
+    const note = await render(
+      <PrintableReturn ret={doc()} company={CompanyRepo.get()} mode="sale-return" />,
+    );
+    has(note, "F2LX9K3AAA", "credit note: says which unit came back, not just how many");
+
+    /* An ordinary item must not grow an empty S/N line on every bill the
+       shop prints — which is most of them. */
+    const plain = await render(
+      <PrintableInvoice
+        inv={doc({
+          lineItems: [{ ...serialLine, id: "PL1", itemId: "I1", name: "USB Cable", serialIds: [] }],
+        })}
+        company={CompanyRepo.get()}
+        mode="sale"
+      />,
+    );
+    assert(
+      !plain.includes("S/N"),
+      "printed bill: an item with no units prints no serial line at all",
+    );
+
+    /* A unit whose purchase was cancelled afterwards is still one of the
+       units that was on the bill. Reprinting it with fewer units than the
+       customer was handed is the one failure this cannot have. */
+    const live = SerialRepo.get("SN1");
+    assert(!!live, "printed bill: the fixture unit exists to be voided");
+    SerialRepo.update("SN1", { voidedAt: new Date().toISOString() } as never);
+    const reprint = await render(
+      <PrintableInvoice inv={doc()} company={CompanyRepo.get()} mode="sale" />,
+    );
+    has(
+      reprint,
+      "F2LX9K3AAA",
+      "printed bill: reprinting an old bill still shows a unit whose purchase was later cancelled",
+    );
+    SerialRepo.update("SN1", { voidedAt: undefined } as never);
+
+    printRoot.unmount();
+    printHost.remove();
   }
 
   /* ── Quick entry: one amount, settled oldest bill first ───────────────
@@ -3415,7 +3522,11 @@ async function runAll(): Promise<Results> {
        correct date that an exact match would reject. The negative check below
        is what stops the long form creeping back. */
     const SHORT = /^\d{2}-\d{2}-\d{2}(?!\d)/; // 22-08-26
-    const LONG = /^\d{1,2} [A-Za-z]{3} \d{4}$/; // 22 Aug 2026
+    /* {3,4}, not {3}: fmtDate asks Intl for a "short" month, and September
+       comes back as "Sept" — the one four-letter abbreviation in English. A
+       {3} here made this suite fail every September, and, worse, made the
+       negative assertion below blind to a long date for that whole month. */
+    const LONG = /^\d{1,2} [A-Za-z]{3,4}\.? \d{4}$/; // 22 Aug 2026 / 02 Sept 2026
 
     let checked = 0;
     for (const [route, label] of [
@@ -3466,7 +3577,8 @@ async function runAll(): Promise<Results> {
       .filter((t) => /\d/.test(t));
     assert(rows.length > 0, "date format: the party statement has rows");
     assert(
-      rows.some((c) => /^\d{1,2} [A-Za-z]{3} \d{4}$/.test(c)),
+      // Same four-letter September case as LONG above.
+      rows.some((c) => /^\d{1,2} [A-Za-z]{3,4}\.? \d{4}$/.test(c)),
       `date format: a party statement still reads the long way — it is a document handed to a customer, not a list to scan — ${JSON.stringify(rows.slice(0, 3))}`,
     );
     assert(

@@ -89,6 +89,11 @@ figure said 12. Which twelve, nobody knew.
 - **Selling one asks which unit.** Same rule: 3 on the line, 3 units picked.
 - **The stock figure is the count of units on the shelf.** It is not stored
   and cannot be typed. It is always exactly what the unit list says.
+- **The unit numbers print on the customer's copy** — the A4 bill, the
+  thermal receipt, and both credit and debit notes, under the item they
+  belong to. That paper is the customer's half of the warranty: without it, a
+  claim eight months from now comes down to whether the counter believes
+  them.
 
 Returning one asks **which unit came back** — and, because a warranty failure
 is the commonest return there is, whether it came back **faulty**. Tick that

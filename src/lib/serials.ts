@@ -310,5 +310,35 @@ export function serialShortfalls(
 }
 
 /** Every serial id named anywhere on a set of lines. */
+/**
+ * The serials on a document, ready to print.
+ *
+ * Built from allWithVoided(), not all(). A bill printed today must show the
+ * units that were on it, and a unit whose purchase was cancelled afterwards
+ * is still one of them — the document is a record of what happened, not a
+ * view of what is currently on the shelf. Dropping those would silently
+ * reprint an old bill with fewer units than the customer was handed.
+ *
+ * An index rather than a lookup per line, because a bill with twenty lines
+ * would otherwise walk the whole collection twenty times.
+ */
+export function serialTextIndex(serials?: Serial[]): Map<string, string> {
+  const all = serials ?? SerialRepo.allWithVoided();
+  return new Map(all.map((s) => [s.id, s.serial]));
+}
+
+export function serialTextsOn(
+  line: { serialIds?: string[] },
+  index?: Map<string, string>,
+): string[] {
+  const ids = line.serialIds ?? [];
+  if (!ids.length) return [];
+  const idx = index ?? serialTextIndex();
+  // Scan order is kept: it is the order the counter picked them up in, and on
+  // a warranty claim that is the only thing tying a row of identical adapters
+  // to the one in the customer's hand.
+  return ids.map((id) => idx.get(id)).filter((s): s is string => !!s);
+}
+
 export const serialIdsOn = (lines: { serialIds?: string[] }[]): string[] =>
   lines.flatMap((l) => l.serialIds ?? []);
