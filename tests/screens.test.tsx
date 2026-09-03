@@ -2263,6 +2263,45 @@ async function runAll(): Promise<Results> {
     );
   }
 
+  /* ── An item can be deleted with a mouse ──────────────────────────────
+     Reported as "no delete option", and that was exactly right: deleting an
+     item was bound to Ctrl+Delete on a keyboard-selected row and nothing
+     else. Every other action on that row had a button; this one did not, so
+     for anyone working with a mouse the feature may as well not have
+     existed. Parties has had a delete button all along. */
+  {
+    await renderRoute("/items");
+    const rowOf = (name: string) =>
+      Array.from(document.querySelectorAll("tbody tr")).find((tr) =>
+        (tr.textContent ?? "").includes(name),
+      );
+    const cable = rowOf("USB Cable");
+    assert(!!cable, "item delete: found the item row");
+    const del = Array.from(cable?.querySelectorAll("button") ?? []).find(
+      (b) => (b.getAttribute("title") ?? "") === "Delete item",
+    );
+    assert(!!del, "item delete: the row carries a delete button, not just a keyboard shortcut");
+
+    /* And it still refuses when the item is on a bill — the guard was always
+       right, it was simply unreachable except by keyboard. */
+    const realConfirm = window.confirm;
+    let asked = false;
+    window.confirm = () => {
+      asked = true;
+      return true;
+    };
+    try {
+      await act(async () => {
+        del?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      await settleMs(150);
+      assert(!asked, "item delete: an item used on bills is refused before anything is confirmed");
+      assert(!!ItemRepo.get("I1"), "item delete: and it is still there");
+    } finally {
+      window.confirm = realConfirm;
+    }
+  }
+
   /* ── The grid adds its own column up ──────────────────────────────────
      Asked for so a bill can be checked against the pile of goods on the
      counter: eleven pieces there, so the bill had better say eleven. The
