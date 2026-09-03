@@ -129,17 +129,18 @@ can look up any unit's warranty in a second."_
 
 Everything below is additional. Nothing that worked before works differently.
 
-| Where                                | What                                                                                                                                                      |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Reports → **Trial Balance**          | Every account, debits and credits. **Click any account** to see the entries behind it.                                                                    |
-| Reports → **Balance Sheet**          | What the shop owns, owes and is worth — plus the **year close**.                                                                                          |
-| Reports → **Profit & Loss (ledger)** | The same postings as the Balance Sheet, so the two cannot disagree.                                                                                       |
-| Reports → **Ledger Reconciliation**  | Checks the new ledger against the figures the app already prints.                                                                                         |
-| Settings → **Books locked upto**     | Nothing dated on or before that day can be created, changed or deleted.                                                                                   |
-| **Serial Lookup** (Master Data)      | Scan a unit: which item it is, who bought it, when, **whether it is still under warranty**, and whether the shop can still claim it back from the vendor. |
-| Item page → **Units**                | Every unit of a serial-tracked item, its status, who it went to, and its warranty — with how many are on the shelf.                                       |
-| Item page                            | **Reverse** a stock adjustment — adds the opposite entry, keeps both.                                                                                     |
-| Everywhere                           | Every record now stores who created it, who changed it, and when.                                                                                         |
+| Where                                | What                                                                                                                                                                                                |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reports → **Trial Balance**          | Every account, debits and credits. **Click any account** to see the entries behind it.                                                                                                              |
+| Reports → **Balance Sheet**          | What the shop owns, owes and is worth — plus the **year close**.                                                                                                                                    |
+| Reports → **Profit & Loss (ledger)** | The same postings as the Balance Sheet, so the two cannot disagree.                                                                                                                                 |
+| Reports → **Ledger Reconciliation**  | Checks the new ledger against the figures the app already prints.                                                                                                                                   |
+| Settings → **Check Serial Numbers**  | Asks whether every unit still agrees with the bill that moved it. Reports only — fixing one means either moving the unit or correcting the document, and only the shop knows which really happened. |
+| Settings → **Books locked upto**     | Nothing dated on or before that day can be created, changed or deleted.                                                                                                                             |
+| **Serial Lookup** (Master Data)      | Scan a unit: which item it is, who bought it, when, **whether it is still under warranty**, and whether the shop can still claim it back from the vendor.                                           |
+| Item page → **Units**                | Every unit of a serial-tracked item, its status, who it went to, and its warranty — with how many are on the shelf.                                                                                 |
+| Item page                            | **Reverse** a stock adjustment — adds the opposite entry, keeps both.                                                                                                                               |
+| Everywhere                           | Every record now stores who created it, who changed it, and when.                                                                                                                                   |
 
 ### Three of those are worth a minute of the owner's time
 

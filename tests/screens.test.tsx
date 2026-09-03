@@ -3295,6 +3295,43 @@ async function runAll(): Promise<Results> {
       paymentMode: "cash",
     } as never);
 
+    /* SN4 is the "sold on a different bill" case, so a different bill has to
+       actually exist — otherwise it is a unit claiming a customer no document
+       supports, which is a genuine fault and the integrity check later in
+       this run rightly says so. */
+    SalesRepo.add({
+      id: "S10",
+      createdAt: `${D3}T10:00:00Z`,
+      number: "INV-OTHER",
+      date: D3,
+      partyId: "P1",
+      partyName: "Ramesh Traders",
+      gstEnabled: false,
+      lineItems: [
+        {
+          id: "L10",
+          itemId: "I9",
+          name: "Apple 20W Adapter",
+          unit: "pcs",
+          qty: 1,
+          price: 1900,
+          discountPct: 0,
+          gstRate: 0,
+          costPrice: 1200,
+          amount: 1900,
+          serialIds: ["SN4"],
+        },
+      ],
+      subtotal: 1900,
+      discount: 0,
+      shippingCharge: 0,
+      taxAmount: 0,
+      total: 1900,
+      paid: 1900,
+      paymentMode: "cash",
+    } as never);
+    SerialRepo.update("SN4", { saleId: "S10" } as never);
+
     await renderRoute("/sale-return/new");
     const invBox = Array.from(document.querySelectorAll("input")).find((i) =>
       /auto-load items/i.test(i.getAttribute("placeholder") ?? ""),
@@ -3510,6 +3547,75 @@ async function runAll(): Promise<Results> {
       stockOf(ItemRepo.get("I9")!) === 2,
       `sale serials: the shelf count came down by one, counted from the units — got ${stockOf(ItemRepo.get("I9")!)}`,
     );
+  }
+
+  /* ── The serial check, driven from the screen it lives on ─────────────
+     The library is proved in audit.test.ts. What this proves is that the
+     button exists, is owner-only like the rest of that section, reports what
+     it found in words the shop can act on, and — the part a library test
+     cannot reach — that it reads LIVE documents, so a cancelled bill stops
+     counting as evidence. */
+  {
+    const wasOwner = globalThis.__TEST_IS_OWNER__;
+    globalThis.__TEST_IS_OWNER__ = true;
+    try {
+      /* SN2 was sold through the form earlier in this run and never returned,
+         so the books are in order. Break them the way a missed move does:
+         put the unit back on the shelf while its bill still stands. */
+      await renderRoute("/settings");
+      const button = () =>
+        Array.from(document.querySelectorAll("button")).find(
+          (b) => (b.textContent ?? "").trim() === "Check Serial Numbers",
+        );
+      assert(!!button(), "serial check: the button is on the Fix Calculations section");
+
+      const press = async () => {
+        await act(async () => {
+          button()?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        });
+        return readMounted();
+      };
+
+      const clean = await press();
+      /* "that moved them", not "agree with the documents": the FINDINGS
+         heading reads "Units that disagree with the documents", which
+         contains the shorter phrase — so the shorter assertion passed even
+         when the clean panel was gone entirely. */
+      has(clean, "that moved them", "serial check: a shop in order is told so plainly");
+
+      SerialRepo.update("SN2", { status: "in_stock" } as never);
+      const broken = await press();
+      has(
+        broken,
+        "counted as on the shelf",
+        "serial check: a unit put back while its bill still stands is reported",
+      );
+      has(
+        broken,
+        "one over",
+        "serial check: and says which way the shelf count is wrong, not just that it is",
+      );
+
+      /* Cancel the bill that sold it. The unit is now legitimately on the
+         shelf, and the same data must stop being a fault — a library test
+         cannot show this, because live-only is the SCREEN's choice of which
+         documents to pass in. */
+      const soldOn = SalesRepo.all().find((s) =>
+        s.lineItems.some((l) => (l.serialIds ?? []).includes("SN2")),
+      );
+      assert(!!soldOn, "serial check: found the bill that sold that unit");
+      SalesRepo.update(soldOn!.id, { voidedAt: new Date().toISOString() } as never);
+      const afterVoid = await press();
+      assert(
+        !afterVoid.includes("counted as on the shelf"),
+        "serial check: a cancelled bill stops being evidence, so the unit is fine again",
+      );
+
+      SalesRepo.update(soldOn!.id, { voidedAt: undefined } as never);
+      SerialRepo.update("SN2", { status: "sold" } as never);
+    } finally {
+      globalThis.__TEST_IS_OWNER__ = wasOwner;
+    }
   }
 
   /* ── One date format across every section's table ─────────────────────

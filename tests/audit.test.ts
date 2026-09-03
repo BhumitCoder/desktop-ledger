@@ -38,6 +38,7 @@ import type {
 import { Repository } from "@/repositories/base";
 import { correctBankPaidAmount, planBankRepair } from "@/lib/bankRepair";
 import { planStockRepair } from "@/lib/dataRepair";
+import { checkSerialIntegrity } from "@/lib/serialAudit";
 import {
   isSerialised,
   inStockCounts,
@@ -4615,6 +4616,193 @@ console.log(`\n═════════════════════�
       `T46: including the date, so nothing is left half-set on a ${kind}`,
     );
   }
+}
+
+/* ═══ TEST 47: does the unit list still agree with the documents? ═══════
+   A serial's status is not derived, it is MOVED, one document at a time. Miss
+   a move and nothing else in the app notices — the shelf count comes from the
+   units, so the shop keeps trading on a figure that has quietly stopped being
+   true. This is the only thing looking. */
+{
+  const items = [
+    { id: "A", name: "Apple 20W Adapter", trackSerials: true },
+    { id: "P", name: "USB Cable" },
+  ] as unknown as Item[];
+  const base = {
+    items,
+    sales: [] as Invoice[],
+    purchases: [] as Invoice[],
+    saleReturns: [] as Return[],
+    purchaseReturns: [] as Return[],
+  };
+  const unit = (over: Record<string, unknown>) =>
+    ({ id: "u1", itemId: "A", serial: "SN1", status: "in_stock", ...over }) as unknown as Serial;
+  const bill = (number: string, serialIds: string[], qty = serialIds.length) =>
+    ({ number, lineItems: [{ itemId: "A", qty, serialIds }] }) as unknown as Invoice;
+
+  // Nothing wrong: a sold unit with a bill that sold it.
+  const clean = checkSerialIntegrity({
+    ...base,
+    serials: [unit({ status: "sold" })],
+    sales: [bill("INV-1", ["u1"])],
+  });
+  assert(
+    clean.issues.length === 0,
+    `T47: a shop in order reports nothing — ${JSON.stringify(clean.issues)}`,
+  );
+  assert(clean.checked === 1, "T47: and says how many units it actually looked at");
+
+  // The move that got missed: the bill is gone, the unit still says sold.
+  const ghost = checkSerialIntegrity({ ...base, serials: [unit({ status: "sold" })] });
+  assert(ghost.issues[0]?.kind === "sold-but-no-bill", "T47: a unit sold by nothing is found");
+  assert(
+    // ?? "": a bare .message here throws when the array is empty, which
+    // kills the run and reports NOTHING instead of failing this one line.
+    (ghost.issues[0]?.message ?? "").includes("one short"),
+    "T47: and says which way the shelf count is wrong, because that is the consequence",
+  );
+
+  // The opposite: counted on the shelf while a live bill still holds it.
+  const over = checkSerialIntegrity({
+    ...base,
+    serials: [unit({ status: "in_stock" })],
+    sales: [bill("INV-2", ["u1"])],
+  });
+  assert(
+    over.issues[0]?.kind === "in-stock-but-still-sold",
+    "T47: a unit on the shelf that a live bill sold is found",
+  );
+  assert(
+    (over.issues[0]?.message ?? "").includes("INV-2"),
+    "T47: naming the bill, so it can be looked at",
+  );
+
+  // Sold, then returned. Back on the shelf WITH the sale still named on it —
+  // that is the design, and it must not be reported as a fault.
+  const returned = checkSerialIntegrity({
+    ...base,
+    serials: [unit({ status: "in_stock" })],
+    sales: [bill("INV-3", ["u1"])],
+    saleReturns: [
+      {
+        number: "CR-1",
+        lineItems: [{ itemId: "A", qty: 1, serialIds: ["u1"] }],
+      } as unknown as Return,
+    ],
+  });
+  assert(
+    returned.issues.length === 0,
+    `T47: a returned unit is back on the shelf legitimately, not a fault — ${JSON.stringify(returned.issues)}`,
+  );
+
+  // The same unit on two live bills.
+  const twice = checkSerialIntegrity({
+    ...base,
+    serials: [unit({ status: "sold" })],
+    sales: [bill("INV-4", ["u1"]), bill("INV-5", ["u1"])],
+  });
+  assert(
+    twice.issues.some((i) => i.kind === "on-two-bills"),
+    "T47: one unit sold on two bills is found",
+  );
+
+  // A line that names SOME of its units. The form cannot produce this; a
+  // console edit or a bug can, and it is exactly what nothing else catches.
+  const half = checkSerialIntegrity({
+    ...base,
+    serials: [unit({ status: "sold" })],
+    sales: [bill("INV-6", ["u1"], 3)],
+  });
+  assert(
+    half.issues.some((i) => i.kind === "line-count-mismatch"),
+    "T47: a line crediting three units while naming one is found",
+  );
+
+  // Naming NONE is the legacy case — the item was switched on after the bill
+  // was written, and there is no way to invent units for it afterwards.
+  const legacy = checkSerialIntegrity({
+    ...base,
+    serials: [],
+    sales: [bill("INV-7", [], 3)],
+  });
+  assert(
+    legacy.issues.length === 0,
+    `T47: a bill written before the item was tracked is not a fault — ${JSON.stringify(legacy.issues)}`,
+  );
+  assert(
+    legacy.untrackedLines === 1,
+    "T47: but it is counted, because 'is my history complete' is a fair question",
+  );
+
+  // An ordinary item's line is not checked at all, whatever is on it.
+  const plain = checkSerialIntegrity({
+    ...base,
+    serials: [],
+    sales: [
+      {
+        number: "INV-8",
+        lineItems: [{ itemId: "P", qty: 5, serialIds: [] }],
+      } as unknown as Invoice,
+    ],
+  });
+  assert(
+    plain.issues.length === 0 && plain.untrackedLines === 0,
+    "T47: an item that is not tracked by serial is none of this check's business",
+  );
+
+  // Two units of the same item with the same number: one is a mis-scan.
+  const dupe = checkSerialIntegrity({
+    ...base,
+    serials: [unit({ id: "u1" }), unit({ id: "u2", serial: "sn1 " })],
+  });
+  assert(
+    dupe.issues.some((i) => i.kind === "duplicate-serial"),
+    "T47: the same number twice on one item is found, ignoring case and space",
+  );
+
+  // …but the SAME string on a DIFFERENT item is legitimate: two makers can
+  // stamp the same thing, which is why uniqueness was never global.
+  const shared = checkSerialIntegrity({
+    ...base,
+    items: [...items, { id: "B", name: "Other Adapter", trackSerials: true }] as unknown as Item[],
+    serials: [unit({ id: "u1" }), unit({ id: "u2", itemId: "B" })],
+  });
+  assert(
+    !shared.issues.some((i) => i.kind === "duplicate-serial"),
+    "T47: and the same number on two different items is not a fault",
+  );
+
+  /* Item "AB" + serial "1" and item "A" + serial "B1" both read "AB1" if the
+     two are simply glued together. Neither is a duplicate of the other, and
+     an undelimited key would call them one — which is precisely the bug a
+     stray byte in the separator produced once. */
+  const glued = checkSerialIntegrity({
+    ...base,
+    items: [
+      { id: "AB", name: "First", trackSerials: true },
+      { id: "A", name: "Second", trackSerials: true },
+    ] as unknown as Item[],
+    serials: [
+      unit({ id: "g1", itemId: "AB", serial: "1" }),
+      unit({ id: "g2", itemId: "A", serial: "B1" }),
+    ],
+  });
+  assert(
+    !glued.issues.some((i) => i.kind === "duplicate-serial"),
+    "T47: the item and the number are kept apart, so two units cannot collide by running together",
+  );
+
+  const orphan = checkSerialIntegrity({ ...base, serials: [unit({ itemId: "GONE" })] });
+  assert(orphan.issues[0]?.kind === "unknown-item", "T47: a unit of a deleted item is found");
+
+  const vendor = checkSerialIntegrity({
+    ...base,
+    serials: [unit({ status: "returned_to_vendor" })],
+  });
+  assert(
+    vendor.issues[0]?.kind === "returned-but-no-note",
+    "T47: a unit sent back with no debit note behind it is found",
+  );
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
