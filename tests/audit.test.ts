@@ -1770,6 +1770,70 @@ console.log(`\n═════════════════════�
   );
 }
 
+/* ═══ TEST S5: a split reaches the account's own passbook ═══════════════
+   Found by sweeping the rest of the app rather than by a failing test, and
+   the worst of the lot. Step 5 moved the account's stored balance for a
+   split receipt; the passbook still filtered on the document's bankId, which
+   a split does not have. So the balance moved and the passbook did not show
+   why — and bankRepair RE-DERIVES balances from exactly these entries, so the
+   next repair would have "corrected" the balance back down and taken the
+   money with it. */
+{
+  const bank = { id: "B1", name: "HDFC", openingBalance: 0 } as unknown as BankAccount;
+  const splitReceipt = {
+    id: "PS1",
+    date: "2026-06-01",
+    partyId: "P1",
+    partyName: "A Customer",
+    type: "in",
+    amount: 1000,
+    mode: "cash",
+    splits: [
+      { mode: "cash", amount: 400 },
+      { mode: "bank", amount: 600, bankId: "B1" },
+    ],
+  } as unknown as Payment;
+  const splitExpense = {
+    id: "ES1",
+    date: "2026-06-02",
+    category: "Rent",
+    amount: 500,
+    paymentMode: "cash",
+    splits: [
+      { mode: "cash", amount: 200 },
+      { mode: "bank", amount: 300, bankId: "B1" },
+    ],
+  } as unknown as Expense;
+
+  const led = buildBankLedger(bank, {
+    sales: [],
+    purchases: [],
+    payments: [splitReceipt],
+    bankTxns: [],
+    expenses: [splitExpense],
+  });
+  assert(
+    led.rows.some((r) => r.credit === 600),
+    `S5: a part-bank receipt shows in the passbook — ${JSON.stringify(led.rows.map((r) => [r.type, r.debit, r.credit]))}`,
+  );
+  assert(
+    led.rows.some((r) => r.debit === 300),
+    "S5: and so does a part-bank expense",
+  );
+  assert(
+    r2(led.fullBalance) === 300,
+    `S5: leaving the balance the passbook itself explains — 600 in, 300 out — ${led.fullBalance}`,
+  );
+  /* The property that makes the repair safe: what the passbook says and what
+     the account holds must be the same number, or a repair "fixes" one of
+     them into being wrong. */
+  const cashSideOnly = cashPart(splitReceipt) - cashPart(splitExpense);
+  assert(
+    r2(cashSideOnly) === 200,
+    `S5: and the cash halves stay in the drawer, not on the account — ${cashSideOnly}`,
+  );
+}
+
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
 if (fails.length) {
   console.log(`\nFailures:`);

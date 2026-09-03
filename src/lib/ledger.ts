@@ -889,26 +889,23 @@ export function buildBankLedger(
       docKind: "purchase",
     });
   }
-  for (const pay of data.payments.filter((x) => x.bankId === bank.id)) {
-    if (pay.type === "in") {
-      entries.push({
-        date: pay.date,
-        created: pay.createdAt,
-        type: "Payment Received",
-        ref: pay.partyName,
-        debit: 0,
-        credit: pay.amount,
-      });
-    } else {
-      entries.push({
-        date: pay.date,
-        created: pay.createdAt,
-        type: "Payment Made",
-        ref: pay.partyName,
-        debit: pay.amount,
-        credit: 0,
-      });
-    }
+  /* Through the rows, like the bills above. A part-cash receipt has no
+     top-level bankId, so filtering on that missed it entirely — and because
+     the shop's balance HAD already been moved by the save, this passbook
+     would have disagreed with the account it describes. bankRepair
+     re-derives balances from exactly these entries, so the next repair would
+     have "corrected" the balance downward and taken the money with it. */
+  for (const pay of data.payments) {
+    const amount = bankParts(pay).get(bank.id) ?? 0;
+    if (amount <= 0) continue;
+    entries.push({
+      date: pay.date,
+      created: pay.createdAt,
+      type: pay.type === "in" ? "Payment Received" : "Payment Made",
+      ref: pay.partyName,
+      debit: pay.type === "in" ? 0 : amount,
+      credit: pay.type === "in" ? amount : 0,
+    });
   }
   for (const t of data.bankTxns.filter((x) => x.bankId === bank.id)) {
     if (t.type === "deposit") {
@@ -931,13 +928,15 @@ export function buildBankLedger(
       });
     }
   }
-  for (const ex of (data.expenses ?? []).filter((x) => x.bankId === bank.id)) {
+  for (const ex of data.expenses ?? []) {
+    const amount = bankParts(ex).get(bank.id) ?? 0;
+    if (amount <= 0) continue;
     entries.push({
       date: ex.date,
       created: ex.createdAt,
       type: "Expense",
       ref: ex.category + (ex.notes ? ` — ${ex.notes}` : ""),
-      debit: ex.amount,
+      debit: amount,
       credit: 0,
     });
   }

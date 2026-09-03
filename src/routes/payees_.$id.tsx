@@ -117,9 +117,7 @@ function PayeeLedgerPage() {
     const sheetRows = rows.map((r) => [
       fmtDate(r.date),
       r.category,
-      r.paymentMode === "bank"
-        ? `Bank — ${bankNameById.get(r.bankId ?? "") ?? "unspecified"}`
-        : describePayment(r, bankName),
+      describePayment(r, bankName),
       r.notes ?? "",
       r.amount,
       r.running,
@@ -262,10 +260,7 @@ function PayeeLedgerPage() {
                       <div className="min-w-0">
                         <p className="font-medium text-gray-800 truncate">{r.category}</p>
                         <p className="text-xs text-gray-400 mt-0.5 truncate">
-                          {fmtDate(r.date)} ·{" "}
-                          {r.paymentMode === "bank"
-                            ? `Bank — ${bankNameById.get(r.bankId ?? "") ?? "unspecified"}`
-                            : describePayment(r, bankName)}
+                          {fmtDate(r.date)} · {describePayment(r, bankName)}
                         </p>
                       </div>
                       <p className="font-bold tabular-nums shrink-0 text-gray-800">
@@ -315,9 +310,7 @@ function PayeeLedgerPage() {
                         {r.category}
                       </td>
                       <td className="px-3 py-2.5 text-gray-500 text-xs whitespace-nowrap">
-                        {r.paymentMode === "bank"
-                          ? `Bank — ${bankNameById.get(r.bankId ?? "") ?? "unspecified"}`
-                          : describePayment(r, bankName)}
+                        {describePayment(r, bankName)}
                       </td>
                       <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap">
                         {r.notes ?? "—"}
