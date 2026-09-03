@@ -35,7 +35,7 @@ import { planStockRepair } from "@/lib/dataRepair";
 import { useEscapeToLeave } from "@/hooks/useFormKeys";
 import { useAppEscape } from "@/hooks/useGoBack";
 import { useWorkspace } from "@/store/workspace";
-import { buildPartyStatement, cashFlows } from "@/lib/ledger";
+import { buildPartyStatement, cashFlows, netFlow } from "@/lib/ledger";
 import { commitBatch } from "@/repositories/base";
 import {
   PartyRepo,
@@ -2680,6 +2680,197 @@ async function runAll(): Promise<Results> {
     );
 
     ItemRepo.update("I1", { category: undefined } as never);
+  }
+
+  /* ── A bill settled part cash, part bank ──────────────────────────────
+     The reported case, driven through the real form. What matters is not
+     that the rows save — it is that both halves land where they belong and
+     neither is counted twice: the cash on the Cash page, the bank on that
+     account's stored balance, and nothing left over. */
+  {
+    BankRepo.add({
+      id: "BSPL",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "Split Test Bank",
+      openingBalance: 0,
+      balance: 0,
+    } as never);
+
+    await renderRoute("/sales/new");
+    const partyBox = document.querySelector(
+      'input[placeholder="Type name or search…"]',
+    ) as HTMLInputElement | null;
+    assert(!!partyBox, "split bill: found the customer box");
+    await act(async () => {
+      setInput(partyBox, "Ramesh Traders");
+    });
+    await settleMs(140);
+    const pOpt = Array.from(document.querySelectorAll("div")).find(
+      (d) =>
+        (d.textContent ?? "").trim() === "Ramesh Traders" &&
+        !d.querySelector("div div") &&
+        !d.querySelector("input"),
+    );
+    if (pOpt) {
+      await act(async () => {
+        pOpt.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      });
+      await settleMs(140);
+    }
+
+    const addRow = document.querySelector(
+      'input[placeholder="Type item name to add…"]',
+    ) as HTMLInputElement | null;
+    await act(async () => {
+      setInput(addRow, "USB Cable");
+    });
+    await settleMs(120);
+    await act(async () => {
+      addRow?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    await settleMs(160);
+
+    // One cable at ₹100, quantity 10 → ₹1,000, settled 400 cash + 600 bank.
+    const qty = document.querySelector('[id^="qty-"]') as HTMLInputElement | null;
+    assert(!!qty, "split bill: found the quantity box");
+    await act(async () => {
+      setInput(qty, "10");
+    });
+    await settleMs(140);
+
+    /* A new bill does not start settled, and the Full shortcut only exists
+       once a mode that takes money is chosen. */
+    const cashPill = Array.from(document.querySelectorAll('[role="radio"]')).find(
+      (p) => (p.textContent ?? "").trim() === "Cash",
+    ) as HTMLElement | undefined;
+    assert(!!cashPill, "split bill: found the Cash payment mode");
+    await act(async () => {
+      cashPill?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settleMs(140);
+
+    const fullBtn = Array.from(document.querySelectorAll("button")).find(
+      (b) => (b.textContent ?? "").trim() === "Full",
+    );
+    assert(!!fullBtn, "split bill: found the Full button to settle it");
+    await act(async () => {
+      fullBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settleMs(160);
+
+    const splitBtn = Array.from(document.querySelectorAll("button")).find((b) =>
+      /Split across cash and bank/.test((b.textContent ?? "").trim()),
+    );
+    assert(!!splitBtn, "split bill: the form offers to split a settled bill");
+    await act(async () => {
+      splitBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settleMs(140);
+
+    const amountBox = (n: number) =>
+      document.querySelector(`input[aria-label="Amount for part ${n}"]`) as HTMLInputElement | null;
+    assert(!!amountBox(1), "split bill: it opens holding the bill's own payment as one part");
+
+    await act(async () => {
+      setInput(amountBox(1), "400");
+    });
+    await settleMs(120);
+    const addAnother = Array.from(document.querySelectorAll("button")).find(
+      (b) => (b.textContent ?? "").trim() === "Add another",
+    );
+    assert(!!addAnother, "split bill: another part can be added");
+    await act(async () => {
+      addAnother?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settleMs(140);
+
+    const modeBox = document.querySelector(
+      'select[aria-label="How part 2 was paid"]',
+    ) as HTMLSelectElement | null;
+    assert(!!modeBox, "split bill: the second part can say how it was paid");
+    await act(async () => {
+      modeBox!.value = "bank";
+      modeBox!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await settleMs(140);
+    const acctBox = document.querySelector(
+      'select[aria-label="Which account part 2 went to"]',
+    ) as HTMLSelectElement | null;
+    assert(!!acctBox, "split bill: and which account it went into");
+    await act(async () => {
+      acctBox!.value = "BSPL";
+      acctBox!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await settleMs(140);
+    await act(async () => {
+      setInput(amountBox(2), "600");
+    });
+    await settleMs(140);
+
+    const before = SalesRepo.all().length;
+    const bankBefore = BankRepo.get("BSPL")?.balance ?? 0;
+    const saveBtn = Array.from(document.querySelectorAll("button")).find(
+      (b) => (b.textContent ?? "").trim() === "Save",
+    );
+
+    /* A document that disagrees with itself is not a document. Try to save
+       ₹400 + ₹500 against a ₹1,000 bill and it must refuse — only the person
+       at the counter knows which of the two figures is the true one. */
+    await act(async () => {
+      setInput(amountBox(2), "500");
+    });
+    await settleMs(140);
+    await act(async () => {
+      saveBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settleMs(240);
+    assert(
+      SalesRepo.all().length === before,
+      "split bill: parts that do not add up to the bill are refused",
+    );
+    assert(
+      (BankRepo.get("BSPL")?.balance ?? 0) === bankBefore,
+      "split bill: and nothing moved on the account while it was refused",
+    );
+
+    await act(async () => {
+      setInput(amountBox(2), "600");
+    });
+    await settleMs(140);
+    await act(async () => {
+      saveBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settleMs(320);
+
+    assert(SalesRepo.all().length === before + 1, "split bill: it saved");
+    const saved = SalesRepo.all()[0];
+    assert(
+      (saved.paidSplits ?? []).length === 2,
+      `split bill: with both parts on the record — ${JSON.stringify(saved.paidSplits)}`,
+    );
+    assert(
+      !saved.bankId && saved.bankPaidAmount === undefined,
+      "split bill: and the legacy pair left empty, so there is one answer for the money",
+    );
+
+    // The bank half moved that account's stored balance, once.
+    assert(
+      r2((BankRepo.get("BSPL")?.balance ?? 0) - bankBefore) === 600,
+      `split bill: the bank part reached the account — ${BankRepo.get("BSPL")?.balance}`,
+    );
+
+    // The cash half reaches the Cash page, and the bank half does not.
+    const flows = cashFlows(
+      SalesRepo.all().filter((s) => s.id === saved.id),
+      [],
+      [],
+      [],
+      [],
+    );
+    assert(
+      netFlow(flows) === 400,
+      `split bill: the cash part reaches Cash on Hand, and only that part — ${netFlow(flows)}`,
+    );
   }
 
   /* ── The bank list has to follow the arrow keys ───────────────────────

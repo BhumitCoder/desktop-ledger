@@ -26,10 +26,19 @@ import { matchesQuery, byRelevance } from "@/lib/search";
  * so a large catalogue can't make the list janky. Anything beyond it is
  * reported by a "+N more" footer. */
 const MAX_SUGGESTIONS = 200;
-import type { Invoice, LineItem, Party, Item, PaymentMode, BankAccount } from "@/types";
+import type {
+  Invoice,
+  LineItem,
+  Party,
+  Item,
+  PaymentMode,
+  BankAccount,
+  PaymentSplit,
+} from "@/types";
 import { fmtMoney, fmtDate, today } from "@/lib/format";
 import { toast } from "sonner";
-import { bankParts } from "@/lib/paymentSplit";
+import { bankParts, splitProblems } from "@/lib/paymentSplit";
+import { SplitPaymentRows } from "@/components/SplitPaymentRows";
 import {
   Trash2,
   Plus,
@@ -195,6 +204,12 @@ export function InvoiceForm({ mode, existing }: Props) {
    *  existing line whose item is being swapped. Exactly one is set: creating
    *  an item from the change-item picker must REPLACE what is on that line,
    *  not append a second one and leave the wrong item behind. */
+  /** Rows, once somebody says the money came in more than one way. null is
+   *  the ordinary single-mode bill, which is most of them and stays exactly
+   *  as it was. */
+  const [splitRows, setSplitRows] = useState<PaymentSplit[] | null>(
+    () => existing?.paidSplits ?? null,
+  );
   const [quickAddItem, setQuickAddItem] = useState<{
     name: string;
     rowId: string | null;
@@ -304,6 +319,12 @@ export function InvoiceForm({ mode, existing }: Props) {
   }, []);
 
   const r2 = (n: number) => Math.round(n * 100) / 100;
+
+  /** The mode a split bill reports as "its" mode — the biggest part of it.
+   *  Only ever for display: every figure comes from the rows. */
+  function largestSplitMode(rows: PaymentSplit[]): PaymentMode {
+    return rows.reduce((best, r) => (r.amount > best.amount ? r : best), rows[0]).mode;
+  }
 
   const roundEnabled = company.enableRoundOff !== false;
 
@@ -669,6 +690,19 @@ export function InvoiceForm({ mode, existing }: Props) {
       PaymentRepo.all(),
     );
 
+    /* A split that does not add up is not a document. Refused here rather
+       than corrected, because only the person at the counter knows which of
+       the two figures is the true one. */
+    if (splitRows) {
+      const problems = splitProblems(splitRows, inv.paid);
+      if (problems.length) {
+        toast.error(problems[0].message, { duration: 8000 });
+        savingRef.current = false;
+        setSaving(false);
+        return;
+      }
+    }
+
     const finalInv: Invoice = {
       ...inv,
       number: inv.number.trim(),
@@ -676,8 +710,15 @@ export function InvoiceForm({ mode, existing }: Props) {
       partyId,
       partyName,
       partyPhone: phone,
-      bankId: inv.paymentMode === "bank" ? inv.bankId : undefined,
-      bankPaidAmount: bankPaidNow,
+      /* For a split bill the rows ARE the attribution, and the legacy pair
+         must be left empty: two answers for the same money is how a repair
+         tool later "corrects" one of them and moves an account balance that
+         was already right. paymentMode keeps the largest row so lists and
+         old printouts still say something true about the bill. */
+      paymentMode: splitRows?.length ? largestSplitMode(splitRows) : inv.paymentMode,
+      bankId: splitRows?.length ? undefined : inv.paymentMode === "bank" ? inv.bankId : undefined,
+      bankPaidAmount: splitRows?.length ? undefined : bankPaidNow,
+      paidSplits: splitRows?.length ? splitRows : undefined,
     };
 
     // This invoice's own paid-at-billing amount can move money on a specific
@@ -1565,7 +1606,49 @@ export function InvoiceForm({ mode, existing }: Props) {
                   modes={["cash", "bank", "credit"]}
                 />
               </div>
-              {inv.paymentMode === "bank" && (
+              {/* Offered only when there is money to divide. A credit bill
+                  has none, and an unpaid one has nothing to say yet. */}
+              {inv.paymentMode !== "credit" && inv.paid > 0 && !splitRows && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    // Opens holding what the bill already says, so the first
+                    // row is never something the counter has to re-enter.
+                    setSplitRows([
+                      {
+                        mode: inv.paymentMode,
+                        amount: inv.paid,
+                        bankId: inv.paymentMode === "bank" ? inv.bankId : undefined,
+                      },
+                    ])
+                  }
+                  className="text-[11px] font-medium text-primary hover:underline self-end"
+                >
+                  Split across cash and bank
+                </button>
+              )}
+              {splitRows && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground text-[12px]">How it was paid</span>
+                    <button
+                      type="button"
+                      onClick={() => setSplitRows(null)}
+                      className="text-[11px] text-muted-foreground hover:underline"
+                    >
+                      Back to one payment
+                    </button>
+                  </div>
+                  <SplitPaymentRows
+                    rows={splitRows}
+                    onChange={setSplitRows}
+                    total={inv.paid}
+                    banks={banks}
+                    label={isSale ? "Amount received" : "Amount paid"}
+                  />
+                </div>
+              )}
+              {!splitRows && inv.paymentMode === "bank" && (
                 <div className="relative flex flex-col gap-1.5">
                   <span className="text-muted-foreground text-[12px]">Bank Account *</span>
                   <input
