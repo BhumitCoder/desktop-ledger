@@ -1804,11 +1804,15 @@ async function runAll(): Promise<Results> {
   }
 
   /* ── Backspace walks back along a bill line ───────────────────────────
-     Billing runs left to right — item, qty, unit, price — and the only way
-     back was the mouse. Clearing a box and pressing Backspace again is what a
-     person already does on realising they are in the wrong one; each step
-     must land on the previous field with its contents selected, and stepping
-     back off the front of the line reopens the item picker. */
+     Billing runs left to right — item, qty, price — and Enter is the key a
+     counter actually uses. It must walk ALONG that row and only leave at the
+     end; sending Quantity straight to the next line skips Price, which is
+     the second most important number on the bill.
+
+     Backspace is a delete key and nothing else. It used to walk backwards
+     along the row, which the shop reported as unprofessional — Shift+Tab
+     already does that, everywhere, and a key that sometimes deletes and
+     sometimes navigates cannot be relied on. */
   {
     await renderRoute("/sales/new");
 
@@ -1839,7 +1843,32 @@ async function runAll(): Promise<Results> {
       const [qty, ...rest] = fields;
       const price = rest[rest.length - 1] ?? rest[0];
 
-      // From a LATER field back to an earlier one: clear it, then Backspace.
+      /* Enter walks ALONG the row. It used to send Quantity straight to the
+         next blank item row, jumping clean over Price — the commonest
+         keystroke in billing skipped the second most important number on the
+         line, every single time. */
+      await act(async () => {
+        qty.focus();
+        setInput(qty, "2");
+      });
+      await settleMs(40);
+      await act(async () => {
+        qty.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      });
+      await settleMs(60);
+      assert(document.activeElement !== qty, "row keys: Enter in Quantity moves off it");
+      assert(
+        row.contains(document.activeElement),
+        "row keys: and stays on the SAME line instead of jumping to the next row",
+      );
+      assert(
+        document.activeElement === price,
+        `row keys: landing on Price, which Enter used to skip — landed on ${(document.activeElement as HTMLInputElement)?.className?.slice(0, 40)}`,
+      );
+
+      /* Backspace is a delete key again. The shop called the
+         walk-backwards behaviour unprofessional; Shift+Tab already does it
+         the way every other application does. */
       await act(async () => {
         price.focus();
         setInput(price, "");
@@ -1848,41 +1877,26 @@ async function runAll(): Promise<Results> {
       await act(async () => {
         price.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true }));
       });
-      await settleMs(40);
-      assert(document.activeElement !== price, "step back: Backspace in an empty box moves off it");
+      await settleMs(60);
       assert(
-        row.contains(document.activeElement),
-        "step back: and lands on another field in the SAME line, never another row",
+        document.activeElement === price,
+        "row keys: Backspace in an empty box stays put rather than walking backwards",
       );
 
-      // A box with something in it must still just delete a character.
+      /* Off the END of the row is where "next row" belongs. */
+      const rowFields = Array.from(row.querySelectorAll("input")) as HTMLInputElement[];
+      const last = rowFields[rowFields.length - 1];
       await act(async () => {
-        qty.focus();
-        setInput(qty, "5");
+        last.focus();
       });
       await settleMs(40);
       await act(async () => {
-        qty.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true }));
-      });
-      await settleMs(40);
-      assert(
-        document.activeElement === qty,
-        "step back: Backspace with text in the box deletes, it does not navigate",
-      );
-
-      // Off the front of the line: the item picker comes back.
-      await act(async () => {
-        qty.focus();
-        setInput(qty, "");
-      });
-      await settleMs(40);
-      await act(async () => {
-        qty.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true }));
+        last.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
       });
       await settleMs(80);
       assert(
-        !!row.querySelector('input[placeholder="Type to change item…"]'),
-        "step back: stepping off the front of the line reopens the item picker",
+        !row.contains(document.activeElement),
+        "row keys: Enter on the last field of the row does move on to the next one",
       );
     }
   }
@@ -2246,6 +2260,51 @@ async function runAll(): Promise<Results> {
     assert(
       paid.includes(fmtMoney(0)),
       "two-sided: Make Payment shows nothing outstanding for a party who owes US",
+    );
+  }
+
+  /* ── Payment mode is one tab stop, not three ──────────────────────────
+     Reported from the shop as Tab "going to bank" after choosing Cash. It
+     did — to the Bank PILL, then the Credit pill, before reaching anything
+     that takes a number. Tab should leave the group and land on the amount;
+     moving WITHIN the group is what arrow keys are for. */
+  {
+    await renderRoute("/sales/new");
+    const pills = Array.from(document.querySelectorAll('[role="radio"]')).filter((p) =>
+      ["Cash", "Bank", "Credit"].includes((p.textContent ?? "").trim()),
+    ) as HTMLElement[];
+    assert(pills.length === 3, `mode tab: found the three payment pills — ${pills.length}`);
+
+    // Whichever mode a new bill starts on — the rule is about the group, not
+    // about one particular pill being chosen.
+    const chosen = pills.find((p) => p.getAttribute("aria-checked") === "true");
+    assert(!!chosen, "mode tab: one of the pills is selected to begin with");
+    assert(
+      chosen!.tabIndex === 0,
+      "mode tab: the chosen mode is the tab stop, so Tab still reaches the group",
+    );
+    assert(
+      pills.filter((p) => p.tabIndex === 0).length === 1,
+      `mode tab: and it is the ONLY one, so Tab leaves for the amount instead of walking the pills — ${pills.filter((p) => p.tabIndex === 0).length} are tabbable`,
+    );
+
+    // Arrow keys are how you move inside a radiogroup.
+    const startedOn = (chosen!.textContent ?? "").trim();
+    await act(async () => {
+      chosen!.focus();
+      chosen!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    });
+    await settleMs(80);
+    const nowChosen = Array.from(document.querySelectorAll('[role="radio"]')).find(
+      (p) => p.getAttribute("aria-checked") === "true",
+    ) as HTMLElement | undefined;
+    assert(
+      (nowChosen?.textContent ?? "").trim() !== startedOn,
+      `mode tab: ArrowRight moves the choice along the group — still on ${startedOn}`,
+    );
+    assert(
+      document.activeElement === nowChosen,
+      "mode tab: and focus follows it, or Tab would leave from the wrong pill",
     );
   }
 

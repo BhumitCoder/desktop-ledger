@@ -47,7 +47,7 @@ import { NumInput, NumField } from "@/components/NumInput";
 import { ModePills } from "@/components/ModePills";
 import { QuickAddPartyDialog, type QuickAddPartyDetails } from "@/components/QuickAddPartyDialog";
 import { genId, newBatch, commitBatch } from "@/repositories/base";
-import { stepBackOnBackspace, useEscapeToLeave } from "@/hooks/useFormKeys";
+import { enterMovesAlongRow, useEscapeToLeave } from "@/hooks/useFormKeys";
 import { stockShortfalls } from "@/lib/stock";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 
@@ -168,9 +168,6 @@ export function InvoiceForm({ mode, existing }: Props) {
   // "qty-<lineId>") so the amount can be typed immediately — not to the next
   // blank search row. Pressing Enter in Qty is what advances to the next row.
   const focusQtyId = useRef<string | null>(null);
-  /** Line whose item picker the Qty box asked to reopen (Backspace on an
-   *  empty Qty = "wrong item, let me choose again"). */
-  const [reopenPickerFor, setReopenPickerFor] = useState<string | null>(null);
   useEffect(() => {
     if (focusQtyId.current) {
       const el = document.getElementById(`qty-${focusQtyId.current}`) as HTMLInputElement | null;
@@ -1342,11 +1339,13 @@ export function InvoiceForm({ mode, existing }: Props) {
                   <tr
                     key={l.id}
                     className="border-t hover:bg-accent/30"
-                    // Backspace in an empty box walks back along the line —
-                    // price to unit, unit to qty, qty to the item picker.
-                    onKeyDown={(e) =>
-                      stepBackOnBackspace(e, { onStart: () => setReopenPickerFor(l.id) })
-                    }
+                    /* Enter walks the row and only leaves at the end. The
+                       shop asked for the Backspace-walks-backwards flow to
+                       go: it surprised people, and Shift+Tab already does
+                       that job the way every other application does. The
+                       item name stays a button, so a wrong item is still one
+                       click from being changed. */
+                    onKeyDown={(e) => enterMovesAlongRow(e, { onEnd: focusFirstPendingRow })}
                   >
                     <td className="px-3 py-1.5 text-muted-foreground text-[11px]">{idx + 1}</td>
                     <td className="px-3 py-1.5">
@@ -1356,8 +1355,6 @@ export function InvoiceForm({ mode, existing }: Props) {
                         isSale={isSale}
                         gstOn={gstOn}
                         onChange={(it) => changeLineItem(l.id, it)}
-                        openNow={reopenPickerFor === l.id}
-                        onOpened={() => setReopenPickerFor(null)}
                       />
                     </td>
                     <td className="py-1.5 px-1">
@@ -1365,12 +1362,6 @@ export function InvoiceForm({ mode, existing }: Props) {
                         id={`qty-${l.id}`}
                         value={l.qty}
                         onValue={(n) => updateLine(l.id, { qty: n })}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            focusFirstPendingRow();
-                          }
-                        }}
                         className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
                       />
                     </td>
