@@ -31,6 +31,7 @@ import { fmtMoney, fmtDate, today } from "@/lib/format";
 import { toast } from "sonner";
 import {
   Trash2,
+  Plus,
   UserPlus,
   Save,
   X,
@@ -189,7 +190,15 @@ export function InvoiceForm({ mode, existing }: Props) {
     paid: number;
     andPrint: boolean;
   } | null>(null);
-  const [quickAddItem, setQuickAddItem] = useState<{ name: string; rowId: string } | null>(null);
+  /** rowId = a blank entry row waiting to become a line. replaceLineId = an
+   *  existing line whose item is being swapped. Exactly one is set: creating
+   *  an item from the change-item picker must REPLACE what is on that line,
+   *  not append a second one and leave the wrong item behind. */
+  const [quickAddItem, setQuickAddItem] = useState<{
+    name: string;
+    rowId: string | null;
+    replaceLineId?: string;
+  } | null>(null);
   const partyRef = useRef<HTMLInputElement>(null);
   const phoneRef = useRef<HTMLInputElement>(null);
   const [partyQ, setPartyQ] = useState(existing?.partyName ?? "");
@@ -432,14 +441,22 @@ export function InvoiceForm({ mode, existing }: Props) {
     purchasePrice: number;
   }) => {
     if (!quickAddItem) return;
-    const rowId = quickAddItem.rowId;
+    const { rowId, replaceLineId } = quickAddItem;
     setQuickAddItem(null);
+    /** Put the item where the person was standing when they asked for it. */
+    const place = (it: Item) => {
+      if (replaceLineId) {
+        changeLineItem(replaceLineId, it);
+        return;
+      }
+      focusQtyId.current = addLineItem(it);
+      if (rowId) completePendingRow(rowId);
+    };
     const existingMatch = items.find(
       (i) => i.name.trim().toLowerCase() === details.name.trim().toLowerCase(),
     );
     if (existingMatch) {
-      focusQtyId.current = addLineItem(existingMatch);
-      completePendingRow(rowId);
+      place(existingMatch);
       return;
     }
     const newItem = ItemRepo.add({
@@ -455,8 +472,7 @@ export function InvoiceForm({ mode, existing }: Props) {
       stock: 0,
       openingStock: 0,
     }) as Item;
-    focusQtyId.current = addLineItem(newItem);
-    completePendingRow(rowId);
+    place(newItem);
     toast.success(`New item added: ${newItem.name}`);
   };
 
@@ -1355,6 +1371,9 @@ export function InvoiceForm({ mode, existing }: Props) {
                         isSale={isSale}
                         gstOn={gstOn}
                         onChange={(it) => changeLineItem(l.id, it)}
+                        onAddNew={(name) =>
+                          setQuickAddItem({ name, rowId: null, replaceLineId: l.id })
+                        }
                       />
                     </td>
                     <td className="py-1.5 px-1">
@@ -1701,8 +1720,13 @@ export function InvoiceForm({ mode, existing }: Props) {
         onCancel={() => setQuickAddItem(null)}
         onPickExisting={(it) => {
           if (!quickAddItem) return;
-          focusQtyId.current = addLineItem(it);
-          completePendingRow(quickAddItem.rowId);
+          // Same rule as confirmQuickAddItem: put it where they were standing.
+          if (quickAddItem.replaceLineId) {
+            changeLineItem(quickAddItem.replaceLineId, it);
+          } else {
+            focusQtyId.current = addLineItem(it);
+            if (quickAddItem.rowId) completePendingRow(quickAddItem.rowId);
+          }
           setQuickAddItem(null);
         }}
         onConfirm={confirmQuickAddItem}
@@ -2005,6 +2029,7 @@ function ItemNameCell({
   isSale,
   gstOn,
   onChange,
+  onAddNew,
   openNow,
   onOpened,
 }: {
@@ -2012,6 +2037,11 @@ function ItemNameCell({
   items: Item[];
   isSale: boolean;
   gstOn: boolean;
+  /** Offered when what was typed matches nothing. Picking the wrong item and
+   *  then typing the right one is the commonest slip on this screen, and
+   *  until now that path dead-ended: the blank entry row could create an item
+   *  and this picker could not. */
+  onAddNew?: (name: string) => void;
   onChange: (it: Item) => string;
   /** Reopen the picker from outside — see the Qty box's Backspace. */
   openNow?: boolean;
@@ -2067,6 +2097,18 @@ function ItemNameCell({
     : items;
   const suggests = allMatches.slice(0, MAX_SUGGESTIONS);
   const hiddenCount = allMatches.length - suggests.length;
+  const typed = q.trim();
+  const showAddNew =
+    !!onAddNew &&
+    !!typed &&
+    !items.some((i) => i.name.trim().toLowerCase() === typed.toLowerCase());
+  /** The add row sits after the matches, so it is the last thing arrowed to. */
+  const addIdx = suggests.length;
+
+  const startAddNew = () => {
+    setEditing(false);
+    onAddNew?.(typed);
+  };
 
   // Keep the keyboard-highlighted option visible — but ONLY when the
   // highlight actually moves. This used to be a ref callback that ran on
@@ -2132,13 +2174,14 @@ function ItemNameCell({
             setEditing(false);
           } else if (e.key === "ArrowDown") {
             e.preventDefault();
-            setIdx((i) => Math.min(suggests.length - 1, i + 1));
+            setIdx((i) => Math.min(suggests.length - 1 + (showAddNew ? 1 : 0), i + 1));
           } else if (e.key === "ArrowUp") {
             e.preventDefault();
             setIdx((i) => Math.max(0, i - 1));
           } else if (e.key === "Enter") {
             e.preventDefault();
             if (suggests[idx]) pick(suggests[idx]);
+            else if (showAddNew) startAddNew();
           }
         }}
         placeholder="Type to change item…"
@@ -2151,7 +2194,7 @@ function ItemNameCell({
             className="z-50 border rounded-md bg-popover shadow-elevated max-h-72 flex flex-col"
           >
             <div ref={optionsRef} className="overflow-auto flex-1 min-h-0">
-              {suggests.length === 0 && (
+              {suggests.length === 0 && !showAddNew && (
                 <div className="px-3 py-3 text-[12px] text-muted-foreground text-center">
                   No items found
                 </div>
@@ -2182,6 +2225,21 @@ function ItemNameCell({
                   </div>
                 </div>
               ))}
+              {showAddNew && (
+                <div
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    startAddNew();
+                  }}
+                  data-opt={addIdx}
+                  className={`px-3 py-2 text-sm cursor-pointer flex items-center gap-1.5 text-primary font-medium border-t ${
+                    idx === addIdx ? "bg-accent" : "hover:bg-accent"
+                  }`}
+                >
+                  <Plus className="h-3.5 w-3.5 shrink-0" />
+                  Add &ldquo;{typed}&rdquo; as a new item
+                </div>
+              )}
             </div>
             {hiddenCount > 0 && (
               <div className="shrink-0 px-3 py-2 text-[11px] text-muted-foreground border-t bg-muted/40">
@@ -2298,7 +2356,7 @@ function QuickAddItemDialog({
   onPickExisting,
   onConfirm,
 }: {
-  draft: { name: string; rowId: string } | null;
+  draft: { name: string; rowId: string | null; replaceLineId?: string } | null;
   isSale: boolean;
   existingItems?: Item[];
   onCancel: () => void;

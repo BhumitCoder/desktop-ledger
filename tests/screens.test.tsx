@@ -2263,6 +2263,103 @@ async function runAll(): Promise<Results> {
     );
   }
 
+  /* ── Picking the wrong item is not a dead end ─────────────────────────
+     Reported from the shop: choose an item by mistake, type the right name
+     over it, and there was no way to create it. The blank entry row could
+     add a new item; this picker could not, so the only way out was to delete
+     the line and start it again.
+
+     The half that matters is WHERE the new item lands: replacing the line
+     that asked for it, not appended as a second line with the wrong item
+     still sitting above it. */
+  {
+    await renderRoute("/sales/new");
+    const addRow = document.querySelector(
+      'input[placeholder="Type item name to add…"]',
+    ) as HTMLInputElement | null;
+    assert(!!addRow, "change item: found the item entry row");
+    await act(async () => {
+      setInput(addRow, "USB Cable");
+    });
+    await settleMs(120);
+    await act(async () => {
+      addRow?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    await settleMs(150);
+
+    const lineCount = () =>
+      Array.from(document.querySelectorAll("tbody tr")).filter((tr) =>
+        (tr.textContent ?? "").includes("₹"),
+      ).length;
+    const before = lineCount();
+    assert(before >= 1, "change item: a line was added to work with");
+
+    // Reopen the picker the way a person does — the name is a button.
+    // A div with role="button", not a <button> — the grid styles it as a cell.
+    const nameBtn = Array.from(document.querySelectorAll('tbody [role="button"]')).find(
+      (b) => (b.textContent ?? "").trim() === "USB Cable",
+    );
+    assert(!!nameBtn, "change item: the item name is clickable to change it");
+    await act(async () => {
+      nameBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settleMs(120);
+
+    const changeBox = document.querySelector(
+      'input[placeholder="Type to change item…"]',
+    ) as HTMLInputElement | null;
+    assert(!!changeBox, "change item: the change-item picker opens");
+    await act(async () => {
+      setInput(changeBox, "Braided Cable 2m");
+    });
+    await settleMs(150);
+
+    /* [data-opt], not any div: an ancestor wrapping only this row has the
+       same textContent, and it is found first in document order — dispatching
+       on it never reaches the row's own handler, so the click looks lost. */
+    const addOpt = Array.from(document.querySelectorAll("[data-opt]")).find((d) =>
+      (d.textContent ?? "").trim().startsWith("Add "),
+    );
+    assert(
+      !!addOpt,
+      "change item: it offers to create what was typed, instead of only saying No items found",
+    );
+    await act(async () => {
+      addOpt?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    });
+    await settleMs(180);
+
+    const nameField = document.querySelector(
+      'input[aria-label="Category for the new item"]',
+    ) as HTMLInputElement | null;
+    assert(!!nameField, "change item: the add-item dialog opened for it");
+
+    const dlg = nameField?.closest('[role="dialog"]') as HTMLElement | null;
+    const create = Array.from(dlg?.querySelectorAll("button") ?? []).find((b) =>
+      /^Add & Continue/i.test((b.textContent ?? "").trim()),
+    );
+    assert(!!create, "change item: found the create button");
+    await act(async () => {
+      create?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settleMs(250);
+
+    assert(
+      lineCount() === before,
+      `change item: the new item REPLACES the line rather than adding a second — ${before} lines became ${lineCount()}`,
+    );
+    const grid = document.querySelector("tbody")?.textContent ?? "";
+    has(
+      grid,
+      "Braided Cable 2m",
+      "change item: and the line now carries the item that was created",
+    );
+    assert(
+      !grid.includes("USB Cable"),
+      "change item: with the wrong item gone, not left sitting above it",
+    );
+  }
+
   /* ── Payment mode is one tab stop, not three ──────────────────────────
      Reported from the shop as Tab "going to bank" after choosing Cash. It
      did — to the Bank PILL, then the Credit pill, before reaching anything
