@@ -2875,24 +2875,32 @@ async function runAll(): Promise<Results> {
     });
     await settleMs(140);
 
-    const modeBox = document.querySelector(
-      'select[aria-label="How part 2 was paid"]',
-    ) as HTMLSelectElement | null;
-    assert(!!modeBox, "split bill: the second part can say how it was paid");
-    await act(async () => {
-      modeBox!.value = "bank";
-      modeBox!.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    await settleMs(140);
-    const acctBox = document.querySelector(
-      'select[aria-label="Which account part 2 went to"]',
-    ) as HTMLSelectElement | null;
-    assert(!!acctBox, "split bill: and which account it went into");
-    await act(async () => {
-      acctBox!.value = "BSPL";
-      acctBox!.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    await settleMs(140);
+    /* Driven as the app's own dropdown, not a native <select>: open it, then
+       pick the row. SelectMenu exists precisely so these do not hand their
+       popup to Windows, and a test that sets .value would pass against a
+       control nobody can actually use. */
+    const pickFrom = async (ariaLabel: string, optionText: string) => {
+      const trigger = document.querySelector(
+        `[role="combobox"][aria-label="${ariaLabel}"]`,
+      ) as HTMLElement | null;
+      assert(!!trigger, `split bill: found the "${ariaLabel}" dropdown`);
+      await act(async () => {
+        trigger?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      await settleMs(120);
+      const list = document.querySelector(`[role="listbox"][aria-label="${ariaLabel}"]`);
+      const opt = Array.from(list?.querySelectorAll('[role="option"]') ?? []).find(
+        (o) => (o.textContent ?? "").trim() === optionText,
+      );
+      assert(!!opt, `split bill: "${optionText}" is offered in ${ariaLabel}`);
+      await act(async () => {
+        opt?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+      });
+      await settleMs(140);
+    };
+
+    await pickFrom("How part 2 was paid", "Bank");
+    await pickFrom("Which account part 2 went to", "Split Test Bank");
     await act(async () => {
       setInput(amountBox(2), "600");
     });

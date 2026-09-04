@@ -5,6 +5,7 @@ import { MODE_LABELS } from "@/lib/paymentMode";
 import { NEEDS_ACCOUNT, splitProblems } from "@/lib/paymentSplit";
 import { fmtMoney } from "@/lib/format";
 import { NumInput } from "@/components/NumInput";
+import { SelectMenu } from "@/components/SelectMenu";
 
 /**
  * What one part of a payment can be.
@@ -69,39 +70,30 @@ export function SplitPaymentRows({
     <div className="rounded-md border bg-muted/30 p-2.5 space-y-2">
       {rows.map((r, i) => (
         <div key={i} className="flex flex-wrap items-center gap-1.5">
-          <select
+          <SelectMenu
             value={r.mode}
-            onChange={(e) => {
-              const mode = e.target.value as PaymentMode;
+            options={SPLITTABLE.map((m) => ({ value: m, label: MODE_LABELS[m] }))}
+            onChange={(mode) =>
               // Dropping to a mode that names no account must not leave the
               // old account attached, or the money lands somewhere it never
               // went.
-              set(i, { mode, bankId: NEEDS_ACCOUNT.includes(mode) ? r.bankId : undefined });
-            }}
-            aria-label={`How part ${i + 1} was paid`}
-            className="h-8 px-2 border rounded-md bg-background text-[12px] outline-none focus:border-primary"
-          >
-            {SPLITTABLE.map((m) => (
-              <option key={m} value={m}>
-                {MODE_LABELS[m]}
-              </option>
-            ))}
-          </select>
+              set(i, { mode, bankId: NEEDS_ACCOUNT.includes(mode) ? r.bankId : undefined })
+            }
+            ariaLabel={`How part ${i + 1} was paid`}
+            className="h-8 text-[12px]"
+          />
 
           {NEEDS_ACCOUNT.includes(r.mode) && (
-            <select
+            <SelectMenu
               value={r.bankId ?? ""}
-              onChange={(e) => set(i, { bankId: e.target.value || undefined })}
-              aria-label={`Which account part ${i + 1} went to`}
-              className="h-8 px-2 border rounded-md bg-background text-[12px] outline-none focus:border-primary min-w-[7rem]"
-            >
-              <option value="">Choose account…</option>
-              {banks.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
+              options={[
+                { value: "", label: "Choose account…" },
+                ...banks.map((b) => ({ value: b.id, label: b.name })),
+              ]}
+              onChange={(id) => set(i, { bankId: id || undefined })}
+              ariaLabel={`Which account part ${i + 1} went to`}
+              className="h-8 text-[12px] min-w-[7rem]"
+            />
           )}
 
           <NumInput
