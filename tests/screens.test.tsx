@@ -2607,6 +2607,17 @@ async function runAll(): Promise<Results> {
       `mode tab: so Tab can reach every one of them — tabbable ${pills().filter((p) => p.tabIndex === 0).length} of 3`,
     );
 
+    /* And there is nothing after them to land on yet. This is the complaint
+       in the shop's own words — "focus goes straight to Full but I have not
+       selected any mode" — so it is asserted rather than left implied: no
+       mode means nothing was received, which means no amount to receive it
+       into. */
+    const fullBtn = () =>
+      Array.from(document.querySelectorAll("button")).find(
+        (b) => (b.textContent ?? "").trim() === "Full",
+      );
+    assert(!fullBtn(), "mode tab: with no mode chosen there is no Full button to tab into");
+
     // Pick the one you stopped on.
     const cash = pills().find((p) => (p.textContent ?? "").trim() === "Cash")!;
     await act(async () => {
@@ -2623,6 +2634,8 @@ async function runAll(): Promise<Results> {
       pills().filter((p) => p.tabIndex === 0).length === 1,
       `mode tab: and the group becomes ONE stop, so Tab goes to the amount — ${pills().filter((p) => p.tabIndex === 0).length} still tabbable`,
     );
+
+    assert(!!fullBtn(), "mode tab: and once one IS chosen, Full appears for Tab to reach");
 
     /* Bank is the exception, deliberately: it jumps to the account box,
        because a bank payment is unusable without one. */
