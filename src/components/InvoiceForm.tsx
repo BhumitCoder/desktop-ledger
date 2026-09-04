@@ -108,14 +108,10 @@ export function InvoiceForm({ mode, existing }: Props) {
         taxAmount: 0,
         total: 0,
         paid: 0,
-        /* Cash, not credit.
-           Most counter sales are paid on the spot, and the payment pills are
-           a single tab stop holding the CHOSEN mode — so defaulting to credit
-           meant tabbing out of Shipping Charge landed on Credit and appeared
-           to skip Cash and Bank entirely. Nothing is marked as received by
-           this: `paid` is still 0 until an amount is entered, and describePayment
-           reports an unsettled bill as Unpaid whatever mode is highlighted. */
-        paymentMode: "cash",
+        /* What an unchosen bill IS. No pill is lit until the counter picks
+           one (see modeChosen), and a bill saved without picking is a bill
+           nobody paid — which is exactly what credit means. */
+        paymentMode: "credit",
         createdAt: "",
         notes: "",
       },
@@ -247,6 +243,19 @@ export function InvoiceForm({ mode, existing }: Props) {
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const bankSelectRef = useRef<HTMLInputElement>(null);
+  /**
+   * Has anyone actually picked a payment mode on this bill?
+   *
+   * A new bill starts with NOTHING lit, so Tab walks the three pills and
+   * Enter picks one; from then on the group is a single Tab stop and Tab
+   * goes to the amount. An existing bill was obviously decided already.
+   *
+   * Kept beside paymentMode rather than making that field optional: it is
+   * required on the stored document, thirteen places in this file read it,
+   * and "no answer yet" is a fact about the FORM rather than about the bill.
+   */
+  const [modeChosen, setModeChosen] = useState(!!existing);
+
   const prevPaymentMode = useRef(inv.paymentMode);
   useEffect(() => {
     // Only jump focus on an actual switch to "bank" — not on mount, or an
@@ -1605,8 +1614,11 @@ export function InvoiceForm({ mode, existing }: Props) {
               <div className="flex justify-between items-center gap-2">
                 <span className="text-muted-foreground">Payment Mode</span>
                 <ModePills
-                  value={inv.paymentMode}
+                  value={modeChosen ? inv.paymentMode : undefined}
                   onChange={(newMode: PaymentMode) => {
+                    // From here the group is one Tab stop, and Tab goes to
+                    // the amount rather than to another pill.
+                    setModeChosen(true);
                     setInv({
                       ...inv,
                       paymentMode: newMode,

@@ -2580,67 +2580,57 @@ async function runAll(): Promise<Results> {
     );
   }
 
-  /* ── Payment mode is one tab stop, not three ──────────────────────────
-     Reported from the shop as Tab "going to bank" after choosing Cash. It
-     did — to the Bank PILL, then the Credit pill, before reaching anything
-     that takes a number. Tab should leave the group and land on the amount;
-     moving WITHIN the group is what arrow keys are for. */
+  /* ── Payment mode: walk the pills until one is picked, then leave ─────
+     Two requests that looked contradictory and are the same rule seen from
+     either side of the decision. "Stop Tab walking the pills" — once a mode
+     is chosen, walking past it wastes two presses on the way to the amount.
+     "Why does Tab skip Cash and Bank" — before anything is chosen, the pills
+     are the whole point and Tab must reach them.
+
+     So: nothing chosen, every pill is a Tab stop. Chosen, exactly one. */
   {
     await renderRoute("/sales/new");
-    const pills = Array.from(document.querySelectorAll('[role="radio"]')).filter((p) =>
-      ["Cash", "Bank", "Credit"].includes((p.textContent ?? "").trim()),
-    ) as HTMLElement[];
-    assert(pills.length === 3, `mode tab: found the three payment pills — ${pills.length}`);
+    const pills = () =>
+      Array.from(document.querySelectorAll('[role="radio"]')).filter((p) =>
+        ["Cash", "Bank", "Credit"].includes((p.textContent ?? "").trim()),
+      ) as HTMLElement[];
+    assert(pills().length === 3, `mode tab: found the three payment pills — ${pills().length}`);
 
-    // Whichever mode a new bill starts on — the rule is about the group, not
-    // about one particular pill being chosen.
-    const chosen = pills.find((p) => p.getAttribute("aria-checked") === "true");
-    assert(!!chosen, "mode tab: one of the pills is selected to begin with");
+    /* A new bill has decided nothing. Lighting one by default is how Tab
+       ends up on Credit and looks as though it skipped the other two. */
     assert(
-      chosen!.tabIndex === 0,
-      "mode tab: the chosen mode is the tab stop, so Tab still reaches the group",
+      pills().every((p) => p.getAttribute("aria-checked") !== "true"),
+      "mode tab: a new bill starts with no mode chosen",
     );
     assert(
-      pills.filter((p) => p.tabIndex === 0).length === 1,
-      `mode tab: and it is the ONLY one, so Tab leaves for the amount instead of walking the pills — ${pills.filter((p) => p.tabIndex === 0).length} are tabbable`,
+      pills().every((p) => p.tabIndex === 0),
+      `mode tab: so Tab can reach every one of them — tabbable ${pills().filter((p) => p.tabIndex === 0).length} of 3`,
     );
 
-    /* A new bill starts on Cash: most counter sales are paid on the spot, and
-       the group is one tab stop holding the CHOSEN pill — so a credit default
-       made tabbing out of Shipping Charge land on Credit and look as though
-       Cash and Bank had been skipped. */
-    assert(
-      (chosen!.textContent ?? "").trim() === "Cash",
-      `mode tab: a new bill starts on Cash, so Tab lands there — started on ${(chosen!.textContent ?? "").trim()}`,
-    );
-
-    // Arrow keys move within the group, carrying focus with the selection.
+    // Pick the one you stopped on.
+    const cash = pills().find((p) => (p.textContent ?? "").trim() === "Cash")!;
     await act(async () => {
-      chosen!.focus();
-      chosen!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
-    });
-    await settleMs(80);
-    const nowChosen = Array.from(document.querySelectorAll('[role="radio"]')).find(
-      (p) => p.getAttribute("aria-checked") === "true",
-    ) as HTMLElement | undefined;
-    assert(
-      (nowChosen?.textContent ?? "").trim() === "Credit",
-      `mode tab: ArrowLeft moves the choice along the group — landed on ${(nowChosen?.textContent ?? "").trim()}`,
-    );
-    assert(
-      document.activeElement === nowChosen,
-      "mode tab: and focus follows it, or Tab would leave from the wrong pill",
-    );
-
-    /* Bank is the exception, deliberately: choosing it jumps straight to the
-       account field, because a bank payment is not usable without one. */
-    const bankPill = Array.from(document.querySelectorAll('[role="radio"]')).find(
-      (p) => (p.textContent ?? "").trim() === "Bank",
-    ) as HTMLElement | undefined;
-    await act(async () => {
-      bankPill?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      cash.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await settleMs(140);
+    assert(
+      pills()
+        .find((p) => (p.textContent ?? "").trim() === "Cash")
+        ?.getAttribute("aria-checked") === "true",
+      "mode tab: picking one selects it",
+    );
+    assert(
+      pills().filter((p) => p.tabIndex === 0).length === 1,
+      `mode tab: and the group becomes ONE stop, so Tab goes to the amount — ${pills().filter((p) => p.tabIndex === 0).length} still tabbable`,
+    );
+
+    /* Bank is the exception, deliberately: it jumps to the account box,
+       because a bank payment is unusable without one. */
+    const bank = pills().find((p) => (p.textContent ?? "").trim() === "Bank")!;
+    await act(async () => {
+      bank.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settleMs(160);
     assert(
       (document.activeElement as HTMLInputElement | null)?.placeholder === "Search bank account…",
       "mode tab: choosing Bank puts the cursor straight in the account box",
