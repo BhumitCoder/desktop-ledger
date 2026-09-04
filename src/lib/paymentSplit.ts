@@ -144,9 +144,15 @@ export function describePayment(
   const d = doc as Record<string, unknown>;
   const own = (d.paymentMode ?? d.mode) as PaymentMode | undefined;
 
-  // Nothing was settled — a credit bill, or one not yet paid. Say what it
-  // always said.
-  if (!rows.length) return own ? MODE_LABELS[own] : "—";
+  /* Nothing was settled. Say THAT, rather than the mode that happens to be
+     highlighted — a bill with a Cash pill lit and nothing received is not a
+     cash sale, and printing "Cash" on the customer's copy of an unpaid bill
+     is a small lie that becomes an argument later. Credit keeps its own word
+     because that is what it means. */
+  if (!rows.length) {
+    if (!own) return "—";
+    return own === "credit" ? MODE_LABELS.credit : "Unpaid";
+  }
 
   const label = (s: PaymentSplit) => {
     const named = s.bankId ? bankName?.(s.bankId) : undefined;

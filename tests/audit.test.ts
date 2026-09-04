@@ -1769,6 +1769,19 @@ console.log(`\n═════════════════════�
     describePayment({ paid: 0, paymentMode: "credit" } as unknown as Invoice, named) === "Credit",
     "S4: a credit bill still reads as credit",
   );
+  /* A new bill starts on Cash so that tabbing lands there, which means an
+     unpaid bill can have the Cash pill lit. It is not a cash sale, and saying
+     "Cash" on the customer's copy of a bill nobody paid is a small lie that
+     becomes an argument later. */
+  assert(
+    describePayment({ paid: 0, paymentMode: "cash" } as unknown as Invoice, named) === "Unpaid",
+    `S4: a bill with the Cash pill lit and nothing received reads as Unpaid — "${describePayment({ paid: 0, paymentMode: "cash" } as unknown as Invoice, named)}"`,
+  );
+  assert(
+    describePayment({ paid: 0, paymentMode: "bank", bankId: "B1" } as unknown as Invoice, named) ===
+      "Unpaid",
+    "S4: and so does an unpaid one pointed at an account",
+  );
 }
 
 /* ═══ TEST S5: a split reaches the account's own passbook ═══════════════

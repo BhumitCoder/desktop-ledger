@@ -2605,23 +2605,45 @@ async function runAll(): Promise<Results> {
       `mode tab: and it is the ONLY one, so Tab leaves for the amount instead of walking the pills — ${pills.filter((p) => p.tabIndex === 0).length} are tabbable`,
     );
 
-    // Arrow keys are how you move inside a radiogroup.
-    const startedOn = (chosen!.textContent ?? "").trim();
+    /* A new bill starts on Cash: most counter sales are paid on the spot, and
+       the group is one tab stop holding the CHOSEN pill — so a credit default
+       made tabbing out of Shipping Charge land on Credit and look as though
+       Cash and Bank had been skipped. */
+    assert(
+      (chosen!.textContent ?? "").trim() === "Cash",
+      `mode tab: a new bill starts on Cash, so Tab lands there — started on ${(chosen!.textContent ?? "").trim()}`,
+    );
+
+    // Arrow keys move within the group, carrying focus with the selection.
     await act(async () => {
       chosen!.focus();
-      chosen!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+      chosen!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
     });
     await settleMs(80);
     const nowChosen = Array.from(document.querySelectorAll('[role="radio"]')).find(
       (p) => p.getAttribute("aria-checked") === "true",
     ) as HTMLElement | undefined;
     assert(
-      (nowChosen?.textContent ?? "").trim() !== startedOn,
-      `mode tab: ArrowRight moves the choice along the group — still on ${startedOn}`,
+      (nowChosen?.textContent ?? "").trim() === "Credit",
+      `mode tab: ArrowLeft moves the choice along the group — landed on ${(nowChosen?.textContent ?? "").trim()}`,
     );
     assert(
       document.activeElement === nowChosen,
       "mode tab: and focus follows it, or Tab would leave from the wrong pill",
+    );
+
+    /* Bank is the exception, deliberately: choosing it jumps straight to the
+       account field, because a bank payment is not usable without one. */
+    const bankPill = Array.from(document.querySelectorAll('[role="radio"]')).find(
+      (p) => (p.textContent ?? "").trim() === "Bank",
+    ) as HTMLElement | undefined;
+    await act(async () => {
+      bankPill?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settleMs(140);
+    assert(
+      (document.activeElement as HTMLInputElement | null)?.placeholder === "Search bank account…",
+      "mode tab: choosing Bank puts the cursor straight in the account box",
     );
   }
 

@@ -108,7 +108,14 @@ export function InvoiceForm({ mode, existing }: Props) {
         taxAmount: 0,
         total: 0,
         paid: 0,
-        paymentMode: "credit",
+        /* Cash, not credit.
+           Most counter sales are paid on the spot, and the payment pills are
+           a single tab stop holding the CHOSEN mode — so defaulting to credit
+           meant tabbing out of Shipping Charge landed on Credit and appeared
+           to skip Cash and Bank entirely. Nothing is marked as received by
+           this: `paid` is still 0 until an amount is entered, and describePayment
+           reports an unsettled bill as Unpaid whatever mode is highlighted. */
+        paymentMode: "cash",
         createdAt: "",
         notes: "",
       },
