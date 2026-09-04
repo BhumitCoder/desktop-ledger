@@ -1610,48 +1610,6 @@ export function InvoiceForm({ mode, existing }: Props) {
                   modes={["cash", "bank", "credit"]}
                 />
               </div>
-              {/* Offered only when there is money to divide. A credit bill
-                  has none, and an unpaid one has nothing to say yet. */}
-              {inv.paymentMode !== "credit" && inv.paid > 0 && !splitRows && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    // Opens holding what the bill already says, so the first
-                    // row is never something the counter has to re-enter.
-                    setSplitRows([
-                      {
-                        mode: inv.paymentMode,
-                        amount: inv.paid,
-                        bankId: inv.paymentMode === "bank" ? inv.bankId : undefined,
-                      },
-                    ])
-                  }
-                  className="text-[11px] font-medium text-primary hover:underline self-end"
-                >
-                  Split across cash and bank
-                </button>
-              )}
-              {splitRows && (
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-muted-foreground text-[12px]">How it was paid</span>
-                    <button
-                      type="button"
-                      onClick={() => setSplitRows(null)}
-                      className="text-[11px] text-muted-foreground hover:underline"
-                    >
-                      Back to one payment
-                    </button>
-                  </div>
-                  <SplitPaymentRows
-                    rows={splitRows}
-                    onChange={setSplitRows}
-                    total={inv.paid}
-                    banks={banks}
-                    label={isSale ? "Amount received" : "Amount paid"}
-                  />
-                </div>
-              )}
               {!splitRows && inv.paymentMode === "bank" && (
                 <div className="relative flex flex-col gap-1.5">
                   <span className="text-muted-foreground text-[12px]">Bank Account *</span>
@@ -1752,6 +1710,54 @@ export function InvoiceForm({ mode, existing }: Props) {
                   </div>
                 )}
               </div>
+              {/* Below the amount, on purpose. Splitting is something you
+                 decide AFTER saying how much came in, and sitting above the
+                 Received Amount it also broke the tab run: mode, then this
+                 link, then the bank account, then the amount. The order now
+                 follows the job — mode, account, amount, then how it was
+                 divided.
+                 Offered only when there is money to divide: a credit bill has
+                 none, and an unpaid one has nothing to say yet. */}
+              {inv.paymentMode !== "credit" && inv.paid > 0 && !splitRows && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    // Opens holding what the bill already says, so the first
+                    // row is never something the counter has to re-enter.
+                    setSplitRows([
+                      {
+                        mode: inv.paymentMode,
+                        amount: inv.paid,
+                        bankId: inv.paymentMode === "bank" ? inv.bankId : undefined,
+                      },
+                    ])
+                  }
+                  className="text-[11px] font-medium text-primary hover:underline self-end"
+                >
+                  Split across cash and bank
+                </button>
+              )}
+              {splitRows && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground text-[12px]">How it was paid</span>
+                    <button
+                      type="button"
+                      onClick={() => setSplitRows(null)}
+                      className="text-[11px] text-muted-foreground hover:underline"
+                    >
+                      Back to one payment
+                    </button>
+                  </div>
+                  <SplitPaymentRows
+                    rows={splitRows}
+                    onChange={setSplitRows}
+                    total={inv.paid}
+                    banks={banks}
+                    label={isSale ? "Amount received" : "Amount paid"}
+                  />
+                </div>
+              )}
               <div className="flex justify-between items-center gap-2 pt-2 mt-1 border-t font-semibold">
                 <span>Balance Due</span>
                 <span

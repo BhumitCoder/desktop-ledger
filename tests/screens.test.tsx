@@ -576,6 +576,17 @@ async function runAll(): Promise<Results> {
     }
     assert(text.length > 100, `${url} rendered a suspiciously short page`);
     assert(!/NaN/.test(text), `${url} rendered NaN`);
+    /* A comment written as /* … *\/ instead of {/* … *\/} inside JSX is not a
+       comment — it is TEXT, and React prints it on the page. It compiles,
+       lints and typechecks cleanly, so nothing else in this repo would catch
+       it; I shipped one onto the invoice screen and only saw it by reading
+       the file back. Cheap to check on every page, once. */
+    assert(
+      !text.includes("/*"),
+      `${url} is printing a JSX comment as visible text — ${JSON.stringify(
+        text.slice(Math.max(0, text.indexOf("/*") - 40), text.indexOf("/*") + 80),
+      )}`,
+    );
     has(text, needle, `${url} content`);
   }
 
@@ -3745,6 +3756,13 @@ async function runAll(): Promise<Results> {
       ["/purchase/new", "purchase"],
     ] as const) {
       await renderRoute(route);
+      /* The bill forms are the pages the smoke loop above cannot reach, and
+         they carry the most JSX. Same check, same reason: a comment written
+         without its braces is text, and React prints it. */
+      assert(
+        !(document.body.textContent ?? "").includes("/*"),
+        `bill columns: the ${what} form is printing a JSX comment as visible text`,
+      );
       const heads = headersOf();
       assert(heads.length > 0, `bill columns: the ${what} grid rendered — ${heads}`);
       assert(
