@@ -1,6 +1,7 @@
 import { auth } from "@/lib/firebase";
 import { elementToPdfBase64 } from "@/lib/pdf";
 import { sendWhatsAppMessageServerFn } from "@/lib/whatsappAdmin";
+import { useWhatsAppLinkStore } from "@/store/whatsappLink";
 
 /** Renders a printable DOM node to PDF and sends it as a WhatsApp document
  * to the given phone number — the shared "Send WhatsApp" action used by
@@ -28,15 +29,28 @@ export async function sendElementViaWhatsApp(opts: {
     opts.orientation ?? "landscape",
     opts.pageWidthMm,
   );
-  await sendWhatsAppMessageServerFn({
-    data: {
-      callerIdToken,
-      phone,
-      message: opts.message,
-      pdfBase64,
-      fileName: opts.fileName.toLowerCase().endsWith(".pdf")
-        ? opts.fileName
-        : `${opts.fileName}.pdf`,
-    },
-  });
+  /* Whatever happens next is the most reliable thing anyone will learn about
+     this link all day. A polled status only proves the bridge process is
+     running — it will answer "connected" from a host whose WhatsApp session
+     died hours ago. A send that goes through proves the socket was alive a
+     second ago, and one that fails proves it was not. So the outcome is fed
+     back into the indicator either way, which is what stops the green dot
+     being a decoration. */
+  try {
+    await sendWhatsAppMessageServerFn({
+      data: {
+        callerIdToken,
+        phone,
+        message: opts.message,
+        pdfBase64,
+        fileName: opts.fileName.toLowerCase().endsWith(".pdf")
+          ? opts.fileName
+          : `${opts.fileName}.pdf`,
+      },
+    });
+  } catch (err) {
+    useWhatsAppLinkStore.getState().noteSendResult(false);
+    throw err;
+  }
+  useWhatsAppLinkStore.getState().noteSendResult(true);
 }

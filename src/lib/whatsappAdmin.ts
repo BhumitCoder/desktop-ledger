@@ -19,6 +19,38 @@ export interface WhatsAppStatus {
   phone?: string;
 }
 
+/** What everyone else is allowed to know: whether bills will send, and
+ *  whether a scan is what's holding it up — never the code itself. */
+export interface WhatsAppLinkState {
+  /** False when this deployment has no WhatsApp service wired up at all.
+   *  Reported rather than thrown, so the app can stay silent about a feature
+   *  the shop was never sold instead of showing them a permanent red light. */
+  configured: boolean;
+  status: "waiting" | "qr" | "connected";
+  phone?: string;
+  /** A QR is waiting, so a staff screen can say "ask the owner" rather than
+   *  the useless "disconnected". */
+  qrAvailable: boolean;
+}
+
+/** Both readers below hit the same endpoint; only what they hand back differs.
+ *
+ * The timeout is the point of sharing it. This is polled from the header on
+ * every page, and a bridge that accepts the connection then never answers
+ * would otherwise leave a request — and the poll timer behind it — hanging
+ * for as long as the platform allows. A read that fails fast is a red dot;
+ * a read that hangs is a spinner, which is the bug being fixed.
+ */
+async function readBridge(): Promise<WhatsAppStatus> {
+  const { url, key } = serviceConfig();
+  const res = await fetch(`${url}/qr`, {
+    headers: { "x-api-key": key },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) throw new Error("Could not reach the WhatsApp service");
+  return res.json();
+}
+
 const validateCaller = (data: unknown): { callerIdToken: string } => {
   const d = data as Partial<{ callerIdToken: string }>;
   if (!d?.callerIdToken) throw new Error("Not authenticated");
@@ -29,10 +61,36 @@ export const getWhatsAppStatusServerFn = createServerFn({ method: "POST" })
   .validator(validateCaller)
   .handler(async ({ data }): Promise<WhatsAppStatus> => {
     await requireOwner(data.callerIdToken);
-    const { url, key } = serviceConfig();
-    const res = await fetch(`${url}/qr`, { headers: { "x-api-key": key } });
-    if (!res.ok) throw new Error("Could not reach the WhatsApp service");
-    return res.json();
+    return readBridge();
+  });
+
+/**
+ * The same reading, for anyone who can send a bill — with the QR removed.
+ *
+ * A separate function rather than a softer guard on the one above, because
+ * the QR is not a picture of a status: it IS a login. Whoever scans it holds
+ * the shop's WhatsApp account, can read every conversation on it and can send
+ * as the business. So it is dropped here, on the server, rather than merely
+ * left unrendered — a field that never crosses the wire cannot be recovered
+ * from a devtools network tab by a curious counter clerk.
+ *
+ * Named explicitly rather than spread-and-delete: if the service later grows
+ * a second sensitive field, the default must be that it stays behind.
+ */
+export const getWhatsAppLinkStateServerFn = createServerFn({ method: "POST" })
+  .validator(validateCaller)
+  .handler(async ({ data }): Promise<WhatsAppLinkState> => {
+    await requireActiveUser(data.callerIdToken);
+    if (!process.env.WHATSAPP_SERVICE_URL || !process.env.WHATSAPP_SERVICE_API_KEY) {
+      return { configured: false, status: "waiting", qrAvailable: false };
+    }
+    const body = await readBridge();
+    return {
+      configured: true,
+      status: body.status,
+      phone: body.phone,
+      qrAvailable: body.status === "qr",
+    };
   });
 
 export const disconnectWhatsAppServerFn = createServerFn({ method: "POST" })

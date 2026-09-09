@@ -48,7 +48,17 @@ import {
   describePayment,
   largestSplitMode,
 } from "@/lib/paymentSplit";
+import { readFileSync } from "node:fs";
 import { transferLegsFor } from "@/lib/transferLegs";
+import {
+  deriveLinkState,
+  linkSeverity,
+  needsScan,
+  linkHeadline,
+  linkAdvice,
+  sinceLabel,
+  LINK_GRACE_MS,
+} from "@/lib/whatsappLink";
 
 let passed = 0,
   failed = 0;
@@ -1953,6 +1963,180 @@ console.log(`\n═════════════════════�
   assert(
     cashPart(dropped) === 1000 && (bankParts(dropped).get("B1") ?? 0) === 0,
     "S7: losing the rows would put the whole receipt in cash and empty the account",
+  );
+}
+
+/* ═══════ TEST W: the WhatsApp link, said in a way a shop can act on ═══════
+   The bridge reports three states and a shop needs six. Everything below is
+   about the three it cannot report — and the two boundaries that decide
+   whether the shop is told "wait" or "go and scan", which are the entire
+   value of the feature and are trivially inverted. */
+{
+  const T0 = Date.parse("2026-09-09T10:00:00Z");
+  const fresh = { everConnected: false };
+  const used = { everConnected: true, lastConnectedAt: "2026-09-07T10:00:00Z" };
+
+  /* ── Connected outranks everything, including a stale unsettled clock ── */
+  assert(
+    deriveLinkState({ status: "connected" }, { everConnected: true, unsettledSince: 0 }, T0) ===
+      "connected",
+    "W1: a live socket reads connected even if the fault clock was left running",
+  );
+  assert(linkSeverity("connected") === "ok", "W1: and it is the only green state");
+  assert(
+    linkSeverity("dropped") === "bad" &&
+      linkSeverity("never_linked") === "bad" &&
+      linkSeverity("unreachable") === "bad" &&
+      linkSeverity("scan_needed") === "bad",
+    "W1: every state that cannot send a bill shows red",
+  );
+  assert(
+    linkSeverity("starting") === "busy",
+    "W1: except a normal start, which must not train the shop to ignore red",
+  );
+
+  /* ── The grace period, at both sides of the line ────────────────────── */
+  const waitingFor = (ms: number, h: { everConnected: boolean }) =>
+    deriveLinkState({ status: "waiting" }, { ...h, unsettledSince: T0 - ms }, T0);
+
+  assert(
+    waitingFor(LINK_GRACE_MS - 1000, used) === "starting",
+    "W2: one second inside the grace period is still just starting up",
+  );
+  assert(
+    waitingFor(LINK_GRACE_MS + 1000, used) === "dropped",
+    "W2: one second past it is a fault the shop is told about",
+  );
+  assert(
+    deriveLinkState({ status: "waiting" }, { everConnected: true }, T0) === "starting",
+    "W2: a first reading with no fault clock yet is treated as a start, not a fault",
+  );
+
+  /* ── The same wire response, opposite messages ──────────────────────── */
+  assert(
+    waitingFor(LINK_GRACE_MS + 1000, fresh) === "never_linked",
+    "W3: identical bytes mean 'not set up' for a shop that never linked",
+  );
+  assert(
+    waitingFor(LINK_GRACE_MS + 1000, used) === "dropped",
+    "W3: and 'it broke' for one that had it working",
+  );
+  assert(
+    linkHeadline("scan_needed", fresh) !== linkHeadline("scan_needed", used),
+    "W3: a first link and a relink are not described with the same sentence",
+  );
+
+  /* ── A QR is an action, so it outranks the wait ─────────────────────── */
+  assert(
+    deriveLinkState({ status: "qr" }, { ...used, unsettledSince: T0 - 1000 }, T0) === "scan_needed",
+    "W4: a QR one second old is offered immediately, not hidden behind the grace period",
+  );
+
+  /* ── An unreachable service is a different fault from a dead socket ─── */
+  assert(
+    deriveLinkState({ status: null }, { ...used, unsettledSince: T0 - 1000 }, T0) === "starting",
+    "W5: one missed poll during a cold start does not go red",
+  );
+  assert(
+    deriveLinkState({ status: null }, { ...used, unsettledSince: T0 - 60_000 }, T0) ===
+      "unreachable",
+    "W5: a service that keeps not answering is named as the service, not as WhatsApp",
+  );
+  assert(
+    linkHeadline("unreachable", used) !== linkHeadline("dropped", used),
+    "W5: because the two need different people to fix them",
+  );
+
+  /* ── Staff are never handed work only an owner can do ───────────────── */
+  for (const st of ["scan_needed", "dropped", "never_linked", "unreachable"] as const) {
+    assert(
+      !/scan/i.test(linkAdvice(st, used, false)),
+      "W6: staff are never told to scan a QR they will never be shown — " + st,
+    );
+    assert(
+      needsScan(st) === (st !== "unreachable"),
+      "W6: only a link fault is fixed by scanning; an unreachable service is not — " + st,
+    );
+  }
+  assert(
+    /owner/i.test(linkAdvice("dropped", used, false)),
+    "W6: they are told who can fix it instead",
+  );
+  assert(
+    /Linked Devices/i.test(linkAdvice("scan_needed", used, true)),
+    "W6: while the owner gets the actual steps on the phone",
+  );
+  assert(
+    !needsScan("connected") && !needsScan("starting"),
+    "W6: and nothing is asked of anyone while it is working",
+  );
+
+  /* ── "since Tuesday" — the phrase that says how many bills went unsent ─ */
+  const H = 3_600_000;
+  assert(sinceLabel(undefined, T0) === undefined, "W7: a shop that never linked has no since");
+  assert(
+    sinceLabel(new Date(T0 - 30 * 60_000).toISOString(), T0) === "Last connected 30 minutes ago",
+    "W7: minutes while it is still this shift",
+  );
+  assert(
+    sinceLabel(new Date(T0 - 5 * H).toISOString(), T0) === "Last connected 5 hours ago",
+    "W7: hours after that",
+  );
+  assert(
+    sinceLabel(new Date(T0 - 50 * H).toISOString(), T0) === "Last connected 2 days ago",
+    "W7: and days once it has been broken overnight",
+  );
+  assert(
+    sinceLabel(new Date(T0 - 40 * 24 * H).toISOString(), T0) ===
+      "Last connected more than a week ago",
+    "W7: past a week it stops implying a precision this record does not have",
+  );
+  assert(
+    sinceLabel(new Date(T0 + H).toISOString(), T0) === undefined,
+    "W7: a clock skewed into the future says nothing rather than something absurd",
+  );
+}
+
+/* ═══════ TEST W8: the QR must never reach a staff browser ═══════
+   Read from the source rather than exercised, because the thing being
+   protected is an absence — a field that must not be in a response — and the
+   way it comes back is a refactor that "simplifies" the explicit field list
+   into a spread. A test that renders a screen would not notice. */
+{
+  const src = readFileSync(process.cwd() + "/src/lib/whatsappAdmin.ts", "utf8");
+
+  const staffAt = src.indexOf("export const getWhatsAppLinkStateServerFn");
+  assert(
+    staffAt !== -1,
+    "W8: the staff-facing reader exists (renamed? this check just went blind)",
+  );
+
+  // To the end of that declaration, not to the end of the file.
+  const after = src.slice(staffAt);
+  const end = after.indexOf("\n  });");
+  assert(end !== -1, "W8: its handler body could be delimited");
+  const body = after.slice(0, end);
+
+  assert(body.includes("requireActiveUser"), "W8: anyone who may send a bill may read the status");
+  assert(
+    !body.includes("requireOwner"),
+    "W8: but it is not quietly narrowed back to owners, which would break the header for staff",
+  );
+  assert(
+    !/\bqr\s*:/.test(body),
+    "W8: and it never returns the QR itself — that code IS a login to the shop's WhatsApp",
+  );
+  assert(
+    !/\.\.\.\s*\w+/.test(body),
+    "W8: fields are listed one by one, so a new secret on the service stays behind by default",
+  );
+
+  const ownerAt = src.indexOf("export const getWhatsAppStatusServerFn");
+  assert(ownerAt !== -1, "W8: the owner's reader is still there");
+  const ownerBody = src.slice(ownerAt, ownerAt + src.slice(ownerAt).indexOf("\n  });"));
+  assert(
+    ownerBody.includes("requireOwner"),
+    "W8: and it is the one that stayed owner-only, since it is the one carrying the QR",
   );
 }
 

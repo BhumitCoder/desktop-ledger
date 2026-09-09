@@ -5,6 +5,7 @@ import { Topbar } from "./Topbar";
 import { WorkspaceTabs } from "./WorkspaceTabs";
 import { MobileBottomNav } from "./MobileBottomNav";
 import { GlobalSearch } from "@/components/GlobalSearch";
+import { WhatsAppStartupNudge } from "@/components/WhatsAppLink";
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -53,6 +54,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
       <MobileBottomNav />
       <GlobalSearch />
+      <WhatsAppStartupNudge />
     </div>
   );
 }
