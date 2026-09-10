@@ -188,14 +188,17 @@ function PartyStatementPage() {
     setPdfBusy("whatsapp");
     try {
       const company = CompanyRepo.get();
-      await sendElementViaWhatsApp({
+      const outcome = await sendElementViaWhatsApp({
         el,
         phone: party.phone,
         message: `Hi ${party.name}, here's your account statement${company ? ` from ${company.name}` : ""}.`,
         fileName: pdfName(),
+        label: `${party.name} statement`,
         orientation: "landscape",
       });
-      toast.success("Statement sent on WhatsApp");
+      if (outcome.status === "sent") toast.success("Statement sent on WhatsApp");
+      else if (outcome.kind === "offline") toast.info(outcome.message, { duration: 8000 });
+      else toast.warning(outcome.message, { duration: 10000 });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not send via WhatsApp");
     } finally {

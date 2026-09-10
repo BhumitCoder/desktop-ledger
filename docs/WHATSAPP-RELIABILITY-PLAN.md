@@ -136,7 +136,7 @@ A modal in the face of a counter clerk who cannot fix it — mid-sale, at 9am �
 is its own kind of unprofessional, and would be a worse complaint than the one
 being fixed here.
 
-### Phase 5 ⏳ NOT BUILT — the outbox (the phase that stops bills being lost)
+### Phase 5 ✅ — the outbox (the phase that stops bills being lost)
 
 A failed send stops being a dead end:
 
@@ -150,7 +150,27 @@ were not already paying.
 
 Flushed one at a time when the link comes back, oldest first, with backoff and
 an attempt cap. The header dot carries the count. Settings lists what is
-waiting, with **Send now** and **Cancel** per row.
+waiting, with **Send now** and **Remove** per row.
+
+**The decision that shaped it: not everything may be retried.** Three outcomes,
+not two, because a queue that retries everything is a machine for sending a
+customer their invoice twice:
+
+| the failure | what happens |
+| --- | --- |
+| **permanent** — no phone on the party, PDF won't render, not signed in | never queued; the person is told now, because waiting fixes nothing |
+| **offline** — the link was already down, or the service said so | queued and retried on its own: nothing reached WhatsApp, so a resend is safe |
+| **uncertain** — an unexplained failure on a *live* link | queued, but **never** auto-sent. It may already have been delivered. A person presses Send now, or removes it. |
+
+Two more duplicate-avoidance rules: a row is **claimed with a timestamp**
+before an attempt so two tills cannot flush it at once (a timestamp and not a
+flag, or a tab closed mid-send locks the row out forever), and a **manual**
+attempt that fails does not re-arm the timer — the person watching is the one
+who decides to try again.
+
+Nothing is ever discarded to tidy up. Past the attempt cap the row stops
+retrying and asks for a person: a bill the shop believes went out must not
+evaporate.
 
 This phase is where "I don't want this nonsense" actually gets answered: the
 counter stops babysitting the connection, because a bill entered is a bill that
@@ -203,24 +223,48 @@ cannot see the version of is a fix they will report again.
 
 ## Where this got to
 
-**Phases 0–4 are built, on branch `whatsapp-reliability`, not merged.**
+**Phases 0–5 are built, on branch `whatsapp-reliability`, not merged and not
+pushed.** `main` is untouched.
 
-Verified: 105,382 unit assertions and 577 screen assertions pass; `tsc` and
-`eslint` clean over `src` and `tests`. Nine mutants — the grace period, the
-QR short-circuit, the history split, the unreachable branch, the staff advice,
-the future timestamp, and three separate ways of leaking the QR to a staff
-browser — were each introduced and each killed a **named** assertion.
+Verified: **105,415 unit assertions** and **577 screen assertions** pass,
+`tsc` and `eslint` are clean over `src` and `tests`, and `npm run build`
+completes.
 
-The screen suite renders through the real route tree, so `AppShell` → `Topbar`
-→ the new indicator mount in a real browser on all 577 of them with no
-uncaught page errors.
+**Twenty mutants planted, twenty killed**, each by a *named* assertion — the
+grace period, the QR short-circuit, the history split, the unreachable branch,
+the staff advice, the future timestamp, three separate ways of leaking the QR
+to a staff browser, and the outbox rules: auto-retrying an unprovable failure,
+ignoring another tab's claim, ignoring the attempt cap, counting backoff from
+the wrong timestamp, queueing a request fault, discarding a bill on giving up,
+and reading the link state *after* the attempt instead of before.
 
-**Not verified locally: `npm run build`.** A stale `.vercel/output` from an
-earlier run is held open by another node process on this machine and cannot be
-deleted or moved, so the production build cannot complete here. Nothing
-suggests a code fault — `tsc` is clean and every component mounts in the
-browser suite — but it is unproven and should be watched on the first deploy.
+That last one is worth naming. A failed send drives the indicator red, so
+reading the link afterwards would always answer "it was down" — and every
+uncertain failure would be filed as safe-to-retry. The bug would be invisible
+in every return value and would only show up as customers receiving two copies
+of an invoice.
 
-**Still true, and still nothing to do with this branch:** as long as the link
-is a QR-linked device it will keep dropping. Phases 0–4 make that visible and
-fast to fix. Phase 5 stops it costing a bill. Only Phase 6 makes it rarer.
+The screen suite renders through the real route tree, so `AppShell` →
+`Topbar` → the indicator and the queue mount in a real browser on all 577
+assertions with no uncaught page errors.
+
+### Still open
+
+**Phase 6, in the bridge repo, which is not this one.** As long as the link is
+a QR-linked device it will keep dropping. Phases 0–5 make that visible, fast to
+fix, and free of lost bills. Only Phase 6 makes it *rarer*:
+
+- persist the session to durable storage — if it lives on container disk,
+  every deploy costs a QR scan and everything above is polish over a hole that
+  keeps reopening. **This is the first thing to check**: a drop roughly every
+  ten hours looks exactly like a host sleeping.
+- auto-reconnect from stored credentials, with backoff — a *reconnect*, not a
+  re-link: no QR, and the shop never notices.
+- a real heartbeat, so `connected` means the socket answered rather than that
+  the process is running.
+
+**A duplicate is still possible in one narrow case**, and is worth knowing
+rather than pretending away: if the bridge sends the message and then fails to
+tell us so, that is an "uncertain" row. It is never auto-retried — but a person
+pressing **Send now** on it may deliver a second copy. Closing this properly
+needs an idempotency key the bridge honours, which is Phase 6 work.

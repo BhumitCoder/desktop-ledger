@@ -41,7 +41,10 @@ function collectAppStylesheets(): string {
 /** The exported markup carries no `<script>` tags, only the printable
  * subtree's HTML plus the app's own compiled CSS, so the server just prints
  * a static page — it never boots the SPA or touches Firestore. */
-function buildPrintableHtml(el: HTMLElement, includeAppCss = true): string {
+/** Exported because the WhatsApp outbox stores this string, not the rendered
+ *  PDF: it is a fraction of the size, and a queued bill has to be re-rendered
+ *  at send time anyway. */
+export function buildPrintableHtml(el: HTMLElement, includeAppCss = true): string {
   // The app's compiled stylesheet is ~108 KB and gets uploaded with EVERY
   // render request. Markup that styles itself entirely inline (the party
   // statement built for the bulk ledger export) needs none of it, so

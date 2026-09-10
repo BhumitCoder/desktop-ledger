@@ -12,13 +12,24 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouterState } from "@tanstack/react-router";
-import { MessageCircle, ShieldAlert, Loader2, CheckCircle2, RefreshCw } from "lucide-react";
+import {
+  MessageCircle,
+  ShieldAlert,
+  Loader2,
+  CheckCircle2,
+  RefreshCw,
+  Send,
+  Trash2,
+  Clock,
+} from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { auth } from "@/lib/firebase";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWhatsAppLink, useWhatsAppLinkStore } from "@/store/whatsappLink";
+import { useOutboxStore } from "@/store/whatsappOutbox";
+import { needsAttention, MAX_ATTEMPTS } from "@/lib/outbox";
 import { disconnectWhatsAppServerFn } from "@/lib/whatsappAdmin";
 import {
   linkAdvice,
@@ -45,26 +56,42 @@ const DOT: Record<LinkSeverity, string> = {
  */
 export function WhatsAppStatusButton() {
   const { state, configured, ready, history } = useWhatsAppLink();
+  const queued = useOutboxStore((s) => s.items.length);
   const [open, setOpen] = useState(false);
 
   // A deployment with no WhatsApp service says nothing at all, rather than
   // showing a permanent red light for a feature this shop never bought.
-  if (!configured || !ready) return null;
+  // Waiting bills override that: something is owed to a customer, and that is
+  // not conditional on a status having arrived yet.
+  if (!configured || (!ready && !queued)) return null;
 
   const severity = linkSeverity(state);
+  const label = queued
+    ? `${queued} ${queued === 1 ? "bill is" : "bills are"} waiting to send · ${linkHeadline(state, history)}`
+    : linkHeadline(state, history);
 
   return (
     <>
       <button
         onClick={() => setOpen(true)}
         className="relative h-8 w-8 rounded-md hover:bg-accent flex items-center justify-center text-muted-foreground shrink-0"
-        title={linkHeadline(state, history)}
-        aria-label={linkHeadline(state, history)}
+        title={label}
+        aria-label={label}
       >
         <MessageCircle className="h-4 w-4" />
-        <span
-          className={`absolute right-1 top-1 h-2 w-2 rounded-full ring-2 ring-card ${DOT[severity]}`}
-        />
+        {/* A count replaces the dot rather than joining it: two indicators on
+            one 32px button is a smudge, and the number is the more urgent of
+            the two — a red dot means "fix this", a number means "somebody is
+            still waiting for their bill". */}
+        {queued ? (
+          <span className="absolute -right-0.5 -top-0.5 min-w-4 h-4 px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] font-semibold leading-4 text-center ring-2 ring-card">
+            {queued > 9 ? "9+" : queued}
+          </span>
+        ) : (
+          <span
+            className={`absolute right-1 top-1 h-2 w-2 rounded-full ring-2 ring-card ${DOT[severity]}`}
+          />
+        )}
       </button>
       <WhatsAppLinkDialog open={open} onOpenChange={setOpen} />
     </>
@@ -251,6 +278,8 @@ export function WhatsAppLinkPanel({ inDialog = false }: { inDialog?: boolean }) 
         </div>
       )}
 
+      <OutboxList />
+
       <div className="flex items-center justify-between gap-2">
         <Button size="sm" variant="outline" onClick={recheck} disabled={refreshing}>
           <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
@@ -262,6 +291,90 @@ export function WhatsAppLinkPanel({ inDialog = false }: { inDialog?: boolean }) 
           </Button>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Bills that did not go out.
+ *
+ * Shown wherever the link is shown, because the two are the same question:
+ * the shop does not care about a socket, it cares whether its customers have
+ * their invoices.
+ */
+function OutboxList() {
+  const { items, loaded, flushing, memoryOnly, load, sendNow, discard } = useOutboxStore();
+
+  useEffect(() => {
+    if (!loaded) void load();
+  }, [loaded, load]);
+
+  if (!items.length) return null;
+
+  return (
+    <div className="rounded-md border">
+      <div className="flex items-center gap-2 border-b px-3.5 py-2.5">
+        <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="text-sm font-semibold">{items.length} waiting to send</span>
+        {flushing && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+      </div>
+
+      {memoryOnly && (
+        <p className="border-b px-3.5 py-2 text-xs text-warning">
+          This browser won't let the app store anything, so these are only kept until the tab is
+          closed. Send them before you leave.
+        </p>
+      )}
+
+      <ul className="divide-y">
+        {items.map((it) => {
+          const stuck = needsAttention(it);
+          return (
+            <li key={it.id} className="flex items-start gap-2 px-3.5 py-2.5">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{it.label}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {stuck
+                    ? it.attempts >= MAX_ATTEMPTS
+                      ? `Tried ${it.attempts} times and stopped — send it yourself, or remove it.`
+                      : "Couldn't confirm this one sent. Check WhatsApp before sending it again."
+                    : "Will send on its own when WhatsApp reconnects."}
+                </p>
+                {/* The service's own words, kept: "Could not send" explains
+                    nothing to somebody trying to work out what to fix. */}
+                {stuck && it.lastError && (
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground/70">{it.lastError}</p>
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2"
+                  disabled={flushing}
+                  onClick={() => void sendNow(it.id)}
+                  title="Send this one now"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-muted-foreground hover:text-destructive"
+                  onClick={() => {
+                    if (confirm('Remove "' + it.label + "\" from the queue? It won't be sent.")) {
+                      void discard(it.id);
+                    }
+                  }}
+                  title="Remove from the queue"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

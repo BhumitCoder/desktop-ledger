@@ -49,6 +49,16 @@ import {
   largestSplitMode,
 } from "@/lib/paymentSplit";
 import { readFileSync } from "node:fs";
+import {
+  classifySendFailure,
+  isDue,
+  needsAttention,
+  retryDelayMs,
+  queuedMessage,
+  MAX_ATTEMPTS,
+  CLAIM_STALE_MS,
+  type OutboxItem,
+} from "@/lib/outbox";
 import { transferLegsFor } from "@/lib/transferLegs";
 import {
   deriveLinkState,
@@ -2137,6 +2147,157 @@ console.log(`\n═════════════════════�
   assert(
     ownerBody.includes("requireOwner"),
     "W8: and it is the one that stayed owner-only, since it is the one carrying the QR",
+  );
+}
+
+/* ═══════ TEST X: the outbox, and what it refuses to do on its own ═══════
+   A queue that retries everything is not resilience — it is a machine for
+   sending a customer two copies of the same invoice, and for keeping a bill
+   that can never send in a red badge until the shop stops reading badges.
+   Both refusals are asserted here. */
+{
+  const T0 = Date.parse("2026-09-09T10:00:00Z");
+  const row = (over: Partial<OutboxItem> = {}): OutboxItem => ({
+    id: "q1",
+    label: "INV-0012",
+    phone: "9876543210",
+    message: "hi",
+    fileName: "INV-0012.pdf",
+    html: "<html></html>",
+    landscape: false,
+    queuedAt: new Date(T0 - 3_600_000).toISOString(),
+    attempts: 0,
+    auto: true,
+    ...over,
+  });
+
+  /* ── Nothing that will fail forever goes in the queue ────────────────── */
+  for (const m of [
+    "This party has no phone number saved — add one to send via WhatsApp.",
+    "Not signed in",
+    "WhatsApp service isn't configured yet — set WHATSAPP_SERVICE_URL and ...",
+    "Only the business owner can do this.",
+    "Your account isn't active — ask the business owner to check your access.",
+  ]) {
+    assert(
+      classifySendFailure(m, false) === "permanent",
+      "X1: a fault in the request is never queued to retry forever — " + m.slice(0, 34),
+    );
+    assert(
+      classifySendFailure(m, true) === "permanent",
+      "X1: and the link's state does not change that — " + m.slice(0, 34),
+    );
+  }
+
+  /* ── Only a failure we can prove is retried by itself ────────────────── */
+  assert(
+    classifySendFailure("Could not send WhatsApp message", false) === "offline",
+    "X2: with the link already down, the message certainly did not go",
+  );
+  assert(
+    classifySendFailure("Session not connected", true) === "offline",
+    "X2: and the service saying so is just as good a proof",
+  );
+  assert(
+    classifySendFailure("socket hang up", true) === "uncertain",
+    "X3: but an unexplained failure on a live link might have sent — it is NOT offline",
+  );
+  assert(
+    !isDue(row({ auto: false }), T0 + 86_400_000),
+    "X3: and an uncertain one is never sent again by a timer, however long it waits",
+  );
+  assert(needsAttention(row({ auto: false })), "X3: it waits for a person instead, and says so");
+
+  /* ── Backoff counts from the last attempt, not from queueing ─────────── */
+  assert(
+    retryDelayMs(0) < retryDelayMs(3) && retryDelayMs(3) < retryDelayMs(6),
+    "X4: waits grow with each failure",
+  );
+  assert(retryDelayMs(99) === 1_800_000, "X4: and stop growing at half an hour");
+  {
+    const tried = row({ attempts: 3, lastAttemptAt: new Date(T0 - 1000).toISOString() });
+    assert(
+      !isDue(tried, T0),
+      "X4: a row tried a second ago is not due again, however old the queue entry is",
+    );
+    assert(
+      isDue({ ...tried, lastAttemptAt: new Date(T0 - retryDelayMs(3) - 1000).toISOString() }, T0),
+      "X4: and is due once its own wait has passed",
+    );
+  }
+
+  /* ── Two tills must not send the same bill twice ─────────────────────── */
+  assert(
+    !isDue(row({ sendingSince: T0 - 1000 }), T0),
+    "X5: a row another tab is already sending is left alone",
+  );
+  assert(
+    isDue(row({ sendingSince: T0 - CLAIM_STALE_MS - 1000 }), T0),
+    "X5: unless that tab died holding it, or the row would be stuck forever",
+  );
+
+  /* ── Giving up hands over to a person; it never discards the bill ────── */
+  assert(
+    !isDue(row({ attempts: MAX_ATTEMPTS }), T0),
+    "X6: after the last attempt the timer stops trying",
+  );
+  assert(
+    needsAttention(row({ attempts: MAX_ATTEMPTS })),
+    "X6: and the row is raised for a person rather than quietly dropped",
+  );
+  assert(
+    !needsAttention(row({ attempts: MAX_ATTEMPTS - 1 })),
+    "X6: while it still has attempts left, nobody is bothered",
+  );
+
+  /* ── The counter is told which of the two situations it is ───────────── */
+  assert(
+    queuedMessage("offline", "this invoice") !== queuedMessage("uncertain", "this invoice"),
+    "X7: 'it will send itself' and 'check whether it sent' are not the same sentence",
+  );
+  assert(
+    /queued|will send/i.test(queuedMessage("offline", "this invoice")),
+    "X7: the offline one promises it will go",
+  );
+  assert(
+    !/will send on its own/i.test(queuedMessage("uncertain", "this invoice")),
+    "X7: the uncertain one promises nothing of the sort",
+  );
+}
+
+/* ═══════ TEST Y: the two rules at the send seam ═══════
+   Read from the source, because both are about ORDER and about an exception
+   NOT being swallowed — neither shows up in the value a function returns, and
+   both are exactly the kind of thing a later tidy-up inverts while every
+   other test stays green. */
+{
+  const src = readFileSync(process.cwd() + "/src/lib/whatsappSend.ts", "utf8");
+
+  /* ── The link is read BEFORE the attempt ───────────────────────────────
+     A failed send drives the indicator red. Read it afterwards and the
+     answer is always "it was down", so every unexplained failure would be
+     filed as safe-to-retry — which is the machine for sending a customer a
+     second copy of their invoice. */
+  const readAt = src.indexOf('useWhatsAppLinkStore.getState().state === "connected"');
+  const transmitAt = src.indexOf("await transmit(");
+  assert(readAt !== -1, "Y1: the send path still reads the link state at all");
+  assert(transmitAt !== -1, "Y1: and still transmits (renamed? this check just went blind)");
+  assert(
+    readAt < transmitAt,
+    "Y1: it is read BEFORE the attempt, or every uncertain failure is misfiled as offline",
+  );
+
+  /* ── A fault in the request is never queued ──────────────────────────── */
+  assert(
+    /phase === "prepare"\)\s*throw/.test(src),
+    "Y2: a prepare-phase failure is rethrown, not put in a queue that can only fail",
+  );
+  assert(/kind === "permanent"\)\s*throw/.test(src), "Y2: and so is anything classified permanent");
+
+  /* ── Only a provable failure retries itself ──────────────────────────── */
+  assert(
+    /auto:\s*kind === "offline"/.test(src),
+    "Y3: the queue only re-sends on its own what it can prove never went",
   );
 }
 

@@ -148,17 +148,23 @@ function InvoiceDetailPage() {
     if (!inv || !printRef.current || pdfBusy) return;
     setPdfBusy("whatsapp");
     try {
-      await sendElementViaWhatsApp({
+      const outcome = await sendElementViaWhatsApp({
         el: printRef.current,
         phone: inv.partyPhone,
         message:
           `Hi ${inv.partyName}, here's your invoice ${inv.number}` +
           `${co ? ` from ${co.name}` : ""} — Total ${fmtMoney(inv.total)}. Thank you!`,
         fileName: inv.number,
+        label: inv.number,
         orientation: fmt === "a4-2up" ? "landscape" : "portrait",
         pageWidthMm: thermalWidthMm,
       });
-      toast.success("Invoice sent on WhatsApp");
+      /* "Queued" is not a failure and must not be dressed as one — but it is
+         not a success either, so it does not get the green tick that tells
+         the counter the customer has their bill. */
+      if (outcome.status === "sent") toast.success("Invoice sent on WhatsApp");
+      else if (outcome.kind === "offline") toast.info(outcome.message, { duration: 8000 });
+      else toast.warning(outcome.message, { duration: 10000 });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not send via WhatsApp");
     } finally {

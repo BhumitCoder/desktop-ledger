@@ -6,10 +6,17 @@ import { WorkspaceTabs } from "./WorkspaceTabs";
 import { MobileBottomNav } from "./MobileBottomNav";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { WhatsAppStartupNudge } from "@/components/WhatsAppLink";
+import { startOutbox } from "@/store/whatsappOutbox";
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
 
 export function AppShell({ children }: { children: ReactNode }) {
   useGlobalShortcuts();
+  // Idempotent, and outside React's tree on purpose: a bill queued yesterday
+  // has to go out when the link recovers, whether or not anyone has opened
+  // the Settings page to look at it.
+  useEffect(() => {
+    startOutbox();
+  }, []);
   const mainRef = useRef<HTMLElement>(null);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 

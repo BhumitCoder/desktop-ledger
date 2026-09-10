@@ -1,56 +1,83 @@
-import { auth } from "@/lib/firebase";
-import { elementToPdfBase64 } from "@/lib/pdf";
-import { sendWhatsAppMessageServerFn } from "@/lib/whatsappAdmin";
+import { buildPrintableHtml } from "@/lib/pdf";
+import { transmit, TransmitError } from "@/lib/whatsappTransmit";
 import { useWhatsAppLinkStore } from "@/store/whatsappLink";
+import { useOutboxStore } from "@/store/whatsappOutbox";
+import { classifySendFailure, queuedMessage, type FailureKind } from "@/lib/outbox";
 
-/** Renders a printable DOM node to PDF and sends it as a WhatsApp document
- * to the given phone number — the shared "Send WhatsApp" action used by
- * both the invoice page and the party statement page. Throws with a
- * user-facing message on failure (no phone saved, not connected, etc.) so
- * callers can just toast the error. */
+/**
+ * What became of a send.
+ *
+ * Returned rather than thrown, because "queued" is not a failure and must not
+ * read like one at the counter. A genuine fault — no phone number on the
+ * party, a PDF that will not render — still throws, since nothing about that
+ * improves by waiting and the person needs to fix it now.
+ */
+export type SendOutcome =
+  | { status: "sent" }
+  | { status: "queued"; kind: Exclude<FailureKind, "permanent">; message: string };
+
+/**
+ * Renders a printable DOM node to PDF and sends it as a WhatsApp document.
+ *
+ * The shared "Send WhatsApp" action behind both the invoice page and the party
+ * statement page. When the link is down the bill is not lost: it goes into the
+ * outbox and leaves on its own once WhatsApp is back.
+ */
 export async function sendElementViaWhatsApp(opts: {
   el: HTMLElement;
   phone: string | undefined;
   message: string;
   fileName: string;
+  /** What the shop calls this — an invoice number, or a party's name. Shown
+   *  in the outbox, where "document.pdf" would be no help to anyone. */
+  label: string;
   orientation?: "portrait" | "landscape";
   /** For thermal-format bills (80mm/58mm) — see elementToPdfBase64. */
   pageWidthMm?: number;
-}): Promise<void> {
-  const phone = opts.phone?.trim();
-  if (!phone) {
-    throw new Error("This party has no phone number saved — add one to send via WhatsApp.");
-  }
-  const callerIdToken = await auth.currentUser?.getIdToken();
-  if (!callerIdToken) throw new Error("Not signed in");
+}): Promise<SendOutcome> {
+  const printable = {
+    // Captured before anything is attempted: the outbox stores this string,
+    // and by the time a retry runs the page it came from is long gone.
+    html: buildPrintableHtml(opts.el),
+    phone: opts.phone?.trim() ?? "",
+    message: opts.message,
+    fileName: opts.fileName,
+    landscape: (opts.orientation ?? "landscape") === "landscape",
+    pageWidthMm: opts.pageWidthMm,
+  };
 
-  const pdfBase64 = await elementToPdfBase64(
-    opts.el,
-    opts.orientation ?? "landscape",
-    opts.pageWidthMm,
-  );
-  /* Whatever happens next is the most reliable thing anyone will learn about
-     this link all day. A polled status only proves the bridge process is
-     running — it will answer "connected" from a host whose WhatsApp session
-     died hours ago. A send that goes through proves the socket was alive a
-     second ago, and one that fails proves it was not. So the outcome is fed
-     back into the indicator either way, which is what stops the green dot
-     being a decoration. */
+  // Read before the attempt, not after: a failed send drives the indicator
+  // red, so asking afterwards would always answer "it was down" and every
+  // uncertain failure would be misfiled as a safe one.
+  const wasConnected = useWhatsAppLinkStore.getState().state === "connected";
+
   try {
-    await sendWhatsAppMessageServerFn({
-      data: {
-        callerIdToken,
-        phone,
-        message: opts.message,
-        pdfBase64,
-        fileName: opts.fileName.toLowerCase().endsWith(".pdf")
-          ? opts.fileName
-          : `${opts.fileName}.pdf`,
-      },
-    });
+    await transmit(printable);
+    return { status: "sent" };
   } catch (err) {
-    useWhatsAppLinkStore.getState().noteSendResult(false);
-    throw err;
+    const message = err instanceof Error ? err.message : "Could not send via WhatsApp";
+
+    // Nothing reached WhatsApp and nothing will — this needs a person, not a
+    // queue that will show them the same red row every day.
+    if (err instanceof TransmitError && err.phase === "prepare") throw err;
+
+    const kind = classifySendFailure(message, wasConnected);
+    if (kind === "permanent") throw err;
+
+    await useOutboxStore.getState().enqueue({
+      id: `wa_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      label: opts.label,
+      ...printable,
+      queuedAt: new Date().toISOString(),
+      attempts: 1,
+      lastAttemptAt: new Date().toISOString(),
+      lastError: message,
+      // Only a failure we can prove happened is allowed to retry itself. An
+      // unexplained one on a live link may already have been delivered, and
+      // a second copy of an invoice is the customer's problem to notice.
+      auto: kind === "offline",
+    });
+
+    return { status: "queued", kind, message: queuedMessage(kind, opts.label) };
   }
-  useWhatsAppLinkStore.getState().noteSendResult(true);
 }
