@@ -26,11 +26,24 @@ export interface WhatsAppLinkState {
    *  Reported rather than thrown, so the app can stay silent about a feature
    *  the shop was never sold instead of showing them a permanent red light. */
   configured: boolean;
+  /**
+   * Whether the bridge answered.
+   *
+   * Reported, not thrown, and this distinction matters more than it looks:
+   * if the only signal is an exception, then "the service is down" and "this
+   * call never got off the ground" — a rejected token, a bad deploy, our own
+   * server erroring — arrive identically, and the screen blames the service
+   * for a fault that is ours. That is exactly what happened: a bridge
+   * answering in under half a second was reported as unreachable.
+   */
+  reachable: boolean;
   status: "waiting" | "qr" | "connected";
   phone?: string;
   /** A QR is waiting, so a staff screen can say "ask the owner" rather than
    *  the useless "disconnected". */
   qrAvailable: boolean;
+  /** Why the bridge did not answer, in its own words, when it did not. */
+  error?: string;
 }
 
 /** Both readers below hit the same endpoint; only what they hand back differs.
@@ -82,15 +95,26 @@ export const getWhatsAppLinkStateServerFn = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<WhatsAppLinkState> => {
     await requireActiveUser(data.callerIdToken);
     if (!process.env.WHATSAPP_SERVICE_URL || !process.env.WHATSAPP_SERVICE_API_KEY) {
-      return { configured: false, status: "waiting", qrAvailable: false };
+      return { configured: false, reachable: false, status: "waiting", qrAvailable: false };
     }
-    const body = await readBridge();
-    return {
-      configured: true,
-      status: body.status,
-      phone: body.phone,
-      qrAvailable: body.status === "qr",
-    };
+    try {
+      const body = await readBridge();
+      return {
+        configured: true,
+        reachable: true,
+        status: body.status,
+        phone: body.phone,
+        qrAvailable: body.status === "qr",
+      };
+    } catch (err) {
+      return {
+        configured: true,
+        reachable: false,
+        status: "waiting",
+        qrAvailable: false,
+        error: err instanceof Error ? err.message : "The WhatsApp service did not answer",
+      };
+    }
   });
 
 export const disconnectWhatsAppServerFn = createServerFn({ method: "POST" })

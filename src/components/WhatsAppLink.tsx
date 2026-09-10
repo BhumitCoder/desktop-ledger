@@ -173,14 +173,16 @@ export function WhatsAppLinkDialog({
  * screen — the QR has to look live while somebody is pointing a phone at it.
  */
 export function WhatsAppLinkPanel({ inDialog = false }: { inDialog?: boolean }) {
-  const { state, ready, history, phone, qr } = useWhatsAppLink();
+  const { state, ready, history, phone, qr, lastError, askFailed } = useWhatsAppLink();
   const { isOwner } = usePermissions();
   const [disconnecting, setDisconnecting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Asking for the QR is what makes the reading owner-shaped; only do it while
-  // this is actually visible, so a background poll never carries a credential.
-  useWatchWhileMounted(inDialog && isOwner);
+  // Owner, and on screen: fetch the code as well as the status. Gated on the
+  // owner rather than on being in a dialog — the Settings card is where this
+  // shop has always scanned from, and requiring the header dialog instead
+  // would be a regression dressed as a permission.
+  useWatchWhileMounted(isOwner);
 
   if (!ready) {
     return (
@@ -252,6 +254,15 @@ export function WhatsAppLinkPanel({ inDialog = false }: { inDialog?: boolean }) 
           )}
           {state === "connected" && phone && (
             <p className="mt-1 text-xs text-muted-foreground">as +{phone}</p>
+          )}
+          {/* The actual words of the actual failure. Absent from the first
+              version, which is why a service answering in under a second
+              could be reported as unreachable with nothing to contradict it. */}
+          {severity === "bad" && lastError && (
+            <p className="mt-1 text-xs text-muted-foreground/70">
+              {askFailed ? "Couldn't check: " : ""}
+              {lastError}
+            </p>
           )}
         </div>
       </div>

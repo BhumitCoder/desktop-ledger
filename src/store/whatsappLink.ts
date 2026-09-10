@@ -91,6 +91,19 @@ interface LinkStore {
   phone?: string;
   /** Only ever populated for an owner with the dialog open. */
   qr?: string;
+  /**
+   * Why the last reading failed, when it did.
+   *
+   * Kept because the alternative was proven worse: the first version threw
+   * this away, and a perfectly healthy service was reported as unreachable
+   * with nothing on screen to contradict it. An error nobody can read is an
+   * error nobody can fix.
+   */
+  lastError?: string;
+  /** True when the app could not even ask — a rejected sign-in, our own
+   *  server erroring — as opposed to the bridge not answering. Different
+   *  fault, different person fixes it, different sentence on screen. */
+  askFailed: boolean;
   /** True while a dialog is showing, which makes the poll fast and lets the
    *  owner's reading include the QR. */
   watching: boolean;
@@ -114,6 +127,7 @@ export const useWhatsAppLinkStore = create<LinkStore>((set, get) => ({
   reading: { status: null },
   history: { ...initialHistory, unsettledSince: undefined },
   state: "starting",
+  askFailed: false,
   watching: false,
 
   setWatching: (v) => {
@@ -160,30 +174,37 @@ export const useWhatsAppLinkStore = create<LinkStore>((set, get) => ({
       let reading: BridgeReading;
       let qr: string | undefined;
       let configured = true;
+      let lastError: string | undefined;
+      let askFailed = false;
+
+      // The owner's reader carries the QR but is owner-only, so it is tried
+      // first and only when a code is actually wanted. A staff user simply
+      // falls through to the one everybody may call.
+      if (watching) {
+        try {
+          const full: WhatsAppStatus = await getWhatsAppStatusServerFn({ data: { callerIdToken } });
+          qr = full.qr;
+        } catch {
+          // Not an owner, or the bridge is down. Either way the lean reader
+          // below decides what to show; this only ever adds the picture.
+        }
+      }
 
       try {
-        if (watching) {
-          // The owner is looking at the dialog and needs the code itself.
-          // Falls back below if they turn out not to be an owner.
-          const full: WhatsAppStatus = await getWhatsAppStatusServerFn({ data: { callerIdToken } });
-          reading = { status: full.status, phone: full.phone };
-          qr = full.qr;
-        } else {
-          const lean = await getWhatsAppLinkStateServerFn({ data: { callerIdToken } });
-          configured = lean.configured;
-          reading = { status: lean.status, phone: lean.phone };
-        }
-      } catch {
-        // An owner-only call rejected for staff, or the service not answering.
-        // Retry through the endpoint everyone may use before calling it a
-        // fault, so a staff member never sees "unreachable" for a permission.
-        try {
-          const lean = await getWhatsAppLinkStateServerFn({ data: { callerIdToken } });
-          configured = lean.configured;
-          reading = { status: lean.status, phone: lean.phone };
-        } catch {
-          reading = { status: null };
-        }
+        const lean = await getWhatsAppLinkStateServerFn({ data: { callerIdToken } });
+        configured = lean.configured;
+        lastError = lean.error;
+        // A bridge that did not answer is a null reading — the state machine
+        // turns that into "unreachable" once it has persisted past the grace
+        // period. A bridge that answered is never called unreachable again,
+        // whatever else is wrong.
+        reading = lean.reachable ? { status: lean.status, phone: lean.phone } : { status: null };
+      } catch (err) {
+        // We could not even ask. That is our fault, not the service's, and
+        // it must not be reported as the service being down.
+        askFailed = true;
+        lastError = err instanceof Error ? err.message : "Could not check WhatsApp";
+        reading = { status: null };
       }
 
       const now = Date.now();
@@ -210,6 +231,8 @@ export const useWhatsAppLinkStore = create<LinkStore>((set, get) => ({
         reading,
         history,
         qr,
+        lastError,
+        askFailed,
         phone: reading.phone,
         // Derived even when unconfigured — the indicator hides on `configured`
         // rather than on a state we invented, so nothing downstream is ever

@@ -2324,6 +2324,63 @@ console.log(`\n═════════════════════�
   );
 }
 
+/* ═══════ TEST Z: a service that answered is never called unreachable ═══════
+   The bug this replaces was live for one deploy. A bridge responding in
+   under half a second was shown to the shop as "Can't reach the WhatsApp
+   service", because every failure — a rejected token, our own server
+   erroring, the bridge genuinely being down — arrived as one exception and
+   was rendered as the last of those. The fix is that the reader REPORTS an
+   unreachable bridge rather than throwing, so a throw can only mean the call
+   itself never got off the ground. Asserted from the source, because what
+   matters is the shape of the contract rather than any one value. */
+{
+  const admin = readFileSync(process.cwd() + "/src/lib/whatsappAdmin.ts", "utf8");
+  const at = admin.indexOf("export const getWhatsAppLinkStateServerFn");
+  assert(at !== -1, "Z1: the staff-facing reader exists (renamed? this check just went blind)");
+  const body = admin.slice(at, at + admin.slice(at).indexOf("\n  });"));
+
+  assert(
+    /reachable:\s*true/.test(body) && /reachable:\s*false/.test(body),
+    "Z1: it answers whether the bridge replied, rather than leaving it to an exception",
+  );
+  assert(
+    /catch\s*\(/.test(body),
+    "Z1: a bridge that fails to answer is caught here, not thrown at the browser",
+  );
+  assert(
+    /error:/.test(body),
+    "Z1: and its actual words are handed back, so the screen can say what went wrong",
+  );
+
+  const store = readFileSync(process.cwd() + "/src/store/whatsappLink.ts", "utf8");
+  assert(
+    /lean\.reachable\s*\?/.test(store),
+    "Z2: the store trusts that answer instead of inferring reachability from a throw",
+  );
+  assert(
+    /askFailed\s*=\s*true/.test(store),
+    "Z2: and a call that never got off the ground is recorded as OUR fault, separately",
+  );
+  assert(
+    !/}\s*catch\s*{\s*reading\s*=\s*{\s*status:\s*null\s*};?\s*}/.test(store),
+    "Z2: no bare catch quietly turning every fault into 'the service is down' again",
+  );
+
+  /* ── The Settings card must still be able to show a QR ────────────────
+     Gating the code on being inside the header dialog meant an owner on the
+     Settings page — where this shop has always scanned from — waited forever
+     for a QR that was sitting on the service the whole time. */
+  const ui = readFileSync(process.cwd() + "/src/components/WhatsAppLink.tsx", "utf8");
+  assert(
+    /useWatchWhileMounted\(isOwner\)/.test(ui),
+    "Z3: any panel an owner is looking at asks for the QR, not only the dialog",
+  );
+  assert(
+    /lastError/.test(ui),
+    "Z3: and whatever went wrong is put on the screen rather than kept in a variable",
+  );
+}
+
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
 if (fails.length) {
   console.log(`\nFailures:`);
