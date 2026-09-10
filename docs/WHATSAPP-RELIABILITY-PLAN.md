@@ -176,25 +176,75 @@ This phase is where "I don't want this nonsense" actually gets answered: the
 counter stops babysitting the connection, because a bill entered is a bill that
 will go.
 
-### Phase 6 ⏳ NOT BUILT — the bridge service (separate repo, separate change)
+### Phase 6 ✅ — the bridge service (`ibellwpserver`, a separate repo)
 
-Not needed by anything above, and listed so it is not forgotten:
+**Two of the three things planned here were already done, and the real fault
+was something else.** Recorded honestly, because the plan was written before
+anyone had read the service:
 
-- **persist the session to durable storage** — a volume, S3, or Firestore. If
-  the session lives on container disk, every deploy costs a QR scan and every
-  phase above is polish over a hole that reopens.
-- **auto-reconnect from stored credentials** on socket close, with backoff.
-  This is a *reconnect*, not a re-link: no QR, and the shop never notices.
-- **a real heartbeat**, so `connected` means the socket answered, not that the
-  process is running.
-- optionally a **4am socket refresh** — quiet hours, from saved credentials.
+| planned | actually |
+| --- | --- |
+| persist the session to durable storage | **already done** — creds and Signal keys are in Firestore, not on disk |
+| auto-reconnect from stored credentials | **already done** — it reconnected on every non-logout close |
+| a real heartbeat | `/health` existed; now also reports `halted` and `attempts` |
 
-> **Rejected: disconnecting on a timer.** `/disconnect` throws the session
-> away; the app's own confirm text says *"you'll need to scan a new QR code to
-> reconnect."* On a 10-hour schedule that is two or three forced QR scans a
-> day, forever. The problem it is reaching for — a socket that is dead while
-> claiming otherwise — is solved by the heartbeat and auto-reconnect above,
-> neither of which asks anyone to pick up the phone.
+And the shop's own words were read wrongly at first. *"Sometimes it throws
+waiting message"* is not only this app's `waiting` status — **"Waiting for
+this message" is what WhatsApp itself shows the recipient** when their phone
+cannot decrypt what arrived. The service's own comments already worried about
+it and had added a six-second post-connect grace, treating it as cold-start
+timing. It is not timing.
+
+**The actual fault: two sockets on one linked device.**
+
+WhatsApp permits one live socket per linked device. A second process logging
+in with the same credentials closes the first with `connectionReplaced` — and
+the old code treated that as an ordinary blip and reconnected, which evicted
+the second, which reconnected, which evicted the first. The two trade the
+session back and forth indefinitely. Messages keep going out during the
+fight; what breaks is the recipient's Signal session, which is rotated out
+from under them. Their phone shows "Waiting for this message".
+
+Fixed:
+
+- **`connectionReplaced` no longer reconnects.** The service stays down and
+  says why on `/health`, because nothing it can do will help and trying makes
+  it worse. Usually the other instance is a forgotten local `npm run dev`, or
+  a deploy that overlapped old and new containers.
+- **`start()`'s rejection is caught.** It was called bare; one failed
+  Firestore read or version fetch left an unhandled rejection and killed the
+  reconnect chain outright, leaving the service disconnected until a redeploy.
+  *That* is what "the connection expires after a while" actually was.
+- **Sockets are retired before their replacement dials**, and each carries a
+  generation number — a superseded socket's late `close` used to mark the
+  service disconnected while it was, at that moment, connected. The status
+  endpoint lied, and the new header dot would have faithfully shown the lie.
+- **Backoff** 1s→2s→4s to a minute, with jitter, so restarted instances do not
+  reconnect in lockstep and cause the `connectionReplaced` above.
+- **A dead session relinks** rather than retrying credentials WhatsApp has
+  already rejected.
+
+The rules are a pure module (`src/reconnect.js`) with 24 assertions; eight
+mutants each kill a named one.
+
+### Phase 6b ✅ — the duplicate this could not previously prevent
+
+Phase 5 left one hole open and said so: the message leaves, the reply is lost
+coming back, and nothing on the app's side can tell that from "it never sent".
+
+`POST /send` now takes an optional **`clientMessageId`**, claimed in Firestore
+before sending. A retry carrying an id already marked sent is answered, not
+re-sent. The app mints the id **before the first attempt** and stores the
+queued row **under that same id**, so every retry of one bill carries one id —
+if a retry arrived under a fresh id, the service would see a different bill
+and the duplicate would go out anyway. Both halves are asserted.
+
+A claim left pending for over two minutes is let through rather than blocked:
+an attempt died mid-send, nobody can know whether it went, and a bill the
+customer never receives is worse than one they receive twice.
+
+Sends without an id behave exactly as before, so a deployed build of the app
+that predates this keeps working.
 
 ## Testing
 
@@ -223,48 +273,42 @@ cannot see the version of is a fix they will report again.
 
 ## Where this got to
 
-**Phases 0–5 are built, on branch `whatsapp-reliability`, not merged and not
-pushed.** `main` is untouched.
+**All seven phases are built.** Two repos, two branches, **neither pushed and
+neither merged**:
 
-Verified: **105,415 unit assertions** and **577 screen assertions** pass,
-`tsc` and `eslint` are clean over `src` and `tests`, and `npm run build`
-completes.
+| repo | branch | state |
+| --- | --- | --- |
+| `desktop-ledger` | `whatsapp-reliability` | phases 0–5, 6b — `main` untouched at `c7e7f0b` |
+| `ibellwpserver` | `reconnect-hardening` | phase 6 — `main` untouched |
 
-**Twenty mutants planted, twenty killed**, each by a *named* assertion — the
-grace period, the QR short-circuit, the history split, the unreachable branch,
-the staff advice, the future timestamp, three separate ways of leaking the QR
-to a staff browser, and the outbox rules: auto-retrying an unprovable failure,
-ignoring another tab's claim, ignoring the attempt cap, counting backoff from
-the wrong timestamp, queueing a request fault, discarding a bill on giving up,
-and reading the link state *after* the attempt instead of before.
+Verified: **105,419 unit assertions**, **577 screen assertions**, **24 bridge
+assertions**; `tsc` and `eslint` clean; `npm run build` completes.
 
-That last one is worth naming. A failed send drives the indicator red, so
-reading the link afterwards would always answer "it was down" — and every
-uncertain failure would be filed as safe-to-retry. The bug would be invisible
-in every return value and would only show up as customers receiving two copies
-of an invoice.
+**Thirty mutants planted, thirty killed**, each by a *named* assertion. The
+three worth naming, because all three are invisible in any return value:
 
-The screen suite renders through the real route tree, so `AppShell` →
-`Topbar` → the indicator and the queue mount in a real browser on all 577
-assertions with no uncaught page errors.
+- reading the link state **after** the attempt instead of before — every
+  unprovable failure would then be filed as safe-to-retry, and the only
+  symptom would be customers receiving two copies of an invoice.
+- reconnecting on **`connectionReplaced`** — the old behaviour, and the cause
+  of "Waiting for this message" on the recipient's phone.
+- giving a **retry a fresh id** — the service's deduplication would still be
+  there, still be tested, and still let every duplicate through.
 
-### Still open
+### What is left, and it is not code
 
-**Phase 6, in the bridge repo, which is not this one.** As long as the link is
-a QR-linked device it will keep dropping. Phases 0–5 make that visible, fast to
-fix, and free of lost bills. Only Phase 6 makes it *rarer*:
-
-- persist the session to durable storage — if it lives on container disk,
-  every deploy costs a QR scan and everything above is polish over a hole that
-  keeps reopening. **This is the first thing to check**: a drop roughly every
-  ten hours looks exactly like a host sleeping.
-- auto-reconnect from stored credentials, with backoff — a *reconnect*, not a
-  re-link: no QR, and the shop never notices.
-- a real heartbeat, so `connected` means the socket answered rather than that
-  the process is running.
-
-**A duplicate is still possible in one narrow case**, and is worth knowing
-rather than pretending away: if the bridge sends the message and then fails to
-tell us so, that is an "uncertain" row. It is never auto-retried — but a person
-pressing **Send now** on it may deliver a second copy. Closing this properly
-needs an idempotency key the bridge honours, which is Phase 6 work.
+- **Nothing is deployed.** Both branches want a preview and a look before they
+  go near the two live shops.
+- **Check whether a second instance is running right now.** `GET /health` will
+  say `halted` once this deploys. A forgotten local `npm run dev`, or a host
+  that overlaps containers on deploy, is the likeliest cause of the original
+  complaint. Set the platform to stop the old instance before starting the new.
+- **Keep an uptime ping on `/health`** so the host does not idle the process
+  out — a cold start costs a reconnect, and a reconnect is when delivery is
+  most fragile.
+- **A Firestore TTL policy on `waSendClaims`** (field `at`). Nothing breaks
+  without one; the collection just grows.
+- **Still outstanding from earlier, and still user-side:** rotate the Firebase
+  service-account key that appeared in a transcript, and set
+  `VITE_FIRESTORE_DB` at **Preview** scope on both Vercel projects — branch
+  previews currently build against live shop data.

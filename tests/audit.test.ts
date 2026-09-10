@@ -2299,6 +2299,29 @@ console.log(`\n═════════════════════�
     /auto:\s*kind === "offline"/.test(src),
     "Y3: the queue only re-sends on its own what it can prove never went",
   );
+
+  /* ── One bill, one id, across every attempt ───────────────────────────
+     The service refuses a second send of an id it has already sent. That
+     only protects anybody if a retry arrives under the SAME id — a fresh id
+     per attempt is, from the service's side, simply a different bill, and
+     the duplicate it exists to stop goes out anyway. Two halves, both
+     needed, and both silently satisfiable-looking on their own. */
+  const mintAt = src.indexOf("const clientMessageId =");
+  assert(mintAt !== -1, "Y4: the send path mints an id for the bill");
+  assert(
+    mintAt < transmitAt,
+    "Y4: before the first attempt, so the first send and its retries share it",
+  );
+  assert(
+    /id:\s*clientMessageId,/.test(src),
+    "Y4: and the queued row is stored under that very id, not a new one",
+  );
+
+  const queue = readFileSync(process.cwd() + "/src/store/whatsappOutbox.ts", "utf8");
+  assert(
+    /clientMessageId:\s*item\.id,/.test(queue),
+    "Y4: which the queue then sends back as the id, closing the loop",
+  );
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);

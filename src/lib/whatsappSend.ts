@@ -35,10 +35,17 @@ export async function sendElementViaWhatsApp(opts: {
   /** For thermal-format bills (80mm/58mm) — see elementToPdfBase64. */
   pageWidthMm?: number;
 }): Promise<SendOutcome> {
+  /* Minted here, before the first attempt, and used both as the id the
+     service dedupes on and as this row's id in the outbox. The two must be
+     the same value: a retry that arrives under a fresh id is, as far as the
+     service can tell, a different bill. */
+  const clientMessageId = `wa_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
   const printable = {
     // Captured before anything is attempted: the outbox stores this string,
     // and by the time a retry runs the page it came from is long gone.
     html: buildPrintableHtml(opts.el),
+    clientMessageId,
     phone: opts.phone?.trim() ?? "",
     message: opts.message,
     fileName: opts.fileName,
@@ -65,7 +72,7 @@ export async function sendElementViaWhatsApp(opts: {
     if (kind === "permanent") throw err;
 
     await useOutboxStore.getState().enqueue({
-      id: `wa_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      id: clientMessageId,
       label: opts.label,
       ...printable,
       queuedAt: new Date().toISOString(),

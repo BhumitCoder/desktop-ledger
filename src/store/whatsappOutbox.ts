@@ -129,6 +129,9 @@ async function attempt(
       fileName: item.fileName,
       landscape: item.landscape,
       pageWidthMm: item.pageWidthMm,
+      // The row id IS the id the service deduplicates on — which is what
+      // makes a retry of something that already went out safe.
+      clientMessageId: item.id,
     });
     // Gone from the queue only once it is genuinely out.
     await removeQueued(item.id);

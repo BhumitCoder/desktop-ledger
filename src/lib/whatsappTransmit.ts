@@ -40,6 +40,15 @@ export interface Printable {
   fileName: string;
   landscape: boolean;
   pageWidthMm?: number;
+  /**
+   * Stable across every attempt at this one bill.
+   *
+   * The service claims it before sending, so a retry of something that
+   * already went out is answered rather than sent again. Without it, the one
+   * failure nobody can classify — the message left, the reply did not come
+   * back — costs the customer a second copy of their invoice.
+   */
+  clientMessageId?: string;
 }
 
 /** Renders and sends, or throws with a message worth showing someone. */
@@ -84,6 +93,7 @@ export async function transmit(p: Printable): Promise<void> {
         message: p.message,
         pdfBase64,
         fileName: p.fileName.toLowerCase().endsWith(".pdf") ? p.fileName : `${p.fileName}.pdf`,
+        clientMessageId: p.clientMessageId,
       },
     });
   } catch (err) {

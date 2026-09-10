@@ -121,6 +121,9 @@ type SendMessageInput = {
   message: string;
   pdfBase64: string;
   fileName: string;
+  /** A stable id for this bill, so the service can tell a retry apart from a
+   *  second bill. Optional: the service still accepts sends without one. */
+  clientMessageId?: string;
 };
 
 export const sendWhatsAppMessageServerFn = createServerFn({ method: "POST" })
@@ -135,6 +138,7 @@ export const sendWhatsAppMessageServerFn = createServerFn({ method: "POST" })
       message: d.message ?? "",
       pdfBase64: d.pdfBase64,
       fileName: d.fileName?.trim() || "document.pdf",
+      clientMessageId: d.clientMessageId?.trim() || undefined,
     };
   })
   .handler(async ({ data }): Promise<{ ok: true }> => {
@@ -151,6 +155,7 @@ export const sendWhatsAppMessageServerFn = createServerFn({ method: "POST" })
         message: data.message,
         pdfBase64: data.pdfBase64,
         fileName: data.fileName,
+        clientMessageId: data.clientMessageId,
       }),
     });
     if (!res.ok) {
