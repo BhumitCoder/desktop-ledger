@@ -16,6 +16,7 @@ import {
 import type { Return, LineItem, Party, Item, Invoice } from "@/types";
 import { fmtMoney, today } from "@/lib/format";
 import { toast } from "sonner";
+import { useHighlightScroll } from "@/hooks/useHighlightScroll";
 import { Trash2, UserPlus, Save, X, CornerDownLeft, CornerUpLeft, Loader2 } from "lucide-react";
 import { genId, newBatch, commitBatch } from "@/repositories/base";
 import { stepBackOnBackspace, useEscapeToLeave } from "@/hooks/useFormKeys";
@@ -92,6 +93,9 @@ export function ReturnForm({ mode }: Props) {
   const [partyQ, setPartyQ] = useState("");
   const [partyOpen, setPartyOpen] = useState(false);
   const [partyIdx, setPartyIdx] = useState(0);
+  /** Arrowing past the bottom edge used to move the highlight invisibly. */
+  const partyListRef = useRef<HTMLDivElement>(null);
+  useHighlightScroll(partyListRef, partyIdx, partyOpen);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   // A party typed at the counter that doesn't exist yet is no longer
@@ -103,6 +107,8 @@ export function ReturnForm({ mode }: Props) {
   const [invQ, setInvQ] = useState("");
   const [invOpen, setInvOpen] = useState(false);
   const [invIdx, setInvIdx] = useState(0);
+  const invListRef = useRef<HTMLDivElement>(null);
+  useHighlightScroll(invListRef, invIdx, invOpen);
   const invoiceRepo = isSaleReturn ? SalesRepo : PurchaseRepo;
 
   const invSuggests = useRepoMemo(() => {
@@ -539,10 +545,14 @@ export function ReturnForm({ mode }: Props) {
                 />
               </label>
               {partyOpen && partySuggests.length > 0 && (
-                <div className="absolute z-20 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-lg max-h-48 overflow-auto">
+                <div
+                  ref={partyListRef}
+                  className="absolute z-20 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-lg max-h-48 overflow-auto"
+                >
                   {partySuggests.map((p, i) => (
                     <div
                       key={p.id}
+                      data-opt={i}
                       onMouseDown={(e) => {
                         e.preventDefault();
                         selectParty(p);
@@ -597,10 +607,14 @@ export function ReturnForm({ mode }: Props) {
                 />
               </label>
               {invOpen && invSuggests.length > 0 && (
-                <div className="absolute z-30 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-lg max-h-56 overflow-auto">
+                <div
+                  ref={invListRef}
+                  className="absolute z-30 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-lg max-h-56 overflow-auto"
+                >
                   {invSuggests.map((i, idx) => (
                     <div
                       key={i.id}
+                      data-opt={idx}
                       onMouseDown={(e) => {
                         e.preventDefault();
                         loadFromInvoice(i);

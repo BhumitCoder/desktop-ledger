@@ -23,6 +23,7 @@ import { fmtMode } from "@/lib/paymentMode";
 import { fmtDate, fmtDateShort, fmtMoney, today } from "@/lib/format";
 import { Plus, Receipt, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
+import { useHighlightScroll } from "@/hooks/useHighlightScroll";
 import { bankParts, splitProblems, largestSplitMode, describePayment } from "@/lib/paymentSplit";
 import { SplitPaymentRows } from "@/components/SplitPaymentRows";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -329,6 +330,9 @@ function ExpenseDialog({
   const [bankQ, setBankQ] = useState("");
   const [bankOpen, setBankOpen] = useState(false);
   const [bankIdx, setBankIdx] = useState(0);
+  /** Arrowing past the bottom edge used to move the highlight invisibly. */
+  const bankListRef = useRef<HTMLDivElement>(null);
+  useHighlightScroll(bankListRef, bankIdx, bankOpen);
   useEffect(() => {
     setBankQ(banks.find((b) => b.id === f.bankId)?.name ?? "");
   }, [f.bankId, banks]);
@@ -350,6 +354,8 @@ function ExpenseDialog({
   const [payeeQ, setPayeeQ] = useState("");
   const [payeeOpen, setPayeeOpen] = useState(false);
   const [payeeIdx, setPayeeIdx] = useState(0);
+  const payeeListRef = useRef<HTMLDivElement>(null);
+  useHighlightScroll(payeeListRef, payeeIdx, payeeOpen);
   const payeeSuggests = payees.filter((p) => {
     const q = payeeQ.trim().toLowerCase();
     if (!q) return true;
@@ -532,10 +538,14 @@ function ExpenseDialog({
               className="h-8 px-3 border rounded-md bg-background focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none text-sm"
             />
             {payeeOpen && payeeSuggests.length > 0 && (
-              <div className="absolute z-20 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-elevated max-h-56 overflow-auto">
+              <div
+                ref={payeeListRef}
+                className="absolute z-20 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-elevated max-h-56 overflow-auto"
+              >
                 {payeeSuggests.map((p, i) => (
                   <div
                     key={p.id}
+                    data-opt={i}
                     onMouseDown={(ev) => {
                       ev.preventDefault();
                       selectPayee(p);
@@ -645,10 +655,14 @@ function ExpenseDialog({
                 className="h-8 px-3 border rounded-md bg-background focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none text-sm"
               />
               {bankOpen && bankSuggests.length > 0 && (
-                <div className="absolute z-20 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-elevated max-h-56 overflow-auto">
+                <div
+                  ref={bankListRef}
+                  className="absolute z-20 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-elevated max-h-56 overflow-auto"
+                >
                   {bankSuggests.map((b, i) => (
                     <div
                       key={b.id}
+                      data-opt={i}
                       onMouseDown={(e) => {
                         e.preventDefault();
                         selectBank(b);

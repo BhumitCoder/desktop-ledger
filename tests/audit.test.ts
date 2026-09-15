@@ -2649,6 +2649,60 @@ console.log(`\n═════════════════════�
   );
 }
 
+/* ═══════ TEST D: an arrowed-to option is an option you can see ═══════
+   Reported for "all dropdown selection": arrowing down walked the highlight
+   straight past the bottom edge and kept going, invisibly. The shop arrows,
+   sees nothing move, and presses Enter on something it cannot see — on a
+   counter worked entirely by keyboard that is a wrong item on a bill, not a
+   rough edge.
+
+   Only the invoice form did this, with its own hand-rolled copy. It is one
+   shared hook now, and every picker is held to using it. Listed by name on
+   purpose: a new dropdown added later without it is the exact regression
+   this is here to catch, and a count would quietly pass as they came and
+   went. */
+{
+  const hook = readFileSync(process.cwd() + "/src/hooks/useHighlightScroll.ts", "utf8");
+  assert(
+    /scrollIntoView\(\{ block: "nearest" \}\)/.test(hook),
+    "D1: the highlight is brought just into view, not re-centred on every keypress",
+  );
+  /* Without this it runs on every render and snaps a hand-scrolled list back
+     to the highlight — which feels exactly like a list that cannot be
+     scrolled, i.e. the complaint being fixed. */
+  assert(
+    /if \(prev\.current === index\) return;/.test(hook),
+    "D1: and only when the highlight actually moved",
+  );
+
+  const wired = [
+    "/src/components/SelectMenu.tsx",
+    "/src/components/ComboInput.tsx",
+    "/src/routes/payments.tsx",
+    "/src/routes/expenses.tsx",
+    "/src/components/ReturnForm.tsx",
+  ];
+  /* Counted, not merely present.
+
+     A first version asked only whether each file mentioned the hook at all,
+     and a file with TWO dropdowns passed happily after one of them lost its
+     call — the other still matched. Found by mutation. Every marked list
+     must have a hook call of its own, so the two counts have to agree. */
+  for (const rel of wired) {
+    const src = readFileSync(process.cwd() + rel, "utf8");
+    const hooks = (src.match(/useHighlightScroll\([a-zA-Z]/g) ?? []).length;
+    const lists = (src.match(/data-opt=\{/g) ?? []).length;
+    assert(hooks > 0, "D2: this picker scrolls its highlight — " + rel);
+    /* The hook finds the option by this attribute; without it the lookup
+       silently returns nothing and the hook is decoration. */
+    assert(lists > 0, "D2: and marks its options so the hook can find them — " + rel);
+    assert(
+      hooks === lists,
+      `D2: every list in this file has a hook call of its own — ${rel}: ${hooks} hooks, ${lists} lists`,
+    );
+  }
+}
+
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
 if (fails.length) {
   console.log(`\nFailures:`);

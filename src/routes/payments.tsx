@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 import { usePermissions } from "@/hooks/usePermissions";
 import { toast } from "sonner";
+import { useHighlightScroll } from "@/hooks/useHighlightScroll";
 import { bankParts, splitProblems, largestSplitMode, describePayment } from "@/lib/paymentSplit";
 import { SplitPaymentRows } from "@/components/SplitPaymentRows";
 import { genId } from "@/repositories/base";
@@ -579,6 +580,9 @@ export function ReceivePaymentDialog({
   const [partyQ, setPartyQ] = useState("");
   const [partyOpen, setPartyOpen] = useState(false);
   const [partyIdx, setPartyIdx] = useState(0);
+  /** Arrowing past the bottom edge used to move the highlight invisibly. */
+  const partyListRef = useRef<HTMLDivElement>(null);
+  useHighlightScroll(partyListRef, partyIdx, partyOpen);
   const [selectedParty, setSelectedParty] = useState<{ id: string; name: string } | null>(null);
 
   const [date, setDate] = useState(today());
@@ -602,6 +606,8 @@ export function ReceivePaymentDialog({
   const [bankQ, setBankQ] = useState("");
   const [bankOpen, setBankOpen] = useState(false);
   const [bankIdx, setBankIdx] = useState(0);
+  const bankListRef = useRef<HTMLDivElement>(null);
+  useHighlightScroll(bankListRef, bankIdx, bankOpen);
   const [applyRows, setApplyRows] = useState<ApplyRow[]>([]);
   const [manualAmount, setManualAmount] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -1158,10 +1164,14 @@ export function ReceivePaymentDialog({
               />
             </label>
             {partyOpen && suggests.length > 0 && (
-              <div className="absolute z-30 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-lg max-h-40 overflow-auto">
+              <div
+                ref={partyListRef}
+                className="absolute z-30 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-lg max-h-40 overflow-auto"
+              >
                 {suggests.map((p, i) => (
                   <div
                     key={p.id}
+                    data-opt={i}
                     onMouseDown={(e) => {
                       e.preventDefault();
                       selectParty(p);
@@ -1608,10 +1618,14 @@ export function ReceivePaymentDialog({
                 className="h-9 px-2 border rounded-md bg-white focus:border-primary outline-none text-sm"
               />
               {bankOpen && bankSuggests.length > 0 && (
-                <div className="absolute z-20 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-lg max-h-40 overflow-auto">
+                <div
+                  ref={bankListRef}
+                  className="absolute z-20 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-lg max-h-40 overflow-auto"
+                >
                   {bankSuggests.map((b, i) => (
                     <div
                       key={b.id}
+                      data-opt={i}
                       onMouseDown={(e) => {
                         e.preventDefault();
                         selectBank(b);

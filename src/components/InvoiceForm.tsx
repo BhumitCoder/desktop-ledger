@@ -829,12 +829,27 @@ export function InvoiceForm({ mode, existing }: Props) {
       if (!it) continue;
       const extra: Partial<Item> = {};
       if (l.price > 0) {
-        // Track the LAST price this item actually moved at, on both sides.
-        // Sale price used to be written only when the item had none, so
-        // after the very first bill it never changed again and "last sale
-        // price" was really "the price someone typed once, long ago".
-        if (isSale && it.salePrice !== l.price) extra.salePrice = l.price;
-        // Purchase price: always the LATEST cost, so profit stays accurate.
+        /* A SALE no longer rewrites the item's price.
+
+           It used to: whatever a bill charged became the item's sale price.
+           So one discounted bill — a regular customer, a damaged box, a
+           haggle at the counter — silently became the price offered to
+           everybody afterwards, because new lines pre-fill from it. The shop
+           reported exactly that, and it is the kind of error that spreads
+           quietly: nobody is told the catalogue changed, and the next person
+           to bill that item has no reason to doubt the number in front of
+           them.
+
+           The price an item sells at is a decision, made on the Items screen.
+           It is not a side effect of the last bill that happened to go out.
+           A bill that charges something else is still recorded in full — the
+           line keeps its own price, and the party's own history still
+           pre-fills their usual rate (see historicalPrice above). Nothing is
+           lost by leaving the catalogue alone.
+
+           A PURCHASE still updates the cost, and that is a different thing:
+           the latest cost is a fact about what the shop paid, not an offer
+           to anybody, and profit is measured against it. */
         if (!isSale && it.purchasePrice !== l.price) extra.purchasePrice = l.price;
       }
       ItemRepo.adjustFieldBatched(batch, it.id, "stock", stockDelta * l.qty, extra);
