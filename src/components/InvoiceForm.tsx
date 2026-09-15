@@ -291,6 +291,9 @@ export function InvoiceForm({ mode, existing }: Props) {
   const bankOptionsRef = useRef<HTMLDivElement>(null);
   /** The received/paid box — where the keyboard goes once a mode is chosen. */
   const amountRef = useRef<HTMLInputElement>(null);
+  /** The form's own scrolling region — reset to the top whenever a different
+   *  bill is put into it. */
+  const scrollRef = useRef<HTMLDivElement>(null);
   /** Set when a mode is picked, consumed by the effect below. */
   const focusAfterMode = useRef<PaymentMode | null>(null);
   const prevBankIdx = useRef(bankIdx);
@@ -318,6 +321,10 @@ export function InvoiceForm({ mode, existing }: Props) {
     if (m === "bank") bankSelectRef.current?.focus();
     else if (m !== "credit") amountRef.current?.focus();
   }, [inv.paymentMode, modeChosen]);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [existing?.id]);
 
   const selectBank = (b: BankAccount) => {
     setInv({ ...inv, bankId: b.id });
@@ -1232,7 +1239,7 @@ export function InvoiceForm({ mode, existing }: Props) {
         </div>
       </div>
 
-      <div className="p-4 md:p-5 space-y-4 overflow-auto flex-1 bg-muted/30">
+      <div ref={scrollRef} className="p-4 md:p-5 space-y-4 overflow-auto flex-1 bg-muted/30">
         {/* Party + meta */}
         <div className="bg-card border rounded-lg shadow-card p-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 mb-3">
