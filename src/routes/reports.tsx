@@ -889,7 +889,12 @@ function ReportView({
                   </thead>
                   <tbody>
                     {ledger.rows.map((r, i) => (
-                      <PartyStatementRowBlock key={i} row={r} onOpen={() => openRow(r)} />
+                      <PartyStatementRowBlock
+                        key={i}
+                        row={r}
+                        prevBalance={i === 0 ? 0 : ledger.rows[i - 1].balance}
+                        onOpen={() => openRow(r)}
+                      />
                     ))}
                   </tbody>
                   <tfoot>

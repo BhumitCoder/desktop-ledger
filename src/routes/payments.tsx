@@ -208,24 +208,32 @@ function PaymentsPage() {
     },
     {
       key: "linked",
-      label: "Linked Invoice / Bill",
-      render: (r) => (
-        <span className="font-mono text-xs">
-          {r.allocations?.length ? (
-            r.allocations.map((a) => a.number).join(", ")
-          ) : r.ref && r.ref.match(/^(INV|PUR)-/) ? (
-            r.ref
-          ) : (
-            <span className="text-gray-400">—</span>
-          )}
-        </span>
-      ),
+      label: "Settled Against",
+      width: "170px",
+      render: (r) => {
+        const numbers = r.allocations?.length
+          ? r.allocations.map((a) => a.number)
+          : r.ref && r.ref.match(/^(INV|PUR)-/)
+            ? [r.ref]
+            : [];
+        if (!numbers.length) return <span className="text-gray-400">—</span>;
+        const shown = numbers.slice(0, 2).join(", ");
+        const rest = numbers.length - 2;
+        return (
+          <span className="font-mono text-xs whitespace-nowrap" title={numbers.join(", ")}>
+            {shown}
+            {rest > 0 && <span className="ml-1 font-sans text-gray-500">+{rest} more</span>}
+          </span>
+        );
+      },
     },
     {
       key: "mode",
-      label: "Mode",
-      width: "90px",
-      render: (r) => <span className="text-gray-600">{describePayment(r, bankName)}</span>,
+      label: "Received In / Paid From",
+      width: "150px",
+      render: (r) => (
+        <span className="text-gray-700 whitespace-nowrap">{describePayment(r, bankName)}</span>
+      ),
     },
     {
       key: "ref",

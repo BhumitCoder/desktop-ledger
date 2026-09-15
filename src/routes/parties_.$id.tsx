@@ -22,6 +22,7 @@ import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { sendElementViaWhatsApp } from "@/lib/whatsappSend";
 import { describePayment } from "@/lib/paymentSplit";
 import { NEEDS_DATE_HINT } from "@/lib/dateHint";
+import { Wallet, Package, ArrowUp, ArrowDown } from "lucide-react";
 import { ArrowDownCircle, ArrowUpCircle } from "lucide-react";
 import { partyStatementSheet } from "@/lib/partySheet";
 import { PartyDialog } from "./parties";
@@ -262,6 +263,16 @@ function PartyStatementPage() {
   }
 
   const balance = rows.length ? rows[rows.length - 1].balance : party.openingBalance || 0;
+  /* Said in words, because "Dr" and "Cr" mean nothing to the person this
+     statement is for — and a number with no direction is worse than no
+     number. The wording is from their side of the counter: the shop reads
+     this out to a customer, or hands it over. */
+  const closingMeaning =
+    balance > 0
+      ? "Total amount they owe you"
+      : balance < 0
+        ? "Total amount you owe them"
+        : "Nothing outstanding — fully settled";
   const totalReceived = rows.reduce((s, e) => s + (e.total > 0 ? e.receivedOrPaid : 0), 0);
   const totalBilled = rows.reduce((s, e) => s + e.total, 0);
 
@@ -571,20 +582,25 @@ function PartyStatementPage() {
             <table className="w-full text-[12px] border-collapse min-w-[980px]">
               <thead>
                 <tr className="bg-gray-50">
+                  {/* Eight columns that name themselves, not nine that need
+                      an accountant. "Txn Balance", "Receivable Balance" and
+                      "Payable Balance" asked the reader to hold three running
+                      figures at once and work out which applied; they are one
+                      Balance column now, and what it MEANS is said in words at
+                      the bottom rather than as Dr/Cr. */}
                   {[
-                    "Date",
-                    "Txn Type",
-                    "Ref No.",
-                    "Payment Status",
-                    "Total",
-                    "Received/Paid",
-                    "Txn Balance",
-                    "Receivable Balance",
-                    "Payable Balance",
-                  ].map((h, i) => (
+                    ["Date", "left"],
+                    ["Transaction Type", "left"],
+                    ["Reference No.", "left"],
+                    ["Description", "left"],
+                    ["Quantity", "right"],
+                    ["Rate (₹)", "right"],
+                    ["Amount (₹)", "right"],
+                    ["Balance (₹)", "right"],
+                  ].map(([h, align]) => (
                     <th
                       key={h}
-                      className={`px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500 border-b border-gray-200 whitespace-nowrap ${i >= 4 ? "text-right" : "text-left"}`}
+                      className={`px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500 border-b border-gray-200 whitespace-nowrap ${align === "right" ? "text-right" : "text-left"}`}
                     >
                       {h}
                     </th>
@@ -594,27 +610,52 @@ function PartyStatementPage() {
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="text-center py-14 text-gray-400">
+                    <td colSpan={8} className="text-center py-14 text-gray-400">
                       No transactions with this party yet
                     </td>
                   </tr>
                 ) : (
                   rows.map((e, i) => (
-                    <PartyStatementRowBlock key={i} row={e} onOpen={() => openRow(e)} />
+                    <PartyStatementRowBlock
+                      key={i}
+                      row={e}
+                      // Which way the balance moved is the clearest thing a
+                      // ledger can show, and it is only knowable against the
+                      // row before — so it is passed rather than guessed from
+                      // the transaction's name.
+                      prevBalance={i === 0 ? 0 : rows[i - 1].balance}
+                      onOpen={() => openRow(e)}
+                    />
                   ))
                 )}
               </tbody>
               {rows.length > 0 && (
                 <tfoot>
-                  <tr className="bg-gray-50 border-t-2 border-gray-200 font-bold">
-                    <td colSpan={7} className="px-3 py-3 text-xs uppercase text-gray-500">
-                      Closing Balance
+                  {/* One figure, and a sentence saying whose money it is.
+                      Two columns of "Receivable / Payable" with a dash in one
+                      of them made the reader do that work themselves — and
+                      "Dr" meant nothing at all to the person this is for. */}
+                  <tr className={balance < 0 ? "bg-amber-50/70" : "bg-rose-50/70"}>
+                    <td colSpan={6} className="px-4 py-4">
+                      <div className="flex items-center gap-2.5">
+                        <Wallet
+                          className={`h-5 w-5 shrink-0 ${balance < 0 ? "text-amber-600" : "text-rose-500"}`}
+                        />
+                        <div>
+                          <p
+                            className={`text-[13px] font-bold ${balance < 0 ? "text-amber-700" : "text-rose-600"}`}
+                          >
+                            Closing Balance
+                          </p>
+                          <p className="text-[11px] text-gray-500">{closingMeaning}</p>
+                        </div>
+                      </div>
                     </td>
-                    <td className="px-3 py-3 text-right tabular-nums text-rose-600">
-                      {balance > 0 ? fmtMoney(balance) : "—"}
-                    </td>
-                    <td className="px-3 py-3 text-right tabular-nums text-amber-600">
-                      {balance < 0 ? fmtMoney(-balance) : "—"}
+                    <td
+                      colSpan={2}
+                      className={`px-4 py-4 text-right text-lg font-bold tabular-nums ${balance < 0 ? "text-amber-700" : "text-rose-600"}`}
+                    >
+                      {fmtMoney(Math.abs(balance))}
                     </td>
                   </tr>
                 </tfoot>
@@ -807,6 +848,19 @@ function StatementCard({
   );
 }
 
+/** Bill numbers, kept to a width a column can hold. A payment applied to
+ *  seven invoices is real and common; printing all seven in a cell is what
+ *  pushed the amount and the payment mode out of view. */
+function shortRef(ref: string): string {
+  if (!ref) return "";
+  const parts = ref
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length <= 2) return ref;
+  return parts.slice(0, 2).join(", ") + " +" + (parts.length - 2) + " more";
+}
+
 /** An account's own name beats the word "Bank": a shop with three accounts
  *  learns nothing from being told the money went to "Bank". */
 const bankName = (id: string) => BankRepo.get(id)?.name;
@@ -834,130 +888,144 @@ function modeOf(e: PartyStatementRow): string | undefined {
  * in the bill. */
 export function PartyStatementRowBlock({
   row: e,
+  prevBalance,
   onOpen,
 }: {
   row: PartyStatementRow;
+  /** The balance before this row, so the arrow can show which way it moved. */
+  prevBalance: number;
   onOpen: () => void;
 }) {
-  const itemSubtotal = e.items?.reduce((s, it) => s + it.amount, 0) ?? 0;
+  const isOpening = e.type === "Beginning Balance" || e.type === "Balance b/f";
+  const delta = e.balance - prevBalance;
+
+  /* One item is the common case in this shop, and when there is exactly one
+     its quantity and rate belong on the row itself — putting them only in a
+     sub-table made every sale a two-step read. More than one, and the row
+     shows the count and lets the breakdown underneath do the work. */
+  const items = e.items ?? [];
+  const oneItem = items.length === 1 ? items[0] : null;
+  const totalQty = items.reduce((t, it) => t + (it.qty || 0), 0);
+
+  const description = isOpening
+    ? "Beginning Balance"
+    : oneItem
+      ? oneItem.name
+      : items.length > 1
+        ? `${items.length} items`
+        : e.type;
+
   return (
     <>
       <tr
         onClick={onOpen}
         title={e.docId ? "Open this bill" : undefined}
-        className={`border-b border-gray-100 hover:bg-gray-50/60 ${e.docId ? "cursor-pointer" : ""} ${e.type === "Beginning Balance" || e.type === "Balance b/f" ? "bg-gray-50/40 font-semibold" : ""}`}
+        className={`border-b border-gray-100 hover:bg-gray-50/60 ${e.docId ? "cursor-pointer" : ""} ${isOpening ? "bg-gray-50/40 font-semibold" : ""}`}
         style={{
           breakInside: "avoid",
-          breakAfter: e.items?.length ? "avoid" : undefined,
+          breakAfter: items.length ? "avoid" : undefined,
         }}
       >
         <td className="px-3 py-2.5 text-gray-600 whitespace-nowrap">
-          {e.date ? fmtDate(e.date) : ""}
+          {isOpening ? <Wallet className="h-4 w-4 text-gray-400" /> : e.date ? fmtDate(e.date) : ""}
         </td>
-        <td className="px-3 py-2.5 font-medium text-gray-800 whitespace-nowrap">
-          {e.type}
-          {modeOf(e) && (
-            <span className="block text-[10px] font-normal text-gray-400 leading-tight">
-              {modeOf(e)}
-            </span>
-          )}
-        </td>
-        <td className="px-3 py-2.5 font-mono text-xs text-blue-600 whitespace-nowrap">{e.ref}</td>
+
+        {/* A pill with the direction on it. Which way the balance moved is the
+            one thing a ledger can say without any accounting vocabulary at
+            all — up means they owe more than they did on the line above, down
+            means less. */}
         <td className="px-3 py-2.5 whitespace-nowrap">
-          {e.status && (
+          {isOpening ? (
+            <span className="text-gray-400">—</span>
+          ) : (
             <span
-              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-                e.status === "Paid"
-                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                  : e.status === "Partial"
-                    ? "bg-amber-50 text-amber-700 border-amber-200"
-                    : "bg-rose-50 text-rose-700 border-rose-200"
+              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                delta >= 0 ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-600"
               }`}
             >
-              {e.status}
+              {delta >= 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+              {e.type}
             </span>
           )}
+          {modeOf(e) && <span className="ml-1.5 text-[10px] text-gray-400">{modeOf(e)}</span>}
         </td>
-        <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">
-          {e.total ? fmtMoney(e.total) : "—"}
+
+        {/* A receipt settling seven bills printed all seven numbers here and
+            pushed every column after it off the screen. Two, then a count —
+            the full list is on hover, and on the bill itself. */}
+        <td className="px-3 py-2.5 font-mono text-xs text-blue-600 whitespace-nowrap" title={e.ref}>
+          {isOpening ? <span className="text-gray-400">—</span> : shortRef(e.ref)}
         </td>
-        <td className="px-3 py-2.5 text-right tabular-nums text-emerald-600 whitespace-nowrap">
-          {e.receivedOrPaid ? fmtMoney(e.receivedOrPaid) : "—"}
+
+        <td className="px-3 py-2.5 text-gray-800">{description}</td>
+
+        <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap text-gray-700">
+          {totalQty ? totalQty : <span className="text-gray-400">—</span>}
         </td>
-        <td className="px-3 py-2.5 text-right tabular-nums text-rose-600 whitespace-nowrap">
-          {e.txnBalance ? fmtMoney(e.txnBalance) : "—"}
+
+        <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap text-gray-700">
+          {oneItem ? fmtMoney(oneItem.price) : <span className="text-gray-400">—</span>}
         </td>
-        <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-rose-600 whitespace-nowrap">
-          {e.balance > 0 ? fmtMoney(e.balance) : "—"}
+
+        <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap font-medium text-gray-800">
+          {e.total ? fmtMoney(e.total) : <span className="text-gray-400">—</span>}
         </td>
-        <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-amber-600 whitespace-nowrap">
-          {e.balance < 0 ? fmtMoney(-e.balance) : "—"}
+
+        {/* One running balance, coloured by whose money it is. The sentence
+            under Closing Balance says which, once, rather than every row
+            carrying a Dr or a Cr nobody reads. */}
+        <td
+          className={`px-3 py-2.5 text-right tabular-nums whitespace-nowrap font-semibold ${
+            e.balance > 0 ? "text-rose-600" : e.balance < 0 ? "text-amber-600" : "text-gray-400"
+          }`}
+        >
+          {e.balance === 0 ? "Settled" : fmtMoney(Math.abs(e.balance))}
         </td>
       </tr>
-      {!!e.items?.length && (
+
+      {/* The breakdown, as one quiet line per item rather than a table with
+          its own headers inside every row — which is what made a statement of
+          twenty sales read like twenty separate documents. */}
+      {items.map((it, i) => (
         <tr
-          className="border-b border-gray-100 bg-gray-50/30"
+          key={i}
+          className="border-b border-gray-100 bg-gray-50/40"
           style={{ breakInside: "avoid", breakBefore: "avoid" }}
         >
-          <td colSpan={9} className="px-3 pb-3 pt-1">
-            <table className="w-full text-[11.5px] border-collapse bg-white border rounded-md overflow-hidden">
-              <thead>
-                <tr className="bg-gray-100">
-                  <th className="text-left px-2.5 py-1.5 text-[10px] font-semibold uppercase text-gray-500 w-8">
-                    #
-                  </th>
-                  <th className="text-left px-2.5 py-1.5 text-[10px] font-semibold uppercase text-gray-500">
-                    Item name
-                  </th>
-                  <th className="text-right px-2.5 py-1.5 text-[10px] font-semibold uppercase text-gray-500 w-20">
-                    Quantity
-                  </th>
-                  <th className="text-right px-2.5 py-1.5 text-[10px] font-semibold uppercase text-gray-500 w-24">
-                    Price/Unit
-                  </th>
-                  <th className="text-right px-2.5 py-1.5 text-[10px] font-semibold uppercase text-gray-500 w-24">
-                    Amount
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {e.items.map((it, i) => (
-                  <tr key={i} className="border-t border-gray-100">
-                    <td className="px-2.5 py-1.5 text-gray-400">{i + 1}</td>
-                    <td className="px-2.5 py-1.5 text-gray-800">{it.name}</td>
-                    <td className="px-2.5 py-1.5 text-right tabular-nums">{it.qty}</td>
-                    <td className="px-2.5 py-1.5 text-right tabular-nums">{fmtMoney(it.price)}</td>
-                    <td className="px-2.5 py-1.5 text-right tabular-nums">{fmtMoney(it.amount)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t border-gray-200 font-semibold bg-gray-50">
-                  <td
-                    colSpan={4}
-                    className="px-2.5 py-1.5 text-right text-gray-500 uppercase text-[10px]"
-                  >
-                    Sub Total
-                  </td>
-                  <td className="px-2.5 py-1.5 text-right tabular-nums">
-                    {fmtMoney(itemSubtotal)}
-                  </td>
-                </tr>
-                {(e.charges ?? []).map((c, i) => (
-                  <tr key={i} className="border-t border-gray-100 text-gray-500">
-                    <td colSpan={4} className="px-2.5 py-1 text-right uppercase text-[10px]">
-                      {c.label}
-                    </td>
-                    <td className="px-2.5 py-1 text-right tabular-nums">
-                      {c.amount < 0 ? `−${fmtMoney(-c.amount)}` : fmtMoney(c.amount)}
-                    </td>
-                  </tr>
-                ))}
-              </tfoot>
-            </table>
+          <td className="px-3 py-1.5" />
+          <td colSpan={7} className="px-3 py-1.5">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11.5px] text-gray-600">
+              <span className="flex items-center gap-1.5 font-medium text-gray-700">
+                <Package className="h-3.5 w-3.5 text-gray-400" />
+                {it.name}
+              </span>
+              <span className="text-gray-400">
+                Qty: <span className="tabular-nums text-gray-700">{it.qty}</span>
+              </span>
+              <span className="text-gray-400">
+                Rate: <span className="tabular-nums text-gray-700">{fmtMoney(it.price)}</span>
+              </span>
+              <span className="text-gray-400">
+                Amount: <span className="tabular-nums text-gray-700">{fmtMoney(it.amount)}</span>
+              </span>
+            </div>
           </td>
         </tr>
-      )}
+      ))}
+
+      {/* Shipping, discounts and the like — shown only when there are any, so
+          an ordinary bill stays two lines. */}
+      {(e.charges ?? []).map((c, i) => (
+        <tr key={"c" + i} className="border-b border-gray-100 bg-gray-50/40">
+          <td className="px-3 py-1.5" />
+          <td colSpan={7} className="px-3 py-1.5 text-[11.5px] text-gray-500">
+            {c.label}:{" "}
+            <span className="tabular-nums text-gray-700">
+              {c.amount < 0 ? `−${fmtMoney(-c.amount)}` : fmtMoney(c.amount)}
+            </span>
+          </td>
+        </tr>
+      ))}
     </>
   );
 }

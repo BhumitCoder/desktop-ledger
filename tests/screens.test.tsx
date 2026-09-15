@@ -4672,6 +4672,57 @@ async function runAll(): Promise<Results> {
     }
   }
 
+  /* ── The party statement reads without an accountant ──────────────────
+     "This is so hard to understand for uneducated people." It carried nine
+     columns, three of which were running balances — Txn Balance, Receivable
+     Balance, Payable Balance — and closed with a figure marked Dr, which
+     means nothing to the person this is handed to.
+
+     Eight columns now, one balance, and the closing figure says in words
+     whose money it is. Asserted on what is actually on the page, because
+     every one of these is a thing the shop looks for and would notice gone. */
+  {
+    const stmt = await renderRoute("/parties/P1");
+
+    for (const heading of [
+      "Transaction Type",
+      "Reference No.",
+      "Description",
+      "Quantity",
+      "Amount",
+      "Balance",
+    ]) {
+      has(stmt, heading, "statement: the column named " + heading);
+    }
+
+    /* The three that had to go. "Dr" is the clearest example of the whole
+       complaint: correct, conventional, and unreadable to this shop. */
+    assert(
+      !stmt.includes("Txn Balance") && !stmt.includes("Receivable Balance"),
+      "statement: the three competing balance columns are gone",
+    );
+    assert(!/\bDr\b/.test(stmt) && !/\bCr\b/.test(stmt), "statement: and so is Dr / Cr");
+
+    /* What replaced them: the same fact, in a sentence. */
+    assert(
+      /Total amount (they owe you|you owe them)|Nothing outstanding/.test(stmt),
+      "statement: the closing balance says whose money it is, in words",
+    );
+    has(stmt, "Closing Balance", "statement: and still calls it the closing balance");
+
+    /* A receipt applied to several bills used to print every number in the
+       reference cell and push the columns after it off the screen. */
+    const longRef = Array.from(document.querySelectorAll("td[title]")).find(
+      (td) => (td.getAttribute("title") ?? "").split(",").length > 2,
+    );
+    if (longRef) {
+      assert(
+        (longRef.textContent ?? "").includes("more"),
+        "statement: a payment settling many bills is summarised, not printed in full",
+      );
+    }
+  }
+
   const bulkHost = document.createElement("div");
   document.body.appendChild(bulkHost);
   const bulkRoot = createRoot(bulkHost);
