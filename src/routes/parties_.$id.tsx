@@ -591,9 +591,9 @@ function PartyStatementPage() {
                   {[
                     ["Date", "left"],
                     ["Particulars", "left"],
-                    ["You Gave (₹)", "right"],
-                    ["You Got (₹)", "right"],
-                    ["Balance (₹)", "right"],
+                    ["You Gave", "right"],
+                    ["You Got", "right"],
+                    ["Balance", "right"],
                   ].map(([h, align]) => (
                     <th
                       key={h}
@@ -627,7 +627,7 @@ function PartyStatementPage() {
                 )}
               </tbody>
               {rows.length > 0 && (
-                <tfoot>
+                <tbody>
                   {/* One figure, and a sentence saying whose money it is.
                       Two columns of "Receivable / Payable" with a dash in one
                       of them made the reader do that work themselves — and
@@ -655,7 +655,7 @@ function PartyStatementPage() {
                       {fmtMoney(Math.abs(balance))}
                     </td>
                   </tr>
-                </tfoot>
+                </tbody>
               )}
             </table>
           </div>
@@ -729,14 +729,17 @@ function PartyStatementPage() {
               <td />
             </tr>
           </tbody>
-          <tfoot>
+          {/* A totals row, not a page furniture row: in a tfoot the browser
+              reprints it at the foot of EVERY printed page, so a two-page
+              ledger ended with two different bottom lines. */}
+          <tbody>
             <tr className="border-t-2 border-black font-bold">
               <td colSpan={3} />
               <td className="px-2 py-1.5 text-right tabular-nums">{fmtMoney(simpleCreditTotal)}</td>
               <td className="px-2 py-1.5 text-right tabular-nums">{fmtMoney(simpleDebitTotal)}</td>
               <td />
             </tr>
-          </tfoot>
+          </tbody>
         </table>
       </div>
 
@@ -899,7 +902,11 @@ export function PartyStatementRowBlock({
 
   const items = e.items ?? [];
   const charges = e.charges ?? [];
-  const hasDetail = items.length > 0 || charges.length > 0;
+  /* A breakdown only where the row cannot already speak for itself. One
+     item is printed in full on the row — name, quantity, rate — so giving it
+     a detail block repeats it word for word, which is what the shop objected
+     to in the first place, and on paper there is no fold to hide it behind. */
+  const hasDetail = items.length > 1 || charges.length > 0;
   const oneItem = items.length === 1 ? items[0] : null;
 
   /* The date only when it changes. A page where every line repeats the same
@@ -964,7 +971,7 @@ export function PartyStatementRowBlock({
                 ev.stopPropagation();
                 setOpen((v) => !v);
               }}
-              className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-gray-400 hover:text-gray-600"
+              className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-gray-400 hover:text-gray-600 print:hidden"
             >
               {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
               {open ? "Hide details" : "View details"}
@@ -1003,8 +1010,11 @@ export function PartyStatementRowBlock({
         </td>
       </tr>
 
-      {open && hasDetail && (
-        <tr className="border-b border-gray-100 bg-gray-50/60" style={{ breakInside: "avoid" }}>
+      {hasDetail && (
+        <tr
+          className={`border-b border-gray-100 bg-gray-50/60 ${open ? "" : "hidden print:table-row"}`}
+          style={{ breakInside: "avoid" }}
+        >
           <td />
           <td colSpan={4} className="px-4 pb-3 pt-0">
             <table className="w-full text-[11.5px]">

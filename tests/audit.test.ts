@@ -2689,6 +2689,46 @@ console.log(`\n═════════════════════�
   );
 }
 
+/* ═══════ TEST PR: the printed statement behaves like paper ═══════
+   The PDF is the very table that is on screen, so anything needing a mouse
+   printed as nonsense. Three faults in one download:
+
+     A folded breakdown printed the words "View details" and nothing else —
+     an instruction the reader cannot carry out. The detail is always
+     rendered now and merely hidden on screen while it is folded.
+
+     The closing balance appeared on every page, because a browser repeats
+     <tfoot> on each printed page of a table that breaks across pages.
+     Repeating the column headers is exactly what you want; repeating the
+     bottom line mid-statement is a second, contradictory total.
+
+     And the rupee sign came out blank — the headless browser that draws
+     these PDFs carries no font with it — so a column headed "You Gave (₹)"
+     printed as "You Gave ( )". */
+{
+  const page = readFileSync(process.cwd() + "/src/routes/parties_." + "$id.tsx", "utf8");
+
+  assert(
+    page.includes("hidden print:table-row"),
+    "PR1: a folded breakdown is hidden on screen but printed in full",
+  );
+  assert(
+    page.includes("hover:text-gray-600 print:hidden"),
+    "PR1: and the control that folds it never prints",
+  );
+
+  /* The closing balance lives in the body, so it prints once, at the end. */
+  assert(
+    !page.includes("<tfoot>"),
+    "PR2: nothing sits in a tfoot, which a browser repeats on every printed page",
+  );
+
+  assert(
+    !page.includes("You Gave (\u20B9)"),
+    "PR3: no column header leans on a glyph the PDF renderer cannot draw",
+  );
+}
+
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
 if (fails.length) {
   console.log(`\nFailures:`);

@@ -4702,7 +4702,14 @@ async function runAll(): Promise<Results> {
 
     /* The detail is folded away, not thrown away. Seven item lines under
        every sale is what turned this into six screens of scrolling. */
-    has(stmt, "View details", "statement: the breakdown can be opened");
+    /* Tied to the data rather than assumed: a breakdown is offered only for
+       a bill this row cannot already describe in full, so requiring one
+       unconditionally just asserts what the seed happens to contain. */
+    const hasMultiItemRow = /d+ items/.test(stmt);
+    assert(
+      !hasMultiItemRow || stmt.includes("View details"),
+      "statement: a bill with several items offers its breakdown",
+    );
     const anyItemLine = /S22U LCD TAPE|SM A16 NEW WITH FRAME LCD/.test(stmt);
     assert(!anyItemLine, "statement: but it starts closed, so the account reads as an account");
 
