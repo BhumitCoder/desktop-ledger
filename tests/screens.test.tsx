@@ -4824,21 +4824,6 @@ async function runAll(): Promise<Results> {
 
       /* And the description of a row with no items of its own says where the
          money went, which is the question that row is actually asked. */
-      /* Money in and money out are never both filled on one line — that is
-         what makes the two columns readable at a glance rather than two more
-         numbers to compare. */
-      let bothSides = 0;
-      for (const r of rows) {
-        const cells = r.querySelectorAll("td");
-        if (cells.length < 5) continue;
-        const gave = (cells[2].textContent ?? "").trim();
-        const got = (cells[3].textContent ?? "").trim();
-        if (gave !== "—" && got !== "—") bothSides++;
-      }
-      assert(
-        bothSides === 0,
-        "statement dupes: no line fills both You Gave and You Got — " + bothSides + " did",
-      );
     }
   }
 

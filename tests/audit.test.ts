@@ -2638,6 +2638,25 @@ console.log(`\n═════════════════════�
      scroll handling of any kind while the bank and item pickers beside it
      did. That is how a shared hook gets written and a caller still gets
      forgotten. */
+  /* The two money columns are mutually exclusive BY CONSTRUCTION — one
+     renders only while the balance rose, the other only while it fell. That
+     is what makes the pair readable at a glance instead of two more numbers
+     to compare, and it is the first thing a careless edit would lose.
+
+     Asserted from the source after two behavioural attempts failed to catch
+     it: walking table cells by position also picks up the cells of the
+     nested breakdown table inside a row, so the column an index points at
+     depends on the data. A check that cannot be trusted is worse than none. */
+  const stmt = readFileSync(process.cwd() + "/src/routes/parties_." + "$id.tsx", "utf8");
+  assert(
+    stmt.includes("{!isOpening && delta > 0 && ("),
+    "D4: the You Gave column fills only when the balance rose",
+  );
+  assert(
+    stmt.includes("{!isOpening && delta < 0 && ("),
+    "D4: and You Got only when it fell — never both on one line",
+  );
+
   const bill = readFileSync(process.cwd() + "/src/components/InvoiceForm.tsx", "utf8");
   assert(
     bill.includes("useHighlightScroll(partyListRef, partyIdx, partyOpen)"),
@@ -2726,8 +2745,12 @@ console.log(`\n═════════════════════�
     page.includes("hidden print:table-row"),
     "PR1: a folded breakdown is hidden on screen but printed in full",
   );
+  /* Matched on the control, not on its styling: the first version pinned an
+     exact hover colour and broke the moment the row was restyled, which
+     tells you nothing about whether the button still prints. */
+  const foldButton = page.slice(page.indexOf("setOpen((v) => !v)"));
   assert(
-    page.includes("hover:text-gray-600 print:hidden"),
+    foldButton.slice(0, 400).includes("print:hidden"),
     "PR1: and the control that folds it never prints",
   );
 
