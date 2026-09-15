@@ -64,8 +64,17 @@ function SalesPage() {
   const deleteAllowed = isOwner || canDelete("sales");
   const [rows, setRows] = useState<Invoice[]>([]);
   const [parties, setParties] = useState<{ id: string; name: string }[]>([]);
-  const [dateFrom, setDateFrom] = useState(() => filterCache?.dateFrom ?? monthStart());
-  const [dateTo, setDateTo] = useState(() => filterCache?.dateTo ?? today());
+  /* Opens on everything, not on this month.
+   *
+   * A list that silently hides last month's bills is a list that answers the
+   * wrong question: the shop looks for an invoice, does not find it, and has
+   * no reason to suspect a filter it never set. An empty range means no
+   * filter at all, and a date typed in is then a deliberate act.
+   *
+   * The saved filter still wins when there is one — a range somebody chose
+   * survives navigating away and back. */
+  const [dateFrom, setDateFrom] = useState(() => filterCache?.dateFrom ?? "");
+  const [dateTo, setDateTo] = useState(() => filterCache?.dateTo ?? "");
   const [partyId, setPartyId] = useState(() => filterCache?.partyId ?? "all");
   const [status, setStatus] = useState<Status>(() => filterCache?.status ?? "all");
   const [search, setSearch] = useState(() => filterCache?.search ?? "");

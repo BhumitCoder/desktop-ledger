@@ -1027,6 +1027,29 @@ async function runAll(): Promise<Results> {
 
     const confirm = findButton(/Confirm Receipt/);
     assert(!!confirm, "quick entry: found Confirm Receipt");
+
+    /* Nothing is pre-selected any more, so this must refuse until somebody
+       says where the money went. The shop asked for the default to go: a
+       receipt that records cash because nobody looked at the pills is money
+       filed in the wrong place, with nothing to show it was never a
+       decision. Asserted BEFORE the happy path, because a guard that quietly
+       stopped working would otherwise be invisible here. */
+    await act(async () => {
+      confirm!.click();
+    });
+    await settleMs(150);
+    assert(
+      PaymentRepo.all().filter((p) => p.partyId === "QEP").length === 0,
+      "quick entry: confirming without choosing Cash or Bank records nothing",
+    );
+
+    const cashPill = document.querySelector('[data-mode="cash"]') as HTMLElement | null;
+    assert(!!cashPill, "quick entry: the Cash pill is there to choose");
+    await act(async () => {
+      cashPill!.click();
+    });
+    await settleMs(80);
+
     await act(async () => {
       confirm!.click();
     });

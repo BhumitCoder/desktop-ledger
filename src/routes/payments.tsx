@@ -575,6 +575,17 @@ function ReceivePaymentDialog({
 
   const [date, setDate] = useState(today());
   const [mode, setMode] = useState<PaymentMode>("cash");
+  /**
+   * Whether a person has actually picked the mode, as opposed to it holding
+   * the value it was initialised with.
+   *
+   * `mode` cannot simply start undefined — everything downstream is typed on
+   * a real PaymentMode — so the fact of having chosen is tracked separately.
+   * Without it a receipt taken in the bank saves as cash whenever nobody
+   * noticed the pre-lit pill, which is money in the wrong place and no
+   * record of anyone having decided anything.
+   */
+  const [modeChosen, setModeChosen] = useState(false);
   /** Rows, once the money came in more than one way. null is the ordinary
    *  single-mode receipt, which is most of them. */
   const [splitRows, setSplitRows] = useState<PaymentSplit[] | null>(null);
@@ -634,6 +645,8 @@ function ReceivePaymentDialog({
         setSelectedParty({ id: editing.partyId, name: editing.partyName });
         setDate(editing.date);
         setMode(editing.mode);
+        // An existing receipt HAS a chosen mode — that is what it recorded.
+        setModeChosen(true);
         setBankId(editing.bankId ?? "");
         /* Reopening a split receipt must show it as the split it is. Without
            this it opened as single-mode and SAVING destroyed the split:
@@ -651,6 +664,7 @@ function ReceivePaymentDialog({
         setSelectedParty(null);
         setDate(today());
         setMode("cash");
+        setModeChosen(false);
         setBankId("");
         setBankQ("");
         setManualAmount(0);
@@ -870,6 +884,15 @@ function ReceivePaymentDialog({
     const amount = effectiveAmount;
     if ((!amount || amount <= 0) && totalDiscount <= 0) {
       toast.error("Enter or select an amount to pay");
+      return;
+    }
+    /* Nothing is pre-selected, so nothing may be assumed. A receipt that
+       records cash because nobody looked at the pills is money filed in the
+       wrong place, and the ledger has no way of knowing it was never a
+       decision. A split says where every rupee went by construction, so it
+       needs no separate answer here. */
+    if (!splitRows && !modeChosen) {
+      toast.error("Choose how the money moved — Cash or Bank");
       return;
     }
     if (!splitRows && mode === "bank" && !bankId) {
@@ -1482,9 +1505,10 @@ function ReceivePaymentDialog({
               <label className="font-semibold text-gray-600">Payment Mode</label>
               <div className="flex items-center h-8">
                 <ModePills
-                  value={mode}
+                  value={modeChosen ? mode : undefined}
                   onChange={(m) => {
                     setMode(m);
+                    setModeChosen(true);
                     if (m !== "bank") {
                       setBankId("");
                       setBankQ("");

@@ -103,8 +103,17 @@ function ReportsPage() {
   const [active, setActive] = useState(() =>
     REPORTS.some((x) => x.key === r) ? (r as string) : (activeReportCache ?? "pl"),
   );
-  const [dateFrom, setDateFrom] = useState(() => dateCache?.dateFrom ?? monthStart());
-  const [dateTo, setDateTo] = useState(() => dateCache?.dateTo ?? today());
+  /* Opens on everything, not on this month.
+   *
+   * A list that silently hides last month's bills is a list that answers the
+   * wrong question: the shop looks for an invoice, does not find it, and has
+   * no reason to suspect a filter it never set. An empty range means no
+   * filter at all, and a date typed in is then a deliberate act.
+   *
+   * The saved filter still wins when there is one — a range somebody chose
+   * survives navigating away and back. */
+  const [dateFrom, setDateFrom] = useState(() => dateCache?.dateFrom ?? "");
+  const [dateTo, setDateTo] = useState(() => dateCache?.dateTo ?? "");
   const [pdfBusy, setPdfBusy] = useState<"download" | "share" | null>(null);
   // Mobile-only: the report list and the report content don't fit side by
   // side on a phone the way they do on desktop's two-pane layout, so mobile

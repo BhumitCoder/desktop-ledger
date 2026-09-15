@@ -56,11 +56,44 @@ export interface WhatsAppLinkState {
  */
 async function readBridge(): Promise<WhatsAppStatus> {
   const { url, key } = serviceConfig();
-  const res = await fetch(`${url}/qr`, {
-    headers: { "x-api-key": key },
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) throw new Error("Could not reach the WhatsApp service");
+  let res: Response;
+  try {
+    res = await fetch(`${url}/qr`, {
+      headers: { "x-api-key": key },
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch (err) {
+    /* Never reached the service at all: DNS, TLS, or it took longer than the
+       timeout. Named separately from a refusal below, because "it didn't
+       answer" and "it answered no" send you to completely different places. */
+    const timedOut = err instanceof Error && err.name === "TimeoutError";
+    throw new Error(
+      timedOut
+        ? "The WhatsApp service didn't answer within 8 seconds — it may be waking up."
+        : `Couldn't connect to the WhatsApp service (${err instanceof Error ? err.message : "network error"})`,
+    );
+  }
+
+  /* The service DID answer and said no. Which status it used is the entire
+     diagnosis and used to be discarded: a 401 is a wrong API key in this
+     deployment's environment variables, a 404 is a wrong URL, a 5xx is the
+     service itself. Reported as one sentence somebody can act on rather than
+     the flat "could not reach", which sent us looking at a service that was
+     answering perfectly well in under half a second. */
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    const hint =
+      res.status === 401 || res.status === 403
+        ? " — WHATSAPP_SERVICE_API_KEY doesn't match the service's own API_KEY"
+        : res.status === 404
+          ? " — check WHATSAPP_SERVICE_URL"
+          : "";
+    throw new Error(
+      `The WhatsApp service refused the request (HTTP ${res.status})${hint}${
+        detail ? `: ${detail.slice(0, 120)}` : ""
+      }`,
+    );
+  }
   return res.json();
 }
 

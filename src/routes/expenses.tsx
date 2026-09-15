@@ -310,7 +310,9 @@ function ExpenseDialog({
     f.category && !categories.includes(f.category) ? [f.category, ...categories] : categories;
   useEffect(() => {
     if (open) {
-      setF(expense ?? { date: today(), paymentMode: "cash", amount: 0, category: "" });
+      // No paymentMode: a blank expense has not been paid any particular way
+      // yet, and pre-lighting Cash is how one gets recorded as cash by default.
+      setF(expense ?? { date: today(), amount: 0, category: "" });
       // Same as the payment dialog: reopening a split expense must show the
       // split, or saving it again quietly re-attributes the money.
       setSplitRows(expense?.splits?.length ? expense.splits : null);
@@ -385,6 +387,12 @@ function ExpenseDialog({
         toast.error(problems[0].message, { duration: 8000 });
         return;
       }
+    }
+    /* Same rule as a receipt: with nothing pre-selected, an unanswered
+       question must be asked rather than answered with a default. */
+    if (!splitRows && !f.paymentMode) {
+      toast.error("Choose how this was paid — Cash or Bank");
+      return;
     }
     if (!splitRows && f.paymentMode === "bank" && !f.bankId) {
       toast.error("Select which bank account this was paid from");
@@ -560,7 +568,7 @@ function ExpenseDialog({
             <span className="text-muted-foreground font-medium">Payment Mode</span>
             <div className="flex items-center h-8">
               <ModePills
-                value={f.paymentMode ?? "cash"}
+                value={f.paymentMode}
                 onChange={(m) => {
                   setF({ ...f, paymentMode: m, bankId: m === "bank" ? f.bankId : undefined });
                 }}
