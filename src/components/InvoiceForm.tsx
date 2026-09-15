@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/Field";
@@ -294,6 +294,9 @@ export function InvoiceForm({ mode, existing }: Props) {
   /** The form's own scrolling region — reset to the top whenever a different
    *  bill is put into it. */
   const scrollRef = useRef<HTMLDivElement>(null);
+  /** Where the router thinks we are. A workspace tab keeps its component
+   *  mounted, so this is what tells the form it is being opened again. */
+  const formPathname = useRouterState({ select: (st) => st.location.pathname });
   /** Set when a mode is picked, consumed by the effect below. */
   const focusAfterMode = useRef<PaymentMode | null>(null);
   const prevBankIdx = useRef(bankIdx);
@@ -322,9 +325,38 @@ export function InvoiceForm({ mode, existing }: Props) {
     else if (m !== "credit") amountRef.current?.focus();
   }, [inv.paymentMode, modeChosen]);
 
+  /* Start at the top — and stay there long enough for it to count.
+
+     The first version reset once, on mount, and the shop still opened a
+     scrolled form: close a half-scrolled New Sale, open another, and there it
+     was again part-way down. Resetting once is not enough, because the things
+     that move a fresh form happen AFTER it mounts — the repo data lands and
+     the page grows, a picker restores its state, the router does its own
+     scroll handling. Whichever of those did it, the answer is the same: put
+     it back on the next tick too.
+
+     Two frames, then done. Nobody scrolls deliberately in the first 80ms of a
+     form they just opened, so this cannot fight a real user; and it stops
+     short of a loop that would make the form impossible to scroll at all.
+
+     Keyed on the route as well as the bill, because opening a new bill after
+     closing one is not a new mount in a workspace that keeps tabs alive — the
+     location changing is the only signal that anything happened. */
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: 0 });
-  }, [existing?.id]);
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = 0;
+    const raf = requestAnimationFrame(() => {
+      el.scrollTop = 0;
+    });
+    const t = setTimeout(() => {
+      el.scrollTop = 0;
+    }, 80);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(t);
+    };
+  }, [existing?.id, formPathname]);
 
   const selectBank = (b: BankAccount) => {
     setInv({ ...inv, bankId: b.id });
@@ -1239,7 +1271,11 @@ export function InvoiceForm({ mode, existing }: Props) {
         </div>
       </div>
 
-      <div ref={scrollRef} className="p-4 md:p-5 space-y-4 overflow-auto flex-1 bg-muted/30">
+      <div
+        ref={scrollRef}
+        data-bill-scroll
+        className="p-4 md:p-5 space-y-4 overflow-auto flex-1 bg-muted/30"
+      >
         {/* Party + meta */}
         <div className="bg-card border rounded-lg shadow-card p-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 mb-3">

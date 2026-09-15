@@ -2650,6 +2650,45 @@ console.log(`\n═════════════════════�
   }
 }
 
+/* ═══════ TEST B: a reopened bill form starts at the top ═══════
+   Reported twice: open a new bill, scroll down, close it, open another, and
+   it came back part-way down — customer card off the top, party field out of
+   reach.
+
+   Source-level, and for a reason worth writing down rather than hiding. The
+   screen harness renders an 800x600 window, where an empty bill is not tall
+   enough to scroll at all, so any assertion about its scroll position passes
+   without testing anything — which is exactly what happened when I tried,
+   and the check said so instead of going green. It also builds a fresh
+   router per render, so it cannot reproduce the case that actually broke: a
+   workspace tab whose component stays mounted while you work elsewhere.
+
+   A test that cannot fail is worse than no test. What CAN be pinned is that
+   the reset exists, happens more than once, and is keyed on more than first
+   mount. Plain string checks rather than regexes, because the thing being
+   matched is full of brackets and an escaping slip here fails silently. */
+{
+  const form = readFileSync(process.cwd() + "/src/components/InvoiceForm.tsx", "utf8");
+
+  assert(form.includes("data-bill-scroll"), "B1: the form has a scrolling region of its own");
+  assert(form.includes("el.scrollTop = 0;"), "B1: which is put back to the top");
+
+  /* Once was not enough: the things that move a fresh form — data landing, a
+     picker restoring, the router's own scroll handling — all happen after
+     mount. */
+  assert(
+    form.includes("requestAnimationFrame(") && form.includes("}, 80);"),
+    "B2: on the next frame and the next tick too, not only once on mount",
+  );
+
+  /* Keyed on the route, because reopening a bill in a workspace that keeps
+     tabs alive is not a new mount. */
+  assert(
+    form.includes("[existing?.id, formPathname]"),
+    "B3: and re-runs when the form is opened again, not only when it is built",
+  );
+}
+
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
 if (fails.length) {
   console.log(`\nFailures:`);
