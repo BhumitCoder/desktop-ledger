@@ -292,15 +292,6 @@ function SalesPage() {
               />
             </div>
 
-            {filtersActive && (
-              <button
-                onClick={clearFilters}
-                className="hidden sm:flex text-xs text-gray-400 hover:text-gray-600 transition items-center gap-1"
-              >
-                <X className="h-3 w-3" /> Clear
-              </button>
-            )}
-
             {editAllowed && (
               <button
                 onClick={() => navigate({ to: "/sales/new" })}
