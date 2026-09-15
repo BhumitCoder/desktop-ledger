@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { useHighlightScroll } from "@/hooks/useHighlightScroll";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/Field";
@@ -224,6 +225,9 @@ export function InvoiceForm({ mode, existing }: Props) {
   const [phoneQ, setPhoneQ] = useState(existing?.partyPhone ?? "");
   const [partyOpen, setPartyOpen] = useState(false);
   const [partyIdx, setPartyIdx] = useState(0);
+  /** Arrowing past the bottom edge used to move the highlight invisibly. */
+  const partyListRef = useRef<HTMLDivElement>(null);
+  useHighlightScroll(partyListRef, partyIdx, partyOpen);
   const [numberEditing, setNumberEditing] = useState(false);
   const numberRef = useRef<HTMLInputElement>(null);
   // The opening number was computed at mount from repo.all(), which on a cold
@@ -1357,10 +1361,14 @@ export function InvoiceForm({ mode, existing }: Props) {
                 </div>
               </label>
               {partyOpen && partySuggests.length > 0 && (
-                <div className="absolute z-20 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-elevated max-h-64 overflow-auto">
+                <div
+                  ref={partyListRef}
+                  className="absolute z-20 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-elevated max-h-64 overflow-auto"
+                >
                   {partySuggests.map((p, i) => (
                     <div
                       key={p.id}
+                      data-opt={i}
                       onMouseDown={(e) => {
                         e.preventDefault();
                         selectParty(p);

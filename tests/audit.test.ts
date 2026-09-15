@@ -2628,7 +2628,21 @@ console.log(`\n═════════════════════�
     "/src/routes/payments.tsx",
     "/src/routes/expenses.tsx",
     "/src/components/ReturnForm.tsx",
+    "/src/components/CashBankTransferDialog.tsx",
   ];
+
+  /* The bill form is checked separately: its two item pickers carry their own
+     older copies of this behaviour, so counting hooks against marked lists
+     would not balance. What matters is the one that was missing — the
+     customer picker, the single most-used dropdown in the app, which had no
+     scroll handling of any kind while the bank and item pickers beside it
+     did. That is how a shared hook gets written and a caller still gets
+     forgotten. */
+  const bill = readFileSync(process.cwd() + "/src/components/InvoiceForm.tsx", "utf8");
+  assert(
+    bill.includes("useHighlightScroll(partyListRef, partyIdx, partyOpen)"),
+    "D3: the bill customer picker scrolls its highlight",
+  );
   /* Counted, not merely present.
 
      A first version asked only whether each file mentioned the hook at all,

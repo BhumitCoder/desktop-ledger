@@ -5,6 +5,7 @@ import { Field } from "@/components/Field";
 import { NumInput } from "@/components/NumInput";
 import { ArrowLeftRight, Banknote, Check, ChevronDown, Landmark, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { useHighlightScroll } from "@/hooks/useHighlightScroll";
 import {
   BankRepo,
   BankTxnRepo,
@@ -404,6 +405,9 @@ function AccountPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [idx, setIdx] = useState(0);
+  /** Arrowing past the bottom edge used to move the highlight invisibly. */
+  const listRef = useRef<HTMLDivElement>(null);
+  useHighlightScroll(listRef, idx, open);
   const ref = useRef<HTMLDivElement>(null);
   const chosen = accounts.find((a) => a.id === value);
 
@@ -487,6 +491,7 @@ function AccountPicker({
       </button>
       {open && (
         <div
+          ref={listRef}
           role="listbox"
           aria-label={`${label} accounts`}
           className="absolute z-30 top-full left-0 right-0 mt-1 border rounded-md bg-popover shadow-elevated max-h-56 overflow-auto py-1"
@@ -497,6 +502,7 @@ function AccountPicker({
             return (
               <div
                 key={a.id}
+                data-opt={i}
                 role="option"
                 aria-selected={a.id === value}
                 aria-disabled={disabled}

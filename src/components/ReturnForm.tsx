@@ -824,6 +824,9 @@ function ReturnItemSearchRow({
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [idx, setIdx] = useState(0);
+  /** Arrowing past the bottom edge used to move the highlight invisibly. */
+  const itemListRef = useRef<HTMLDivElement>(null);
+  useHighlightScroll(itemListRef, idx, open);
   const inputRef = useRef<HTMLInputElement>(null);
   const [dropdownRect, setDropdownRect] = useState<{
     top: number;
@@ -915,11 +918,13 @@ function ReturnItemSearchRow({
                 left: dropdownRect.left,
                 width: dropdownRect.width,
               }}
+              ref={itemListRef}
               className="z-50 border rounded-md bg-popover shadow-elevated max-h-72 overflow-auto"
             >
               {suggests.map((it, i) => (
                 <div
                   key={it.id}
+                  data-opt={i}
                   onMouseDown={(e) => {
                     e.preventDefault();
                     pick(it);
