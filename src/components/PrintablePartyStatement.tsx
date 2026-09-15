@@ -161,22 +161,26 @@ export function PrintablePartyStatement({
   });
 
   const th: React.CSSProperties = {
-    padding: "6px 8px",
-    borderBottom: "1.5px solid #111",
-    fontSize: 10,
+    padding: "9px 10px",
+    background: "#f3f4f6",
+    borderTop: "1px solid #d8dbdf",
+    borderBottom: "1px solid #d8dbdf",
+    fontSize: 9.5,
     fontWeight: 700,
     textAlign: "left",
     textTransform: "uppercase",
-    letterSpacing: "0.03em",
-    color: "#6b7280",
+    letterSpacing: "0.06em",
+    color: "#4b5563",
     whiteSpace: "nowrap",
   };
   const thR: React.CSSProperties = { ...th, textAlign: "right" };
   const td: React.CSSProperties = {
-    padding: "5px 8px",
-    borderBottom: "1px solid #f0f1f3",
+    padding: "8px 10px",
+    borderBottom: "1px solid #eceef1",
     fontSize: 11,
+    lineHeight: 1.45,
     whiteSpace: "nowrap",
+    verticalAlign: "top",
   };
   const num: React.CSSProperties = {
     ...td,
@@ -196,7 +200,7 @@ export function PrintablePartyStatement({
   };
   const iThR: React.CSSProperties = { ...iTh, textAlign: "right" };
   const iTd: React.CSSProperties = {
-    padding: "3px 7px",
+    padding: "2px 0",
     fontSize: 10,
     borderTop: "1px solid #f0f1f3",
     whiteSpace: "nowrap",
@@ -212,7 +216,7 @@ export function PrintablePartyStatement({
       style={{
         background: "#fff",
         color: "#111",
-        padding: 24,
+        padding: 32,
         width: 1240,
         fontFamily: "system-ui, sans-serif",
       }}
@@ -226,7 +230,9 @@ export function PrintablePartyStatement({
         }}
       >
         <div>
-          <div style={{ fontSize: 18, fontWeight: 800 }}>{company.name}</div>
+          <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.01em" }}>
+            {company.name}
+          </div>
           {company.address && <div style={{ fontSize: 11, color: "#555" }}>{company.address}</div>}
           {company.phone && <div style={{ fontSize: 11, color: "#555" }}>Ph: {company.phone}</div>}
           {company.gstin && (
@@ -234,7 +240,17 @@ export function PrintablePartyStatement({
           )}
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 15, fontWeight: 800 }}>Party Statement</div>
+          <div
+            style={{
+              fontSize: 12,
+              fontWeight: 800,
+              textTransform: "uppercase",
+              letterSpacing: "0.14em",
+              color: "#6b7280",
+            }}
+          >
+            Party Statement
+          </div>
           <div style={{ fontSize: 11, color: "#555" }}>{periodLabel}</div>
           <div style={{ fontSize: 11, color: "#555" }}>
             Generated {fmtDate(new Date().toISOString())}
@@ -242,8 +258,16 @@ export function PrintablePartyStatement({
         </div>
       </div>
 
-      <div style={{ marginTop: 14, padding: "8px 10px", background: "#f6f7f9", borderRadius: 6 }}>
-        <div style={{ fontSize: 13, fontWeight: 700 }}>{party.name}</div>
+      <div
+        style={{
+          marginTop: 14,
+          paddingTop: 14,
+          borderTop: "2px solid #111",
+        }}
+      />
+
+      <div style={{ marginTop: 0, padding: "10px 12px", background: "#f6f7f9", borderRadius: 6 }}>
+        <div style={{ fontSize: 16, fontWeight: 800 }}>{party.name}</div>
         <div style={{ fontSize: 11, color: "#555" }}>
           {party.phone ? `Ph: ${party.phone}` : "Ph: —"}
           {party.gstin ? ` · GSTIN: ${party.gstin}` : ""}
@@ -276,16 +300,16 @@ export function PrintablePartyStatement({
             style={{
               flex: 1,
               border: "1px solid #e5e7eb",
-              borderRadius: 6,
-              padding: "8px 10px",
+              borderRadius: 8,
+              padding: "12px 14px",
               background: "#fcfcfd",
             }}
           >
             <div
               style={{
-                fontSize: 9,
+                fontSize: 8.5,
                 fontWeight: 700,
-                letterSpacing: "0.04em",
+                letterSpacing: "0.09em",
                 textTransform: "uppercase",
                 color: "#6b7280",
               }}
@@ -294,8 +318,8 @@ export function PrintablePartyStatement({
             </div>
             <div
               style={{
-                marginTop: 2,
-                fontSize: 15,
+                marginTop: 5,
+                fontSize: 19,
                 fontWeight: 800,
                 color: b.color,
                 fontVariantNumeric: "tabular-nums",
@@ -388,24 +412,43 @@ export function PrintablePartyStatement({
 
                 {showBreakdown && (
                   <tr style={{ pageBreakInside: "avoid", breakInside: "avoid" }}>
-                    <td />
-                    <td colSpan={4} style={{ ...td, padding: "0 8px 6px", whiteSpace: "normal" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <td style={{ borderBottom: "1px solid #eceef1" }} />
+                    <td
+                      colSpan={4}
+                      style={{
+                        ...td,
+                        padding: "0 10px 9px 10px",
+                        whiteSpace: "normal",
+                        background: "#fbfcfd",
+                      }}
+                    >
+                      <table
+                        style={{
+                          width: "100%",
+                          borderCollapse: "collapse",
+                          borderLeft: "2px solid #e5e7eb",
+                        }}
+                      >
                         <tbody>
                           {items.map((it, j) => (
                             <tr key={j}>
-                              <td style={iTd}>{it.name}</td>
-                              <td style={{ ...iNum, color: "#9ca3af", width: 140 }}>
-                                {it.qty} × {money(it.price)}
+                              <td style={{ ...iTd, paddingLeft: 10, color: "#374151" }}>
+                                {it.name}
+                                <span style={{ marginLeft: 8, color: "#9ca3af" }}>
+                                  {it.qty} × {money(it.price)}
+                                </span>
                               </td>
-                              <td style={{ ...iNum, width: 130 }}>{money(it.amount)}</td>
+                              <td style={{ ...iNum, width: 130, color: "#374151" }}>
+                                {money(it.amount)}
+                              </td>
                             </tr>
                           ))}
                           {charges.map((c, j) => (
                             <tr key={"c" + j}>
-                              <td style={{ ...iTd, color: "#6b7280" }}>{c.label}</td>
-                              <td style={iTd} />
-                              <td style={{ ...iNum, width: 130 }}>
+                              <td style={{ ...iTd, paddingLeft: 10, color: "#6b7280" }}>
+                                {c.label}
+                              </td>
+                              <td style={{ ...iNum, width: 130, color: "#6b7280" }}>
                                 {c.amount < 0 ? `−${money(-c.amount)}` : money(c.amount)}
                               </td>
                             </tr>
@@ -434,7 +477,17 @@ export function PrintablePartyStatement({
               breakInside: "avoid",
             }}
           >
-            <td colSpan={3} style={{ ...td, fontWeight: 700, textTransform: "uppercase" }}>
+            <td
+              colSpan={3}
+              style={{
+                ...td,
+                padding: "12px 10px",
+                fontWeight: 800,
+                fontSize: 11.5,
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+              }}
+            >
               Closing Balance
               <span style={{ marginLeft: 6, fontWeight: 500, color: "#6b7280" }}>
                 ·{" "}
@@ -445,7 +498,7 @@ export function PrintablePartyStatement({
                     : "Nothing outstanding — fully settled"}
               </span>
             </td>
-            <td colSpan={2} style={{ ...num, fontWeight: 800, fontSize: 13 }}>
+            <td colSpan={2} style={{ ...num, padding: "12px 10px", fontWeight: 800, fontSize: 15 }}>
               {money(Math.abs(closing))}
             </td>
           </tr>
