@@ -29,6 +29,7 @@ import { bankParts, describePayment } from "@/lib/paymentSplit";
 import { PaginationBar } from "@/components/Pagination";
 import { usePagination } from "@/hooks/usePagination";
 import { DataTable } from "@/components/DataTable";
+import { InvoiceBulkExportDialog } from "@/components/InvoiceBulkExportDialog";
 import { fmtMode } from "@/lib/paymentMode";
 import { PageHeader } from "@/components/PageHeader";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -75,6 +76,10 @@ function SalesPage() {
    * survives navigating away and back. */
   const [dateFrom, setDateFrom] = useState(() => filterCache?.dateFrom ?? "");
   const [dateTo, setDateTo] = useState(() => filterCache?.dateTo ?? "");
+  /** Bills ticked for a bulk download. Ids, not rows: the list re-derives on
+   *  every repo change and holding rows would keep stale copies alive. */
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [exportOpen, setExportOpen] = useState(false);
   const [partyId, setPartyId] = useState(() => filterCache?.partyId ?? "all");
   const [status, setStatus] = useState<Status>(() => filterCache?.status ?? "all");
   const [search, setSearch] = useState(() => filterCache?.search ?? "");
@@ -121,6 +126,26 @@ function SalesPage() {
   // Local search over the dropdown only — must never overwrite `parties`
   // itself, or the master list (used for `selectedParty` lookup and "All
   // Customers") gets stuck as whatever subset was last typed/searched.
+  /* Selection is kept as ids and intersected with what is on screen, so a
+     bill filtered out of view is never silently included in a download the
+     shop believes matches what it can see. */
+  const selectedRows = useMemo(
+    () => filtered.filter((r) => selectedIds.has(r.id)),
+    [filtered, selectedIds],
+  );
+  const allFilteredSelected = filtered.length > 0 && selectedRows.length === filtered.length;
+  const toggleOne = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const toggleAllFiltered = () =>
+    setSelectedIds((prev) =>
+      allFilteredSelected ? new Set() : new Set([...prev, ...filtered.map((r) => r.id)]),
+    );
+
   const filteredDropdownParties = useMemo(() => {
     const q = partyDropQ.trim().toLowerCase();
     return q ? parties.filter((p) => p.name.toLowerCase().includes(q)) : parties;
@@ -494,6 +519,23 @@ function SalesPage() {
                   onClick={() => navigate({ to: "/sales/$id", params: { id: r.id } })}
                   className="bg-white px-4 py-3 active:bg-gray-50 flex items-center gap-3"
                 >
+                  {/* Shown only once a selection is under way, so the card
+                      keeps its usual shape the rest of the time. The label
+                      pads the hit area out to a thumb. */}
+                  {selectedIds.size > 0 && (
+                    <label
+                      onClick={(e) => e.stopPropagation()}
+                      className="-m-1 shrink-0 cursor-pointer p-1"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(r.id)}
+                        onChange={() => toggleOne(r.id)}
+                        className="accent-primary h-[18px] w-[18px] align-middle"
+                        aria-label={`Select ${r.number}`}
+                      />
+                    </label>
+                  )}
                   {/* Status-tinted icon: green=paid, amber=partial, red=unpaid */}
                   <div
                     className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 ${isPaid ? "bg-emerald-50 text-emerald-600" : isPartial ? "bg-amber-50 text-amber-600" : "bg-rose-50 text-rose-600"}`}
@@ -559,12 +601,67 @@ function SalesPage() {
         )}
       </div>
 
+      {/* Only present once something is selected — an always-visible bar
+          would be a permanent strip of nothing on the commonest screen. */}
+      {selectedRows.length > 0 && (
+        <div className="mx-6 mb-0 mt-2 flex flex-wrap items-center gap-3 rounded-lg border border-primary/30 bg-primary-soft px-4 py-2.5 no-print">
+          <label className="flex cursor-pointer select-none items-center gap-2 text-xs font-medium text-primary">
+            <input
+              type="checkbox"
+              checked={allFilteredSelected}
+              onChange={toggleAllFiltered}
+              className="accent-primary h-[18px] w-[18px] cursor-pointer"
+            />
+            Select all {filtered.length}
+          </label>
+          <span className="text-xs text-muted-foreground">{selectedRows.length} selected</span>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >
+              Clear
+            </button>
+            <button
+              onClick={() => setExportOpen(true)}
+              className="h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90"
+            >
+              Download {selectedRows.length}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <InvoiceBulkExportDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        invoices={selectedRows}
+        mode="sale"
+      />
+
       {/* Table (desktop) */}
       <div className="hidden md:flex flex-1 min-h-0 p-6">
         <DataTable
           storageKey="sales"
           activateOnClick
           columns={[
+            {
+              key: "_sel",
+              label: "",
+              width: "44px",
+              sortValue: () => "",
+              render: (r) => (
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(r.id)}
+                  onChange={() => toggleOne(r.id)}
+                  // The row opens the bill on click; ticking must not.
+                  onClick={(e) => e.stopPropagation()}
+                  className="accent-primary h-[18px] w-[18px] cursor-pointer align-middle"
+                  aria-label={`Select ${r.number}`}
+                />
+              ),
+            },
             {
               key: "number",
               label: "Invoice #",

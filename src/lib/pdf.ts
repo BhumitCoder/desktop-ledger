@@ -193,7 +193,15 @@ const PDF_BATCH_SIZE = 10;
  * instead of a spinner that sits still for a minute.
  */
 export async function elementsToPdfBlobs(
-  docs: { el: HTMLElement; orientation?: "portrait" | "landscape"; opts?: PdfOptions }[],
+  docs: {
+    el: HTMLElement;
+    orientation?: "portrait" | "landscape";
+    /** Thermal roll width in mm. The batch endpoint has always accepted it;
+     *  this helper simply never passed it on, so a bulk thermal export came
+     *  back as A4. */
+    pageWidthMm?: number;
+    opts?: PdfOptions;
+  }[],
   onProgress?: (done: number, total: number) => void,
 ): Promise<Blob[]> {
   const token = await requireIdToken();
@@ -206,6 +214,7 @@ export async function elementsToPdfBlobs(
         docs: slice.map((d) => ({
           html: buildPrintableHtml(d.el, !d.opts?.selfContained),
           landscape: d.orientation === "landscape",
+          pageWidthMm: d.pageWidthMm,
         })),
       },
     });

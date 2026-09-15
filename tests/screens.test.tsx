@@ -4574,6 +4574,57 @@ async function runAll(): Promise<Results> {
     }
   }
 
+  /* ── Ticking a bill selects it, and does NOT open it ──────────────────
+     The sales table opens the bill on row click. A checkbox dropped into
+     that row inherits the click unless it stops it, so the first tick would
+     navigate away — taking the selection with it. Cheap to get wrong,
+     invisible in the markup, and the whole feature is unusable if it is. */
+  {
+    await renderRoute("/sales");
+
+    const tick = document.querySelector(
+      'input[type="checkbox"][aria-label^="Select "]',
+    ) as HTMLInputElement | null;
+    assert(!!tick, "invoice select: the sales list has a tick box per row");
+
+    if (tick) {
+      await act(async () => {
+        tick.click();
+      });
+      await settleMs(120);
+
+      /* A memory router keeps window.location fixed, so the URL proves
+         nothing here. The list surviving does: navigating to the bill would
+         unmount the row this box lives in. */
+      assert(
+        tick.isConnected,
+        "invoice select: ticking stays on the list instead of opening the bill",
+      );
+      assert(tick.checked, "invoice select: and the row is actually selected");
+
+      const body = document.body.textContent ?? "";
+      assert(
+        /1 selected/.test(body),
+        "invoice select: the bulk bar appears and counts the selection",
+      );
+      assert(
+        !!findButton(/Download 1/),
+        "invoice select: with a Download button for what is ticked",
+      );
+
+      /* The bar is absent until something is ticked — an always-present strip
+         of nothing is what makes a list feel cluttered. */
+      await act(async () => {
+        tick.click();
+      });
+      await settleMs(120);
+      assert(
+        !/1 selected/.test(document.body.textContent ?? ""),
+        "invoice select: and it goes away again when nothing is ticked",
+      );
+    }
+  }
+
   const bulkHost = document.createElement("div");
   document.body.appendChild(bulkHost);
   const bulkRoot = createRoot(bulkHost);

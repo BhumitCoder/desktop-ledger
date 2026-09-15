@@ -2515,6 +2515,22 @@ console.log(`\n═════════════════════�
     "P1: and a party whose document failed is reported, not silently dropped",
   );
 
+  /* The bulk INVOICE export is the same shape and inherits the same trap,
+     so it is held to the same rule. Checked here rather than on screen
+     because the screen suite never downloads anything — a mutation that
+     renamed the files from a second list survived every one of its
+     assertions, which is exactly how the party version shipped broken. */
+  const bulk = readFileSync(process.cwd() + "/src/components/InvoiceBulkExportDialog.tsx", "utf8");
+  assert(
+    /docs\[i\]\.inv\.number/.test(bulk),
+    "P1: each bill's PDF is named from the bill carried WITH it",
+  );
+  assert(!/invoices\[i\]/.test(bulk), "P1: never from the selection list walked by the same index");
+  assert(
+    /inv,\s*el/.test(bulk) || /\{\s*inv,\s*el\s*\}/.test(bulk),
+    "P1: which means the bill is pushed alongside its document",
+  );
+
   /* The same trap one level down: the renderer hands back a plain array that
      callers pair positionally, so a short batch must fail rather than shift
      every later document onto the wrong name. */
