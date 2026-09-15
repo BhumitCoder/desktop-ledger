@@ -103,9 +103,20 @@ export function WhatsAppStatusButton() {
  *  still broken does want telling again. */
 const NUDGE_KEY = "bizdesk.whatsapp.nudged.v1";
 
-/** A bill being written. Interrupting one is the fastest way to turn a helpful
- *  warning into the next complaint. */
-const ON_A_FORM = new RegExp("/new$|/edit/");
+/**
+ * Where this must never interrupt.
+ *
+ * A bill being written, obviously. But also Sales and Purchase themselves:
+ * that is where the counter spends its day, and a dialog thrown across it is
+ * not a warning any more, it is something in the way. The shop asked for it
+ * off those pages by name after it landed on them mid-work.
+ *
+ * What it reports is usually a configuration fault nobody at the counter can
+ * fix anyway — a wrong service URL, an expired key — so the red dot in the
+ * header carries it instead, and opens this on a click when somebody
+ * actually wants it.
+ */
+const BUSY_ROUTE = new RegExp("/new$|/edit/|^/sales|^/purchase");
 
 /**
  * Tells the owner, once, that WhatsApp is not going to send anything today.
@@ -128,7 +139,7 @@ export function WhatsAppStartupNudge() {
   const fired = useRef(false);
 
   const broken = ready && configured && linkSeverity(state) === "bad";
-  const busy = ON_A_FORM.test(pathname);
+  const busy = BUSY_ROUTE.test(pathname);
 
   useEffect(() => {
     if (fired.current || !isOwner || !broken || busy) return;

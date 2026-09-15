@@ -2821,6 +2821,37 @@ console.log(`\n═════════════════════�
   );
 }
 
+/* ═══════ TEST NU: the WhatsApp nudge stays out of the way ═══════
+   It opened across the Sales list while the counter was working, and the
+   shop asked for it off those pages by name. What it reports is nearly
+   always a configuration fault nobody at a till can fix — a wrong service
+   URL, an expired key — so the red dot in the header carries it, and the
+   dialog opens on a click when somebody actually wants it.
+
+   In the audit suite because the nudge lives in AppShell, which the screen
+   harness does not mount at all. */
+{
+  const ui = readFileSync(process.cwd() + "/src/components/WhatsAppLink.tsx", "utf8");
+  /* Pulled out by string rather than by regex: the pattern being looked for
+     is itself full of brackets and pipes, and an escaping slip in the search
+     fails silently — it finds nothing and the check quietly passes. */
+  const marker = 'const BUSY_ROUTE = new RegExp("';
+  const at = ui.indexOf(marker);
+  assert(at !== -1, "NU1: the nudge still has a list of places it must not appear");
+  if (at !== -1) {
+    const rest = ui.slice(at + marker.length);
+    const re = new RegExp(rest.slice(0, rest.indexOf('"')));
+    for (const path of ["/sales", "/purchase", "/sales/new", "/purchase/edit/abc"]) {
+      assert(re.test(path), "NU1: it stays off " + path);
+    }
+    /* And still appears where there is nothing to interrupt, or it has
+       simply been switched off rather than aimed. */
+    for (const path of ["/", "/parties", "/settings"]) {
+      assert(!re.test(path), "NU2: but it can still be shown on " + path);
+    }
+  }
+}
+
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
 if (fails.length) {
   console.log(`\nFailures:`);
