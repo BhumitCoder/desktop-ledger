@@ -1217,9 +1217,9 @@ export function InvoiceForm({ mode, existing }: Props) {
         </div>
       </div>
 
-      <div className="p-4 md:p-5 space-y-4 overflow-auto flex-1 bg-muted/30">
+      <div className="p-4 md:p-5 space-y-4 lg:space-y-3 overflow-auto lg:overflow-hidden flex-1 lg:flex lg:flex-col lg:min-h-0 bg-muted/30">
         {/* Party + meta */}
-        <div className="bg-card border rounded-lg shadow-card p-4">
+        <div className="bg-card border rounded-lg shadow-card p-4 lg:shrink-0">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 mb-3">
             <span className="text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">
               {isSale ? "Customer Details" : "Supplier Details"}
@@ -1405,14 +1405,14 @@ export function InvoiceForm({ mode, existing }: Props) {
 
         {/* Line items — each blank row below the filled ones is its own
             search-and-add field (Vyapar-style), not a separate search bar */}
-        <div className="border rounded-lg bg-card shadow-card">
-          <div className="px-4 py-2.5 border-b bg-muted/50 flex items-center justify-between rounded-t-lg">
+        <div className="border rounded-lg bg-card shadow-card lg:flex lg:flex-1 lg:min-h-0 lg:flex-col">
+          <div className="px-4 py-2.5 border-b bg-muted/50 flex items-center justify-between rounded-t-lg lg:shrink-0">
             <span className="text-[13px] font-semibold">Items ({inv.lineItems.length})</span>
             <span className="text-[11px] text-muted-foreground">
               Type an item name in a row below to add it
             </span>
           </div>
-          <div className="overflow-x-auto rounded-b-lg">
+          <div className="overflow-x-auto rounded-b-lg lg:min-h-0 lg:flex-1 lg:overflow-auto">
             <table className="w-full text-[13px] min-w-[720px]">
               <thead className="text-[11px] text-muted-foreground uppercase tracking-wider">
                 <tr className="bg-muted/40">
@@ -1588,7 +1588,7 @@ export function InvoiceForm({ mode, existing }: Props) {
         </div>
 
         {/* Totals + notes */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-3 items-start lg:shrink-0">
           {/* Not overflow-hidden: the bank-account dropdown is absolutely
               positioned inside this card, and clipping it cut off every
               option past the card's bottom edge — reported, reasonably, as a
