@@ -9,6 +9,7 @@ import {
   PurchaseReturnRepo,
   PaymentRepo,
   CompanyRepo,
+  BankRepo,
 } from "@/repositories";
 import { buildPartyStatement, buildSimpleLedgerRows, type PartyStatementRow } from "@/lib/ledger";
 import { fmtMoney, fmtDate } from "@/lib/format";
@@ -19,8 +20,11 @@ import { downloadXlsx } from "@/lib/xlsx";
 import { downloadElementAsPdf } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { sendElementViaWhatsApp } from "@/lib/whatsappSend";
+import { describePayment } from "@/lib/paymentSplit";
+import { ArrowDownCircle, ArrowUpCircle } from "lucide-react";
 import { partyStatementSheet } from "@/lib/partySheet";
 import { PartyDialog } from "./parties";
+import { ReceivePaymentDialog } from "./payments";
 import { usePermissions } from "@/hooks/usePermissions";
 import type { Party } from "@/types";
 import { toast } from "sonner";
@@ -73,6 +77,8 @@ function PartyStatementPage() {
   const goBack = useGoBack("/parties");
   const { isOwner, canEdit } = usePermissions();
   const editAllowed = isOwner || canEdit("masterData");
+  /** null = closed. "in" takes money from them, "out" pays them. */
+  const [payDialog, setPayDialog] = useState<"in" | "out" | null>(null);
   const [party, setParty] = useState<Party | null | undefined>(undefined);
   const [editOpen, setEditOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -338,6 +344,26 @@ function PartyStatementPage() {
               balance cards for vertical space. Pure layout move — none of
               the handlers below changed. */}
           <div className="flex items-center gap-1.5 shrink-0">
+            {editAllowed && (
+              <>
+                <button
+                  onClick={() => setPayDialog("in")}
+                  className="h-8 px-2.5 shrink-0 rounded-md border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 flex items-center gap-1.5 text-xs font-semibold transition"
+                  title="Receive payment from this party"
+                >
+                  <ArrowDownCircle className="h-4 w-4" />
+                  <span className="hidden sm:inline">Receive</span>
+                </button>
+                <button
+                  onClick={() => setPayDialog("out")}
+                  className="h-8 px-2.5 shrink-0 rounded-md border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 flex items-center gap-1.5 text-xs font-semibold transition"
+                  title="Pay this party"
+                >
+                  <ArrowUpCircle className="h-4 w-4" />
+                  <span className="hidden sm:inline">Pay</span>
+                </button>
+              </>
+            )}
             <button
               onClick={downloadExcel}
               className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition"
@@ -718,6 +744,22 @@ function PartyStatementPage() {
         party={party}
         onSaved={() => setRefreshKey((k) => k + 1)}
       />
+
+      {/* The same dialog the Payments page uses, opened on a party that is
+          already known. Reused rather than rebuilt: allocation against open
+          bills, split payments and the write-off all live in there, and a
+          second copy of that would drift apart from it within a month. */}
+      <ReceivePaymentDialog
+        open={payDialog !== null}
+        onOpenChange={(v) => !v && setPayDialog(null)}
+        type={payDialog ?? "in"}
+        editing={null}
+        presetParty={party ? { id: party.id, name: party.name } : null}
+        onSaved={() => {
+          setPayDialog(null);
+          setRefreshKey((k) => k + 1);
+        }}
+      />
     </div>
   );
 }
@@ -760,6 +802,27 @@ function StatementCard({
   );
 }
 
+/** An account's own name beats the word "Bank": a shop with three accounts
+ *  learns nothing from being told the money went to "Bank". */
+const bankName = (id: string) => BankRepo.get(id)?.name;
+
+/**
+ * How the money moved on this row, or nothing when none did.
+ *
+ * The question a ledger is asked a day later is rarely "how much" — it is
+ * "where is it", in the drawer or in which account. The statement carried the
+ * answer all along and simply never showed it.
+ *
+ * Returns undefined rather than a dash so a caller can leave the space empty:
+ * an unpaid bill and a write-off moved no money, and labelling either with the
+ * highlighted pill would claim a payment that never happened.
+ */
+function modeOf(e: PartyStatementRow): string | undefined {
+  if (!e.settledBy) return undefined;
+  const d = describePayment(e.settledBy, bankName);
+  return d && d !== "—" && d !== "Unpaid" ? d : undefined;
+}
+
 /** One transaction's summary row, plus — for Sale/Purchase/Returns — a
  * nested item breakdown underneath, matching what the client's reference
  * statement (Vyapar) shows: not just a ledger line, but what was actually
@@ -786,7 +849,14 @@ export function PartyStatementRowBlock({
         <td className="px-3 py-2.5 text-gray-600 whitespace-nowrap">
           {e.date ? fmtDate(e.date) : ""}
         </td>
-        <td className="px-3 py-2.5 font-medium text-gray-800 whitespace-nowrap">{e.type}</td>
+        <td className="px-3 py-2.5 font-medium text-gray-800 whitespace-nowrap">
+          {e.type}
+          {modeOf(e) && (
+            <span className="block text-[10px] font-normal text-gray-400 leading-tight">
+              {modeOf(e)}
+            </span>
+          )}
+        </td>
         <td className="px-3 py-2.5 font-mono text-xs text-blue-600 whitespace-nowrap">{e.ref}</td>
         <td className="px-3 py-2.5 whitespace-nowrap">
           {e.status && (
@@ -924,7 +994,11 @@ export function PartyStatementCardBlock({
     );
   }
 
-  const meta = [e.date ? fmtDate(e.date) : null, e.ref && e.ref !== "—" ? `#${e.ref}` : null]
+  const meta = [
+    e.date ? fmtDate(e.date) : null,
+    e.ref && e.ref !== "—" ? `#${e.ref}` : null,
+    modeOf(e),
+  ]
     .filter(Boolean)
     .join("  ·  ");
 

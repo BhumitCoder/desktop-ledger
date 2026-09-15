@@ -1868,15 +1868,23 @@ console.log(`\n═════════════════════�
   );
 }
 
-/* ═══ TEST S6: a split changes nothing a party can see ══════════════════
+/* ═══ TEST S6: a split changes no NUMBER a party is shown ═══════════════
    Asked directly what "the party ledger is unaffected by design" means, and
    it deserves an assertion rather than a reading of the code — that same
    reasoning is what missed the passbook.
 
    The claim: a split decides which of the SHOP's accounts holds the money.
    It never changes what the party owes. So the same bill, settled the same
-   total, must produce a byte-for-byte identical statement whether it was
-   taken one way or two. If this ever fails, the split work is wrong. */
+   total, must produce identical figures whether it was taken one way or two.
+   If this ever fails, the split work is wrong.
+
+   This compared whole rows byte-for-byte until the shop asked to be told
+   which account each payment landed in — "which bank, cash, which — nothing
+   mentioned anywhere". Rows now carry `settledBy` for exactly that, and it
+   differs between a one-way and a split bill BECAUSE that is the difference
+   being reported. So the comparison drops that one display-only field and
+   keeps every figure, which is what the invariant was always about: the
+   party's money, not the shop's filing. */
 {
   const party = { id: "PX", openingBalance: 0 };
   const bill = (id: string, paidSplits?: unknown) =>
@@ -1918,9 +1926,19 @@ console.log(`\n═════════════════════�
     oneWay.fullBalance === twoWays.fullBalance,
     `S6: splitting a bill does not move the party's balance — ${oneWay.fullBalance} vs ${twoWays.fullBalance}`,
   );
+  /** Everything except how the shop filed it. */
+  const figuresOf = (rows: typeof oneWay.rows) =>
+    JSON.stringify(rows.map(({ settledBy: _ignored, ...rest }) => rest));
   assert(
-    JSON.stringify(oneWay.rows) === JSON.stringify(twoWays.rows),
-    "S6: nor any row of their statement — a split is about the shop's accounts, not the party",
+    figuresOf(oneWay.rows) === figuresOf(twoWays.rows),
+    "S6: nor any figure on their statement — a split is about the shop's accounts, not the party",
+  );
+  /* And the new field is genuinely display-only: it is the ONLY difference
+     between the two statements. Asserted so that a future change which
+     smuggles a calculation into it fails here rather than quietly. */
+  assert(
+    JSON.stringify(oneWay.rows) !== JSON.stringify(twoWays.rows),
+    "S6: while the split IS reported — the shop can see which account took it",
   );
   assert(
     twoWays.fullBalance === 0,
@@ -2378,6 +2396,93 @@ console.log(`\n═════════════════════�
   assert(
     /lastError/.test(ui),
     "Z3: and whatever went wrong is put on the screen rather than kept in a variable",
+  );
+}
+
+/* ═══════ TEST M: a ledger says WHERE the money went, not only how much ═══
+   The shop's report: "payment gone and received — which bank, cash, which —
+   nothing mentioned anywhere". The statement held the answer the whole time
+   and simply never carried it out of the builder. Asserted on values rather
+   than on the rendering, because the rendering is the easy half. */
+{
+  const party = { id: "MP", openingBalance: 0 };
+  const mk = (over: Record<string, unknown>) =>
+    ({
+      id: "MPAY1",
+      createdAt: "2026-09-01T10:00:00Z",
+      date: "2026-09-01",
+      partyId: "MP",
+      partyName: "Mode Party",
+      type: "in",
+      amount: 1000,
+      ...over,
+    }) as unknown as Payment;
+
+  const bankPay = mk({ mode: "bank", bankId: "HDFC" });
+  const st = buildPartyStatement(party, {
+    sales: [],
+    purchases: [],
+    saleReturns: [],
+    purchaseReturns: [],
+    payments: [bankPay],
+  });
+  const row = st.rows.find((r) => r.type === "Payment Received");
+  assert(!!row, "M1: the receipt has a row at all");
+  assert(!!row?.settledBy, "M1: and that row carries the record the money moved through");
+  assert(
+    describePayment(row!.settledBy!, (id) => (id === "HDFC" ? "HDFC Current" : undefined)) ===
+      "HDFC Current",
+    "M1: which names the actual account, not the word 'Bank'",
+  );
+
+  /* A write-off moved no money. Labelling it with a mode would invent a
+     payment that never happened — the one way this feature could lie. */
+  const withDiscount = mk({
+    id: "MPAY2",
+    mode: "cash",
+    amount: 0,
+    allocations: [{ id: "X", number: "INV-1", amount: 0, discount: 250 }],
+  });
+  const st2 = buildPartyStatement(party, {
+    sales: [],
+    purchases: [],
+    saleReturns: [],
+    purchaseReturns: [],
+    payments: [withDiscount],
+  });
+  const off = st2.rows.find((r) => r.type === "Discount Given");
+  assert(!!off, "M2: the write-off has its own row");
+  assert(!off?.settledBy, "M2: and carries no payment mode, because no money moved");
+
+  /* An unpaid bill likewise: the pill highlighted on the form is not a
+     payment, and printing it would be a small lie that becomes an argument. */
+  const unpaid = {
+    id: "MB1",
+    createdAt: "2026-09-02T10:00:00Z",
+    number: "INV-M1",
+    date: "2026-09-02",
+    partyId: "MP",
+    partyName: "Mode Party",
+    lineItems: [],
+    total: 500,
+    paid: 0,
+    paymentMode: "cash",
+  } as unknown as Invoice;
+  const paidAtCounter = { ...unpaid, id: "MB2", number: "INV-M2", paid: 500 } as Invoice;
+  const st3 = buildPartyStatement(party, {
+    sales: [unpaid, paidAtCounter],
+    purchases: [],
+    saleReturns: [],
+    purchaseReturns: [],
+    payments: [],
+  });
+  assert(
+    !st3.rows.find((r) => r.ref === "INV-M1")?.settledBy,
+    "M3: an unpaid bill reports no mode, whatever pill was lit when it was written",
+  );
+  assert(
+    !!st3.rows.find((r) => r.ref === "INV-M2")?.settledBy,
+    "M3: while one settled at the counter does",
   );
 }
 

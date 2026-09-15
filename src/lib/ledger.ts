@@ -621,6 +621,20 @@ export interface PartyStatementRow {
   balance: number;
   docId?: string;
   docKind?: "sale" | "purchase" | "sale-return" | "purchase-return";
+  /**
+   * The record this row's money moved through, so a screen can say HOW —
+   * cash, which bank account, or a split across both.
+   *
+   * Display only: nothing is ever calculated from it, and every balance in
+   * this file is identical with or without it. It exists because a party
+   * ledger reading "Payment Received 5,000" and nothing else cannot answer
+   * the question asked of it a day later — whether that five thousand is in
+   * the drawer or in the bank.
+   *
+   * Carried as the record rather than a formatted string, because only the
+   * caller knows what its bank accounts are called.
+   */
+  settledBy?: Parameters<typeof splitsOf>[0];
 }
 
 /**
@@ -695,6 +709,10 @@ export function buildPartyStatement(
       charges,
       docId: s.id,
       docKind: "sale",
+      // Only when money changed hands on the day. An unpaid bill has no mode
+      // to report, and printing the highlighted pill would claim a payment
+      // that never happened.
+      settledBy: paid > 0.001 ? s : undefined,
     });
   }
   for (const ret of data.saleReturns.filter((x) => x.partyId === party.id)) {
@@ -728,6 +746,7 @@ export function buildPartyStatement(
       charges,
       docId: p.id,
       docKind: "purchase",
+      settledBy: paid > 0.001 ? p : undefined,
     });
   }
   for (const ret of data.purchaseReturns.filter((x) => x.partyId === party.id)) {
@@ -755,6 +774,7 @@ export function buildPartyStatement(
         total: pay.amount,
         receivedOrPaid: pay.amount,
         txnBalance: 0,
+        settledBy: pay,
       });
     }
     // A settlement discount closes a bill without the money ever arriving, so

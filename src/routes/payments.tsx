@@ -547,18 +547,26 @@ interface ApplyRow {
   checked: boolean;
 }
 
-function ReceivePaymentDialog({
+export function ReceivePaymentDialog({
   open,
   onOpenChange,
   type,
   editing,
   onSaved,
+  presetParty,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   type: "in" | "out";
   editing: Payment | null;
   onSaved: () => void;
+  /**
+   * Opened from a party's own page, where who this is about is already
+   * settled. Pre-filling saves retyping a name the screen is already showing
+   * and — more to the point — stops a near-miss spelling creating a second
+   * party record for somebody who already exists.
+   */
+  presetParty?: { id: string; name: string } | null;
 }) {
   const isIn = type === "in";
   const partyRef = useRef<HTMLInputElement>(null);
@@ -660,8 +668,8 @@ function ReceivePaymentDialog({
         setPayAmount(editing.amount);
         setPayDiscount(r2((editing.allocations ?? []).reduce((s, a) => s + (a.discount ?? 0), 0)));
       } else {
-        setPartyQ("");
-        setSelectedParty(null);
+        setPartyQ(presetParty?.name ?? "");
+        setSelectedParty(presetParty ?? null);
         setDate(today());
         setMode("cash");
         setModeChosen(false);
@@ -671,13 +679,26 @@ function ReceivePaymentDialog({
         setAllocMode("auto");
         setPayAmount(0);
         setPayDiscount(0);
-        setTimeout(() => partyRef.current?.focus(), 60);
+        /* With the party already known there is nothing to type there, and
+           landing on a pre-filled search box invites the first keystroke to
+           reopen the dropdown over an answer that was already right. Start on
+           the first thing still being asked. Found by accessible name rather
+           than a ref, because the amount is a NumInput and threading a ref
+           through it is more moving parts than this is worth. */
+        setTimeout(() => {
+          const amount = presetParty
+            ? document.querySelector<HTMLInputElement>(
+                `input[aria-label="${isIn ? "Amount received" : "Amount paid"}"]`,
+              )
+            : null;
+          (amount ?? partyRef.current)?.focus();
+        }, 60);
       }
       setApplyRows([]);
       setSaving(false);
       savingRef.current = false;
     }
-  }, [open, editing]);
+  }, [open, editing, presetParty, isIn]);
 
   // Load invoices/bills when party selected. When editing, this payment's own
   // allocations are added back to each invoice's due and pre-selected.
