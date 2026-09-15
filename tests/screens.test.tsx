@@ -4723,6 +4723,44 @@ async function runAll(): Promise<Results> {
     }
   }
 
+  /* ── Filters live behind one button, on every screen ──────────────────
+     The date range, the customer picker and four status pills used to sit
+     across the toolbar. It is the first row to wrap on a laptop, and every
+     one of those controls was already duplicated inside the filter dialog
+     the mobile button opened. They live in the dialog only now.
+
+     Asserted from both sides: gone from the toolbar, present once the
+     button is pressed. Only checking one half would pass for a page that had
+     simply lost its filters. */
+  for (const url of ["/sales", "/purchase"]) {
+    await renderRoute(url);
+
+    const before = document.body.textContent ?? "";
+    assert(before.includes("Filters"), url + ": there is a Filters button");
+    assert(
+      !/\bPartial\b/.test(before),
+      url + ": the status pills are not strewn across the toolbar any more",
+    );
+
+    const btn = findButton(/^Filters$/);
+    assert(!!btn, url + ": the Filters button is reachable");
+    if (btn) {
+      await act(async () => {
+        btn.click();
+      });
+      await settleMs(150);
+
+      const open = document.body.textContent ?? "";
+      for (const control of ["Paid", "Partial", "Unpaid"]) {
+        assert(open.includes(control), url + ": the dialog offers " + control);
+      }
+      assert(
+        document.querySelectorAll('input[type="date"]').length >= 2,
+        url + ": and the date range is in there with them",
+      );
+    }
+  }
+
   const bulkHost = document.createElement("div");
   document.body.appendChild(bulkHost);
   const bulkRoot = createRoot(bulkHost);

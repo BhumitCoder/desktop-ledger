@@ -85,7 +85,7 @@ function SalesPage() {
   const [search, setSearch] = useState(() => filterCache?.search ?? "");
   const [showPartyDrop, setShowPartyDrop] = useState(false);
   const [partyDropQ, setPartyDropQ] = useState("");
-  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const refresh = () => {
     setRows(SalesRepo.all());
@@ -254,7 +254,7 @@ function SalesPage() {
         iconClassName="text-success"
         mobileAction={
           <button
-            onClick={() => setMobileFiltersOpen(true)}
+            onClick={() => setFiltersOpen(true)}
             className="relative h-9 w-9 flex items-center justify-center rounded-lg border border-gray-200 bg-gray-50/60 text-gray-600"
             title="Filters"
           >
@@ -266,89 +266,20 @@ function SalesPage() {
         }
         actions={
           <>
-            {/* Date range — its own filter sheet on mobile (see Filters
-                button above); this inline row is desktop only, since it
-                doesn't fit next to Customer/Status/Search on a phone. */}
-            <div className="hidden sm:flex items-center gap-1.5 h-9 pl-3 pr-2.5 rounded-lg border border-gray-200 bg-gray-50/60">
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="bg-transparent text-xs text-gray-700 focus:outline-none w-[104px]"
-              />
-              <span className="text-gray-300 text-xs">–</span>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="bg-transparent text-xs text-gray-700 focus:outline-none w-[104px]"
-              />
-            </div>
-
-            {/* Party filter — desktop only, see Filters sheet on mobile */}
-            <div className="hidden sm:block relative">
-              <button
-                onClick={() => setShowPartyDrop((v) => !v)}
-                className="flex items-center gap-2 h-9 border border-gray-200 rounded-lg text-xs px-3 text-gray-700 bg-gray-50/60 hover:bg-gray-100 transition min-w-[140px]"
-              >
-                <span className="flex-1 text-left truncate">
-                  {selectedParty ? selectedParty.name : "All Customers"}
-                </span>
-                <ChevronDown className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-              </button>
-              {showPartyDrop && (
-                <div className="absolute top-full right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-30 w-56 max-h-64 overflow-auto">
-                  <div className="p-2 border-b">
-                    <input
-                      autoFocus
-                      placeholder="Search customer..."
-                      value={partyDropQ}
-                      className="w-full text-xs px-2 py-1.5 border border-gray-200 rounded focus:outline-none"
-                      onChange={(e) => setPartyDropQ(e.target.value)}
-                    />
-                  </div>
-                  <button
-                    onClick={() => {
-                      setPartyId("all");
-                      setShowPartyDrop(false);
-                      setPartyDropQ("");
-                    }}
-                    className={`w-full text-left px-3 py-2 text-xs hover:bg-blue-50 ${partyId === "all" ? "text-blue-600 font-semibold bg-blue-50" : "text-gray-700"}`}
-                  >
-                    All Customers
-                  </button>
-                  {filteredDropdownParties.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => {
-                        setPartyId(p.id);
-                        setShowPartyDrop(false);
-                        setPartyDropQ("");
-                      }}
-                      className={`w-full text-left px-3 py-2 text-xs hover:bg-blue-50 truncate ${partyId === p.id ? "text-blue-600 font-semibold bg-blue-50" : "text-gray-700"}`}
-                    >
-                      {p.name}
-                    </button>
-                  ))}
-                  {filteredDropdownParties.length === 0 && (
-                    <p className="text-xs text-gray-400 text-center py-3">No customers found</p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Status filter — desktop only, see Filters sheet on mobile */}
-            <div className="hidden sm:flex items-center gap-0.5 h-9 border border-gray-200 rounded-lg p-0.5 bg-gray-50/60">
-              {STATUSES.map((s) => (
-                <button
-                  key={s.value}
-                  onClick={() => setStatus(s.value)}
-                  className={`px-2.5 h-7 rounded-md text-xs transition outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${status === s.value ? "bg-primary text-primary-foreground font-semibold" : "text-gray-500 hover:bg-gray-100"}`}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
+            {/* One button, one panel. The date range, the party picker
+                and the status pills used to sit across this toolbar —
+                first thing to wrap on a laptop, and already duplicated
+                inside the filter dialog. They live in the dialog only
+                now, on every screen size. */}
+            <button
+              onClick={() => setFiltersOpen(true)}
+              className="hidden sm:flex relative items-center gap-1.5 h-9 px-3 rounded-lg border border-gray-200 bg-gray-50/60 text-[13px] text-gray-700 hover:bg-gray-100 transition"
+              title="Filters"
+            >
+              <SlidersHorizontal className="h-4 w-4 text-gray-500" />
+              Filters
+              {filtersActive && <span className="ml-0.5 h-2 w-2 rounded-full bg-primary" />}
+            </button>
 
             {/* Search — the one filter kept inline on every screen size */}
             <div className="relative w-full sm:w-48">
@@ -385,7 +316,7 @@ function SalesPage() {
       {/* Mobile filter sheet — Date Range/Customer/Status don't fit inline
           next to Search on a phone, so they live here behind the header's
           Filters button instead, same state as the desktop inline controls. */}
-      <Dialog open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
+      <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Filters</DialogTitle>
@@ -488,7 +419,7 @@ function SalesPage() {
                 <span />
               )}
               <button
-                onClick={() => setMobileFiltersOpen(false)}
+                onClick={() => setFiltersOpen(false)}
                 className="h-8 px-4 bg-primary text-primary-foreground rounded-md text-sm font-semibold hover:opacity-90 transition"
               >
                 Done
