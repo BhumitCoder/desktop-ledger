@@ -819,7 +819,13 @@ function PartyStatementPage() {
         aria-hidden
         className="pointer-events-none fixed left-[-10000px] top-0 w-[1240px] no-print"
       >
-        <div ref={pdfRef}>
+        {/* print-visible, and it is load-bearing rather than cosmetic.
+            buildPrintableHtml takes this element's outerHTML ONLY — no
+            ancestors — and ships the app stylesheet with it, and that
+            stylesheet hides everything in print except .print-area and
+            .print-visible. Without the class the rendered PDF came out
+            completely blank: two white pages, no error anywhere. */}
+        <div ref={pdfRef} data-pdf-source className="print-visible">
           <PrintablePartyStatement
             party={party}
             rows={rows}

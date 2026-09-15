@@ -4834,6 +4834,46 @@ async function runAll(): Promise<Results> {
     }
   }
 
+  /* ── Whatever a PDF is built from must survive the print stylesheet ────
+     The party statement downloaded as two completely blank pages. No error,
+     nothing in the console — just white.
+
+     buildPrintableHtml takes ONE element's outerHTML, with no ancestors, and
+     ships the app stylesheet alongside it. That stylesheet hides everything
+     in print except .print-area and .print-visible, so an element carrying
+     neither renders as nothing at all. The offscreen copy the PDF is now
+     built from had no such class, and every download from that page came out
+     empty.
+
+     Asserted on the element itself, because this is the one fault in the
+     whole pipeline that produces a perfectly successful-looking failure. */
+  {
+    await renderRoute("/parties/P1");
+
+    /* The element the PDF is actually built from, by name. Querying for
+       ".print-visible" found the on-screen statement instead — which carries
+       the class too — so the check passed while the real PDF source had
+       none, and the mutation that caused the blank pages survived it. */
+    const source = document.querySelector("[data-pdf-source]");
+    assert(!!source, "pdf source: the party page has an element PDFs are built from");
+    assert(
+      source?.classList.contains("print-visible"),
+      "pdf source: and it survives the print stylesheet, which hides everything else",
+    );
+
+    /* And it is the statement, not an empty wrapper — a blank page passes a
+       "does it exist" check just as happily. */
+    const text = source?.textContent ?? "";
+    assert(
+      text.includes("Closing Balance"),
+      "pdf source: and it carries the statement, not an empty shell",
+    );
+    assert(
+      text.includes("You Gave") && text.includes("You Got"),
+      "pdf source: with the columns the document is supposed to have",
+    );
+  }
+
   const bulkHost = document.createElement("div");
   document.body.appendChild(bulkHost);
   const bulkRoot = createRoot(bulkHost);
