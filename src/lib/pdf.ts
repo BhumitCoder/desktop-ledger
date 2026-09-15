@@ -209,6 +209,17 @@ export async function elementsToPdfBlobs(
         })),
       },
     });
+    /* Callers pair the returned blobs with their own list positionally —
+       that is the only way to know whose document each one is. So a batch
+       that comes back short must stop everything: silently returning fewer
+       blobs shifts every later document onto the wrong name, and in a party
+       ledger export that means handing one customer another customer's
+       account. Failing the whole download is the mild outcome. */
+    if (res.pdfsBase64.length !== slice.length) {
+      throw new Error(
+        `PDF render returned ${res.pdfsBase64.length} documents for ${slice.length} requested — refusing to guess which is which`,
+      );
+    }
     for (const b64 of res.pdfsBase64) {
       const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
       out.push(new Blob([bytes], { type: "application/pdf" }));

@@ -2486,6 +2486,45 @@ console.log(`\n═════════════════════�
   );
 }
 
+/* ═══════ TEST P: a ledger PDF cannot be saved under the wrong name ═══════
+   The bulk export walked TWO arrays with one index — the documents it had
+   managed to render, and the parties it meant to name them after. Any party
+   whose markup failed to mount was dropped from the first list only, and
+   from there every remaining PDF was written under the previous party's
+   name. The shop read that as "some came out full and some simple". What it
+   actually was is one customer's account in a file named after another,
+   which is the kind of thing that gets emailed onward.
+
+   Read from the source because the failure is structural — two lists that
+   must not be indexed independently — and a test that rendered one party
+   would never see it. */
+{
+  const dlg = readFileSync(process.cwd() + "/src/components/PartyLedgerExportDialog.tsx", "utf8");
+
+  assert(
+    /docs\[i\]\.party\.name/.test(dlg),
+    "P1: each PDF is named from the party carried WITH it",
+  );
+  assert(
+    !/parties\[i\]\.name/.test(dlg),
+    "P1: never from a second list walked with the same index",
+  );
+  assert(/party:\s*p,/.test(dlg), "P1: which means the party is pushed alongside its document");
+  assert(
+    /missed/.test(dlg),
+    "P1: and a party whose document failed is reported, not silently dropped",
+  );
+
+  /* The same trap one level down: the renderer hands back a plain array that
+     callers pair positionally, so a short batch must fail rather than shift
+     every later document onto the wrong name. */
+  const pdf = readFileSync(process.cwd() + "/src/lib/pdf.ts", "utf8");
+  assert(
+    /pdfsBase64\.length !== slice\.length/.test(pdf),
+    "P2: a batch that renders fewer PDFs than asked for throws instead of misaligning",
+  );
+}
+
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
 if (fails.length) {
   console.log(`\nFailures:`);
