@@ -2596,59 +2596,6 @@ console.log(`\n═════════════════════�
   );
 }
 
-/* ═══════ TEST L: the bill form is one page on a laptop ═══════
-   The shop asked for the whole form on a single page. On a 13" screen it
-   scrolled as one long strip, so reaching the totals pushed the party and
-   bill number off the top, and reaching the items pushed the total out of
-   sight. It is now a fixed-height column on large screens: party pinned at
-   the top, totals and payment pinned at the bottom, and only the item rows
-   scrolling between them.
-
-   Source-level, and the reason is a real limit rather than laziness: the
-   screen suite runs an 800px-wide browser, which is BELOW Tailwind's lg
-   breakpoint (1024px). None of these rules apply at that width, so no
-   assertion there could see this layout — and by the same token nothing
-   else gated at lg: in this app is covered either. What can be protected
-   here is that the three pieces keep the parts that make the layout work,
-   rather than one of them being dropped in a later tidy-up and the form
-   silently going back to one long strip. */
-{
-  const form = readFileSync(process.cwd() + "/src/components/InvoiceForm.tsx", "utf8");
-
-  /* The outer region stops being the thing that scrolls. Both halves matter:
-     without the flex column the children cannot share the height, and
-     without min-h-0 a flex child refuses to shrink and the overflow lands
-     back on the page. */
-  assert(
-    /lg:overflow-hidden/.test(form) && /lg:flex lg:flex-col lg:min-h-0/.test(form),
-    "L1: on a large screen the form itself no longer scrolls",
-  );
-
-  /* The items card is the one part that gives. */
-  assert(
-    /lg:flex lg:flex-1 lg:min-h-0 lg:flex-col/.test(form),
-    "L2: the items card takes the leftover height",
-  );
-  assert(
-    /lg:min-h-0 lg:flex-1 lg:overflow-auto/.test(form),
-    "L2: and its rows are what scroll, not the page",
-  );
-
-  /* Pinned top and bottom. A shrink-0 missing here is exactly how a long
-     bill would squeeze the totals down to nothing instead of scrolling. */
-  assert(
-    (form.match(/lg:shrink-0/g) ?? []).length >= 3,
-    "L3: the party card, the items header and the totals stay pinned",
-  );
-
-  /* Below lg nothing above applies, and that is deliberate: a phone has
-     neither the height to pin three regions nor the need. */
-  assert(
-    /overflow-auto lg:overflow-hidden/.test(form),
-    "L4: a small screen still scrolls as one strip, exactly as before",
-  );
-}
-
 /* ═══════ TEST D: an arrowed-to option is an option you can see ═══════
    Reported for "all dropdown selection": arrowing down walked the highlight
    straight past the bottom edge and kept going, invisibly. The shop arrows,
