@@ -632,7 +632,17 @@ function PartyStatementPage() {
                       Two columns of "Receivable / Payable" with a dash in one
                       of them made the reader do that work themselves — and
                       "Dr" meant nothing at all to the person this is for. */}
-                  <tr className="border-t-2 border-gray-300 bg-gray-50">
+                  {/* Never alone on a fresh page. A browser reprints the
+                      column headers whenever a table breaks, so a closing
+                      balance pushed over on its own arrived under a full set
+                      of headings with nothing above it — a page that looks
+                      like a second, empty statement. Refusing a break before
+                      it drags the last transaction over with it, so the final
+                      page always shows what it is closing. */}
+                  <tr
+                    className="border-t-2 border-gray-300 bg-gray-50"
+                    style={{ breakBefore: "avoid", breakInside: "avoid" }}
+                  >
                     <td colSpan={3} className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <Wallet className="h-4 w-4 shrink-0 text-gray-400" />
@@ -727,7 +737,13 @@ function PartyStatementPage() {
               reprints it at the foot of EVERY printed page, so a two-page
               ledger ended with two different bottom lines. */}
           <tbody>
-            <tr className="border-t-2 border-black font-bold">
+            {/* Same rule as the statement: a totals line alone on a fresh
+                page, under a reprinted set of headings, reads as an empty
+                second ledger. */}
+            <tr
+              className="border-t-2 border-black font-bold"
+              style={{ breakBefore: "avoid", breakInside: "avoid" }}
+            >
               <td colSpan={3} />
               <td className="px-2 py-1.5 text-right tabular-nums">{fmtMoney(simpleCreditTotal)}</td>
               <td className="px-2 py-1.5 text-right tabular-nums">{fmtMoney(simpleDebitTotal)}</td>

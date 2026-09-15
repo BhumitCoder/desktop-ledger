@@ -2760,6 +2760,16 @@ console.log(`\n═════════════════════�
     "PR2: nothing sits in a tfoot, which a browser repeats on every printed page",
   );
 
+  /* And a bottom line is never left alone on a fresh page. Moving it out of
+     the tfoot stopped it REPEATING; this stops it arriving by itself under a
+     full set of reprinted column headings, which reads as a second, empty
+     statement. Both closing rows — the statement and the simple ledger —
+     refuse a page break before them. */
+  assert(
+    (page.match(/breakBefore: "avoid"/g) ?? []).length >= 2,
+    "PR4: neither closing row can be orphaned onto a page of its own",
+  );
+
   assert(
     !page.includes("You Gave (\u20B9)"),
     "PR3: no column header leans on a glyph the PDF renderer cannot draw",
