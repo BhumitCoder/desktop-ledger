@@ -4761,6 +4761,64 @@ async function runAll(): Promise<Results> {
     }
   }
 
+  /* ── A statement row never repeats itself ─────────────────────────────
+     A one-item bill printed its item on the row AND again, verbatim, on a
+     line underneath: same name, same quantity, same rate, same amount. A
+     payment row managed it too — the pill said "Payment Received" and the
+     description said "Payment Received" right beside it.
+
+     The breakdown exists to explain a row that cannot explain itself. One
+     item fits on its own row and needs no second line. Asserted structurally
+     rather than by counting text, because the rule is about adjacency: no
+     row may be followed by a line that just says it again. */
+  {
+    await renderRoute("/parties/P1");
+
+    const body = document.querySelector("table tbody");
+    assert(!!body, "statement dupes: the statement table rendered");
+
+    if (body) {
+      const rows = Array.from(body.querySelectorAll("tr"));
+      let repeats = 0;
+      let example = "";
+      for (let i = 0; i < rows.length - 1; i++) {
+        const cells = rows[i].querySelectorAll("td");
+        // A transaction row has the full set of columns; a breakdown line
+        // has two (a spacer and a wide cell).
+        if (cells.length < 6) continue;
+        const description = (cells[3].textContent ?? "").trim();
+        if (!description) continue;
+        const next = rows[i + 1];
+        if (next.querySelectorAll("td").length >= 6) continue; // another txn
+        const detail = (next.textContent ?? "").trim();
+        if (detail.includes(description) && description.length > 3) {
+          repeats++;
+          example = description;
+        }
+      }
+      assert(
+        repeats === 0,
+        "statement dupes: no row is followed by a line repeating it — " +
+          repeats +
+          " found, e.g. " +
+          example,
+      );
+
+      /* And the description of a row with no items of its own says where the
+         money went, which is the question that row is actually asked. */
+      const payment = rows.find((r) => (r.textContent ?? "").includes("Payment Received"));
+      if (payment) {
+        const cells = payment.querySelectorAll("td");
+        if (cells.length >= 6) {
+          assert(
+            (cells[3].textContent ?? "").trim() !== "Payment Received",
+            "statement dupes: a payment's description is not just the pill said twice",
+          );
+        }
+      }
+    }
+  }
+
   const bulkHost = document.createElement("div");
   document.body.appendChild(bulkHost);
   const bulkRoot = createRoot(bulkHost);

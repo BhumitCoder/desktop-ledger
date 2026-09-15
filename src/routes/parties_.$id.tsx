@@ -913,7 +913,10 @@ export function PartyStatementRowBlock({
       ? oneItem.name
       : items.length > 1
         ? `${items.length} items`
-        : e.type;
+        : // No items to describe — a payment, or a write-off. Repeating the
+          // pill's own words here taught nobody anything; where the money
+          // went is the question this row is actually asked.
+          (modeOf(e) ?? e.type);
 
   return (
     <>
@@ -923,7 +926,7 @@ export function PartyStatementRowBlock({
         className={`border-b border-gray-100 hover:bg-gray-50/60 ${e.docId ? "cursor-pointer" : ""} ${isOpening ? "bg-gray-50/40 font-semibold" : ""}`}
         style={{
           breakInside: "avoid",
-          breakAfter: items.length ? "avoid" : undefined,
+          breakAfter: items.length > 1 ? "avoid" : undefined,
         }}
       >
         <td className="px-3 py-2.5 text-gray-600 whitespace-nowrap">
@@ -947,7 +950,6 @@ export function PartyStatementRowBlock({
               {e.type}
             </span>
           )}
-          {modeOf(e) && <span className="ml-1.5 text-[10px] text-gray-400">{modeOf(e)}</span>}
         </td>
 
         {/* A receipt settling seven bills printed all seven numbers here and
@@ -957,7 +959,14 @@ export function PartyStatementRowBlock({
           {isOpening ? <span className="text-gray-400">—</span> : shortRef(e.ref)}
         </td>
 
-        <td className="px-3 py-2.5 text-gray-800">{description}</td>
+        <td className="px-3 py-2.5 text-gray-800">
+          {description}
+          {/* Only when the row has items of its own to name; otherwise the
+              description IS the mode and this would repeat it. */}
+          {!!items.length && modeOf(e) && (
+            <span className="block text-[10px] text-gray-400 leading-tight">{modeOf(e)}</span>
+          )}
+        </td>
 
         <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap text-gray-700">
           {totalQty ? totalQty : <span className="text-gray-400">—</span>}
@@ -986,7 +995,7 @@ export function PartyStatementRowBlock({
       {/* The breakdown, as one quiet line per item rather than a table with
           its own headers inside every row — which is what made a statement of
           twenty sales read like twenty separate documents. */}
-      {items.map((it, i) => (
+      {(items.length > 1 ? items : []).map((it, i) => (
         <tr
           key={i}
           className="border-b border-gray-100 bg-gray-50/40"
