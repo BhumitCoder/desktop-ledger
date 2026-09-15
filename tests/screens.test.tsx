@@ -4625,6 +4625,53 @@ async function runAll(): Promise<Results> {
     }
   }
 
+  /* ── The bottom of the bill really is three columns ───────────────────
+     It was two blocks in a three-column grid — one wide card carrying both
+     the amount breakdown AND the whole payment section, then Notes. Asked
+     for three, told it was three, and it was not. Stacked like that the card
+     also grew tall enough to push the payment rows under the sticky Save
+     bar on a laptop.
+
+     Counted rather than eyeballed, because the count is the claim. The
+     widths themselves are gated at lg: and this browser is 800px wide, so
+     nothing here can speak to how it LOOKS — only to how many pieces there
+     are, which is what was actually wrong. */
+  {
+    await renderRoute("/sales/new");
+
+    const rows = Array.from(document.querySelectorAll('div[class*="grid-cols-3"]')).filter((el) =>
+      (el.textContent ?? "").includes("Subtotal"),
+    );
+    assert(rows.length === 1, "three columns: found the bill's bottom row");
+
+    if (rows[0]) {
+      const cols = Array.from(rows[0].children);
+      assert(
+        cols.length === 3,
+        "three columns: money, payment and notes are three separate cards — got " + cols.length,
+      );
+      /* Each one holds its own thing, so a later merge back into one wide
+         card fails here rather than silently undoing this. */
+      const text = cols.map((c) => c.textContent ?? "");
+      assert(
+        text.some((t) => t.includes("Subtotal") && t.includes("Total")),
+        "three columns: one column carries the amounts",
+      );
+      assert(
+        text.some((t) => t.includes("Payment Mode")),
+        "three columns: another carries the payment",
+      );
+      assert(
+        text.some((t) => t.includes("Notes")),
+        "three columns: and the third the notes",
+      );
+      assert(
+        !text.some((t) => t.includes("Subtotal") && t.includes("Payment Mode")),
+        "three columns: the amounts and the payment are not stacked in one card again",
+      );
+    }
+  }
+
   const bulkHost = document.createElement("div");
   document.body.appendChild(bulkHost);
   const bulkRoot = createRoot(bulkHost);

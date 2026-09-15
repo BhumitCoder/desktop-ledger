@@ -1609,7 +1609,7 @@ export function InvoiceForm({ mode, existing }: Props) {
               option past the card's bottom edge — reported, reasonably, as a
               list that would not scroll. The corners stay rounded because
               nothing inside paints into them. */}
-          <div className="lg:col-span-2 border rounded-lg bg-card shadow-card text-sm">
+          <div className="border rounded-lg bg-card shadow-card text-sm">
             {/* Amount breakdown */}
             <div className="p-4 space-y-2.5">
               <Row label="Subtotal" value={fmtMoney(inv.subtotal)} />
@@ -1645,12 +1645,19 @@ export function InvoiceForm({ mode, existing }: Props) {
             </div>
 
             {/* Total — its own band so it reads as the one number that matters */}
-            <div className="flex justify-between items-center gap-2 px-4 py-3 bg-muted/40 border-y font-bold text-lg">
+            <div className="flex justify-between items-center gap-2 px-4 py-3 bg-muted/40 border-t font-bold text-lg rounded-b-lg">
               <span>Total</span>
               <span className="tabular-nums text-primary">{fmtMoney(inv.total)}</span>
             </div>
+          </div>
 
-            {/* Payment */}
+          {/* Payment — its own column now. Not overflow-hidden: the
+              bank-account dropdown is absolutely positioned inside it, and
+              clipping cut off every option past the card's bottom edge. */}
+          <div className="border rounded-lg bg-card shadow-card text-sm">
+            <div className="px-4 py-2.5 border-b bg-muted/50 rounded-t-lg text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Payment
+            </div>
             <div className="p-4 space-y-2.5">
               <div className="flex justify-between items-center gap-2">
                 <span className="text-muted-foreground">Payment Mode</span>

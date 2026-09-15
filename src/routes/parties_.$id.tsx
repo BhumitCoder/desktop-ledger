@@ -21,6 +21,7 @@ import { downloadElementAsPdf } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { sendElementViaWhatsApp } from "@/lib/whatsappSend";
 import { describePayment } from "@/lib/paymentSplit";
+import { NEEDS_DATE_HINT } from "@/lib/dateHint";
 import { ArrowDownCircle, ArrowUpCircle } from "lucide-react";
 import { partyStatementSheet } from "@/lib/partySheet";
 import { PartyDialog } from "./parties";
@@ -472,13 +473,17 @@ function PartyStatementPage() {
             <div className="no-print flex items-center gap-1.5 h-9 pl-3 pr-2.5 rounded-lg border border-gray-200 bg-gray-50/60 w-full sm:w-auto sm:shrink-0">
               <Calendar className="h-3.5 w-3.5 text-gray-400 shrink-0" />
               {/* iOS Safari renders an empty type="date" input as literally
-                  blank — no "dd/mm/yyyy"-style hint the way desktop browsers
-                  show one — so a cleared/unset date here just looks broken.
-                  This label sits on top (pointer-events-none, so the tap
-                  still opens the real native picker underneath) only while
-                  the value is empty. */}
+                  blank — no "dd-mm-yyyy" hint the way desktop browsers show
+                  one — so a cleared date there just looks broken. This label
+                  covers that, sitting on top with pointer-events-none so the
+                  tap still reaches the real picker underneath.
+
+                  Only on the browsers that need it. Unconditional, it landed
+                  straight on top of the built-in hint everywhere else and the
+                  field read as two overlapping strings — which is what the
+                  shop saw the moment date ranges started opening empty. */}
               <div className="relative flex-1 sm:flex-none sm:w-[104px] min-w-0">
-                {!dateFrom && (
+                {NEEDS_DATE_HINT && !dateFrom && (
                   <span className="absolute inset-0 flex items-center text-xs text-gray-400 pointer-events-none">
                     From
                   </span>
@@ -492,7 +497,7 @@ function PartyStatementPage() {
               </div>
               <span className="text-gray-300 text-xs">–</span>
               <div className="relative flex-1 sm:flex-none sm:w-[104px] min-w-0">
-                {!dateTo && (
+                {NEEDS_DATE_HINT && !dateTo && (
                   <span className="absolute inset-0 flex items-center text-xs text-gray-400 pointer-events-none">
                     To
                   </span>
