@@ -1575,34 +1575,36 @@ async function runAll(): Promise<Results> {
     await settleMs(60);
     const text = h.textContent ?? "";
 
-    // Every column the statement page shows, by name.
-    for (const col of [
-      "Date",
-      "Txn Type",
-      "Ref No.",
-      "Payment Status",
-      "Total",
-      "Received/Paid",
-      "Txn Balance",
-      "Receivable Balance",
-      "Payable Balance",
-    ]) {
+    /* The bulk download must be the SAME document as the one a single party
+       produces — that is the whole complaint it answers. Same five columns,
+       same wording. */
+    for (const col of ["Date", "Particulars", "You Gave", "You Got", "Balance"]) {
       assert(text.includes(col), `bulk ledger: the full PDF has the "${col}" column`);
     }
-    // And the per-transaction item breakdown, which was missing entirely.
     assert(
-      text.includes("Item name") && text.includes("Price/Unit") && text.includes("Sub Total"),
-      "bulk ledger: the full PDF breaks each bill down by item",
+      !text.includes("Txn Balance") && !text.includes("Payment Status"),
+      "bulk ledger: and none of the columns the statement page stopped showing",
     );
+
+    /* A summary a shop reads before the rows: what was billed, what came
+       back, what is left. */
+    for (const box of ["Total Billed", "You Got", "You Gave", "Closing Balance"]) {
+      assert(text.includes(box), `bulk ledger: the summary shows "${box}"`);
+    }
     assert(
       text.includes("USB Cable"),
       `bulk ledger: a real line item reaches the page — ${JSON.stringify(text.slice(0, 200))}`,
     );
     // The numbers are the statement's own, not recomputed.
     const closing = built.rows.length ? built.rows[built.rows.length - 1].balance : 0;
+    /* Compared without the rupee sign: the printed document drops it on
+       purpose, because the headless browser that draws these PDFs has no
+       font carrying it and printed a blank where it stood. The FIGURE is
+       what has to match the statement, and it still does. */
+    const plain = (n: number) => fmtMoney(n).replace("₹", "");
     assert(
-      text.includes(fmtMoney(Math.abs(closing))),
-      `bulk ledger: it closes on the statement's balance ${fmtMoney(Math.abs(closing))}`,
+      text.includes(plain(Math.abs(closing))),
+      `bulk ledger: it closes on the statement's balance ${plain(Math.abs(closing))}`,
     );
 
     // The simple format stays the plain six-column ledger.

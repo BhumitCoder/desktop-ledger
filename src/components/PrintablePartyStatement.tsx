@@ -129,8 +129,27 @@ export function PrintablePartyStatement({
      party and downloading from there — which is exactly what the client
      reported. Landscape, for the same reason the page prints landscape:
      nine columns do not fit across a portrait page.                        */
+  /* Figures without the rupee sign. The headless browser that draws these
+     PDFs carries no font with it, so every "₹" printed as a blank — a
+     column headed "You Gave (₹)" came out as "You Gave ( )". The unit is
+     said once in the heading instead. */
+  const money = (n: number) => fmtMoney(n).replace("₹", "");
+
   const totalBilled = rows.reduce((s, r) => s + (r.total || 0), 0);
   const totalSettled = rows.reduce((s, r) => s + (r.receivedOrPaid || 0), 0);
+
+  /* The two column totals, taken from the same movement the columns are.
+     Adding up "sales" and "payments" by name instead would drift the moment
+     a return or a write-off appeared, and a summary that disagrees with the
+     rows beneath it is worse than no summary. */
+  let sumGave = 0;
+  let sumGot = 0;
+  rows.forEach((r, i) => {
+    if (r.type === "Beginning Balance" || r.type === "Balance b/f") return;
+    const d = r.balance - (i === 0 ? 0 : rows[i - 1].balance);
+    if (d > 0.01) sumGave += d;
+    else if (d < -0.01) sumGot += -d;
+  });
 
   const th: React.CSSProperties = {
     padding: "6px 8px",
@@ -222,121 +241,162 @@ export function PrintablePartyStatement({
         </div>
       </div>
 
+      {/* What a shop wants before it reads a single row: how much went out,
+          how much came back, and what is left. The statement page shows the
+          same three figures as cards above its table; this is that, for
+          paper. */}
+      <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+        {[
+          { label: "Total Billed", value: money(totalBilled), color: "#111" },
+          { label: "You Gave", value: money(sumGave), color: "#e11d48" },
+          { label: "You Got", value: money(sumGot), color: "#059669" },
+          {
+            label: "Closing Balance",
+            value: money(Math.abs(closing)),
+            color: closing < -0.01 ? "#b45309" : closing > 0.01 ? "#e11d48" : "#374151",
+            note: closing > 0.01 ? "they owe you" : closing < -0.01 ? "you owe them" : "settled",
+          },
+        ].map((b) => (
+          <div
+            key={b.label}
+            style={{
+              flex: 1,
+              border: "1px solid #e5e7eb",
+              borderRadius: 6,
+              padding: "8px 10px",
+              background: "#fcfcfd",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 9,
+                fontWeight: 700,
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+                color: "#6b7280",
+              }}
+            >
+              {b.label}
+            </div>
+            <div
+              style={{
+                marginTop: 2,
+                fontSize: 15,
+                fontWeight: 800,
+                color: b.color,
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {b.value}
+            </div>
+            {b.note && <div style={{ fontSize: 9, color: "#6b7280" }}>{b.note}</div>}
+          </div>
+        ))}
+      </div>
+
       <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 12 }}>
         <thead>
           <tr style={{ background: "#f9fafb" }}>
-            <th style={{ ...th, width: 78 }}>Date</th>
-            <th style={th}>Txn Type</th>
-            <th style={th}>Ref No.</th>
-            <th style={th}>Payment Status</th>
-            <th style={{ ...thR, width: 96 }}>Total</th>
-            <th style={{ ...thR, width: 108 }}>Received/Paid</th>
-            <th style={{ ...thR, width: 100 }}>Txn Balance</th>
-            <th style={{ ...thR, width: 118 }}>Receivable Balance</th>
-            <th style={{ ...thR, width: 110 }}>Payable Balance</th>
+            <th style={{ ...th, width: 90 }}>Date</th>
+            <th style={th}>Particulars</th>
+            <th style={{ ...thR, width: 120 }}>You Gave</th>
+            <th style={{ ...thR, width: 120 }}>You Got</th>
+            <th style={{ ...thR, width: 130 }}>Balance</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r, i) => {
-            const itemSubtotal = r.items?.reduce((s, it) => s + it.amount, 0) ?? 0;
+            const prevBal = i === 0 ? 0 : rows[i - 1].balance;
+            const delta = r.balance - prevBal;
             const opening = r.type === "Beginning Balance" || r.type === "Balance b/f";
+            const items = r.items ?? [];
+            const charges = r.charges ?? [];
+            const one = items.length === 1 ? items[0] : null;
+            const detail = opening
+              ? ""
+              : one
+                ? `${one.name} · ${one.qty} × ${money(one.price)}`
+                : items.length > 1
+                  ? `${items.length} items`
+                  : "";
+            /* Which side the balance sits on, said only when it changes —
+               the same rule the screen follows, so the two documents read
+               identically. */
+            const side = r.balance > 0.01 ? "they owe" : r.balance < -0.01 ? "you owe" : "settled";
+            const prevSide =
+              i === 0 ? "" : prevBal > 0.01 ? "they owe" : prevBal < -0.01 ? "you owe" : "settled";
+            const showSide = i === 0 || side !== prevSide;
+            /* A bill that already prints its item on the row needs no
+               breakdown underneath; repeating it word for word is what the
+               shop objected to, and on paper there is no fold to hide it. */
+            const showBreakdown = items.length > 1 || charges.length > 0;
+
             return (
-              <Fragment key={`${r.docId ?? r.type}-${i}`}>
-                <tr
-                  style={{
-                    background: opening ? "#fafafa" : undefined,
-                    fontWeight: opening ? 600 : undefined,
-                    breakInside: "avoid",
-                    breakAfter: r.items?.length ? "avoid" : undefined,
-                  }}
-                >
-                  <td style={{ ...td, color: "#4b5563" }}>{r.date ? fmtDate(r.date) : ""}</td>
-                  <td style={{ ...td, fontWeight: 500 }}>{r.type}</td>
-                  <td style={{ ...td, fontFamily: "ui-monospace, monospace", color: "#1d4ed8" }}>
-                    {r.ref}
+              <Fragment key={i}>
+                <tr style={{ pageBreakInside: "avoid", breakInside: "avoid" }}>
+                  <td style={{ ...td, color: "#6b7280" }}>{opening ? "" : fmtDate(r.date)}</td>
+                  <td style={{ ...td, whiteSpace: "normal" }}>
+                    {opening ? (
+                      <span style={{ fontWeight: 700 }}>Opening Balance</span>
+                    ) : (
+                      <>
+                        <span style={{ fontWeight: 700 }}>{r.type}</span>
+                        {r.ref && r.ref !== "—" && (
+                          <span style={{ marginLeft: 6, color: "#1d4ed8", fontSize: 10 }}>
+                            {r.ref}
+                          </span>
+                        )}
+                        {detail && (
+                          <span style={{ marginLeft: 6, color: "#6b7280", fontSize: 10 }}>
+                            · {detail}
+                          </span>
+                        )}
+                      </>
+                    )}
                   </td>
-                  <td style={td}>{r.status ?? ""}</td>
-                  <td style={num}>{r.total ? fmtMoney(r.total) : "—"}</td>
-                  <td style={{ ...num, color: "#047857" }}>
-                    {r.receivedOrPaid ? fmtMoney(r.receivedOrPaid) : "—"}
+                  <td style={{ ...num, color: "#e11d48", fontWeight: 600 }}>
+                    {!opening && delta > 0.01 ? money(delta) : ""}
                   </td>
-                  <td style={{ ...num, color: "#be123c" }}>
-                    {r.txnBalance ? fmtMoney(r.txnBalance) : "—"}
+                  <td style={{ ...num, color: "#059669", fontWeight: 600 }}>
+                    {!opening && delta < -0.01 ? money(-delta) : ""}
                   </td>
-                  <td style={{ ...num, fontWeight: 600, color: "#be123c" }}>
-                    {r.balance > 0 ? fmtMoney(r.balance) : "—"}
-                  </td>
-                  <td style={{ ...num, fontWeight: 600, color: "#b45309" }}>
-                    {r.balance < 0 ? fmtMoney(-r.balance) : "—"}
+                  <td style={{ ...num, fontWeight: 700 }}>
+                    {money(Math.abs(r.balance))}
+                    {showSide && (
+                      <span
+                        style={{ marginLeft: 5, fontSize: 9, fontWeight: 500, color: "#6b7280" }}
+                      >
+                        {side}
+                      </span>
+                    )}
                   </td>
                 </tr>
-                {!!r.items?.length && (
-                  <tr style={{ background: "#fbfbfc", breakInside: "avoid", breakBefore: "avoid" }}>
-                    <td colSpan={9} style={{ padding: "2px 10px 10px" }}>
-                      <table
-                        style={{
-                          width: "100%",
-                          borderCollapse: "collapse",
-                          background: "#fff",
-                          border: "1px solid #e5e7eb",
-                          borderRadius: 4,
-                        }}
-                      >
-                        <thead>
-                          <tr>
-                            <th style={{ ...iTh, width: 26 }}>#</th>
-                            <th style={iTh}>Item name</th>
-                            <th style={{ ...iThR, width: 70 }}>Quantity</th>
-                            <th style={{ ...iThR, width: 90 }}>Price/Unit</th>
-                            <th style={{ ...iThR, width: 90 }}>Amount</th>
-                          </tr>
-                        </thead>
+
+                {showBreakdown && (
+                  <tr style={{ pageBreakInside: "avoid", breakInside: "avoid" }}>
+                    <td />
+                    <td colSpan={4} style={{ ...td, padding: "0 8px 6px", whiteSpace: "normal" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
                         <tbody>
-                          {r.items.map((it, j) => (
+                          {items.map((it, j) => (
                             <tr key={j}>
-                              <td style={{ ...iTd, color: "#9ca3af" }}>{j + 1}</td>
                               <td style={iTd}>{it.name}</td>
-                              <td style={iNum}>{it.qty}</td>
-                              <td style={iNum}>{fmtMoney(it.price)}</td>
-                              <td style={iNum}>{fmtMoney(it.amount)}</td>
+                              <td style={{ ...iNum, color: "#9ca3af", width: 140 }}>
+                                {it.qty} × {money(it.price)}
+                              </td>
+                              <td style={{ ...iNum, width: 130 }}>{money(it.amount)}</td>
+                            </tr>
+                          ))}
+                          {charges.map((c, j) => (
+                            <tr key={"c" + j}>
+                              <td style={{ ...iTd, color: "#6b7280" }}>{c.label}</td>
+                              <td style={iTd} />
+                              <td style={{ ...iNum, width: 130 }}>
+                                {c.amount < 0 ? `−${money(-c.amount)}` : money(c.amount)}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
-                        <tfoot>
-                          <tr style={{ background: "#f9fafb", fontWeight: 600 }}>
-                            <td
-                              colSpan={4}
-                              style={{
-                                ...iTd,
-                                textAlign: "right",
-                                textTransform: "uppercase",
-                                fontSize: 9,
-                                color: "#6b7280",
-                              }}
-                            >
-                              Sub Total
-                            </td>
-                            <td style={iNum}>{fmtMoney(itemSubtotal)}</td>
-                          </tr>
-                          {(r.charges ?? []).map((c, j) => (
-                            <tr key={j} style={{ color: "#6b7280" }}>
-                              <td
-                                colSpan={4}
-                                style={{
-                                  ...iTd,
-                                  textAlign: "right",
-                                  textTransform: "uppercase",
-                                  fontSize: 9,
-                                }}
-                              >
-                                {c.label}
-                              </td>
-                              <td style={iNum}>
-                                {c.amount < 0 ? `−${fmtMoney(-c.amount)}` : fmtMoney(c.amount)}
-                              </td>
-                            </tr>
-                          ))}
-                        </tfoot>
                       </table>
                     </td>
                   </tr>
@@ -344,38 +404,39 @@ export function PrintablePartyStatement({
               </Fragment>
             );
           })}
-          {rows.length === 0 && (
-            <tr>
-              <td style={{ ...td, textAlign: "center", color: "#777" }} colSpan={9}>
-                No transactions in this period
-              </td>
-            </tr>
-          )}
-        </tbody>
-        <tfoot>
-          <tr style={{ background: "#f9fafb", fontWeight: 700 }}>
-            <td style={{ ...td, borderTop: "1.5px solid #111" }} colSpan={4}>
-              Total
+
+          {/* Never alone on a fresh page: a browser reprints the column
+              headings whenever a table breaks, so a closing balance pushed
+              over by itself arrives under a full set of headings with nothing
+              above it. Refusing a break before it drags the last transaction
+              across too. */}
+          <tr
+            style={{
+              background: "#f9fafb",
+              borderTop: "2px solid #d1d5db",
+              pageBreakBefore: "avoid",
+              breakBefore: "avoid",
+              pageBreakInside: "avoid",
+              breakInside: "avoid",
+            }}
+          >
+            <td colSpan={3} style={{ ...td, fontWeight: 700, textTransform: "uppercase" }}>
+              Closing Balance
+              <span style={{ marginLeft: 6, fontWeight: 500, color: "#6b7280" }}>
+                ·{" "}
+                {closing > 0.01
+                  ? "Total amount they owe you"
+                  : closing < -0.01
+                    ? "Total amount you owe them"
+                    : "Nothing outstanding — fully settled"}
+              </span>
             </td>
-            <td style={{ ...num, borderTop: "1.5px solid #111" }}>{fmtMoney(totalBilled)}</td>
-            <td style={{ ...num, borderTop: "1.5px solid #111" }}>{fmtMoney(totalSettled)}</td>
-            <td style={{ ...td, borderTop: "1.5px solid #111" }} />
-            <td style={{ ...num, borderTop: "1.5px solid #111", color: "#be123c" }}>
-              {closing > 0 ? fmtMoney(closing) : "—"}
-            </td>
-            <td style={{ ...num, borderTop: "1.5px solid #111", color: "#b45309" }}>
-              {closing < 0 ? fmtMoney(-closing) : "—"}
+            <td colSpan={2} style={{ ...num, fontWeight: 800, fontSize: 13 }}>
+              {money(Math.abs(closing))}
             </td>
           </tr>
-        </tfoot>
+        </tbody>
       </table>
-
-      <div style={{ marginTop: 14, fontSize: 12, fontWeight: 700 }}>
-        Closing balance: {fmtMoney(Math.abs(closing))}{" "}
-        <span style={{ fontWeight: 500, color: "#555" }}>
-          {closing > 0.01 ? "(receivable)" : closing < -0.01 ? "(payable)" : "(settled)"}
-        </span>
-      </div>
     </div>
   );
 }
