@@ -2541,6 +2541,61 @@ console.log(`\n═════════════════════�
   );
 }
 
+/* ═══════ TEST K: the keyboard keeps its own cursor on screen ═══════
+   The shop runs this from a MacBook with no mouse. On a 13" screen, tabbing
+   into a field below the fold left the cursor somewhere invisible and the
+   next thing typed went into a box nobody could see.
+
+   Read from the source, and that is worth explaining rather than excusing.
+   The behaviour lives in AppShell, and the screen suite — which renders real
+   pages in a real browser — does NOT mount AppShell: a probe asserting
+   document.querySelector("header") fails there. So nothing in the shell is
+   covered by those 592 assertions, which is a gap worth knowing about well
+   beyond this hook. Until that changes, the rules are pinned here, where
+   they can at least not be deleted silently. */
+{
+  const hook = readFileSync(process.cwd() + "/src/hooks/useKeyboardFocusScroll.ts", "utf8");
+
+  assert(/addEventListener\("focusin"/.test(hook), "K1: something watches where the focus lands");
+  assert(
+    /scrollIntoView\(\{\s*block:\s*"nearest"/.test(hook),
+    "K1: and moves the least it can — anything stronger re-centres the page on every Tab",
+  );
+
+  /* The half that is easy to forget: a pointer must NOT scroll. A page that
+     jumps under the hand that just clicked it is worse than one that never
+     scrolls at all. */
+  /* The SUBSCRIPTION, not the word. Matching "mousedown" anywhere passed
+     happily when the listener was deleted and only its removeEventListener
+     cleanup was left behind — found by mutation, which is the entire point
+     of running one. */
+  assert(
+    /addEventListener\("mousedown", onPointer/.test(hook) &&
+      /addEventListener\("touchstart", onPointer/.test(hook),
+    "K2: a pointer cancels it, so clicking never yanks the page",
+  );
+  assert(
+    /if \(!byKeyboard\) return;/.test(hook),
+    "K2: enforced by a guard, not by hoping the events arrive in a helpful order",
+  );
+
+  /* Only keys that MOVE focus. Scrolling on a plain letter would fire in the
+     middle of typing a party's name. */
+  assert(
+    /"Tab"/.test(hook) && /startsWith\("Arrow"\)/.test(hook),
+    "K3: Tab and the arrows count as a focus move",
+  );
+  assert(!/e\.key\.length === 1/.test(hook), "K3: and a plain character is not treated as one");
+
+  const shell = readFileSync(process.cwd() + "/src/components/layout/AppShell.tsx", "utf8");
+  /* Commenting the call out left the name in the file, and a plain substring
+     match called that mounted. It has to be a live statement. */
+  assert(
+    /^\s*useKeyboardFocusScroll\(\);\s*$/m.test(shell),
+    "K4: the hook is actually mounted — app-wide, since every list page scrolls",
+  );
+}
+
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
 if (fails.length) {
   console.log(`\nFailures:`);

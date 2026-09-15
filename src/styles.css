@@ -414,3 +414,19 @@ input[type="number"] {
   -moz-appearance: textfield;
   appearance: textfield;
 }
+
+/* Room to breathe when the keyboard scrolls something into view.
+ *
+ * `scrollIntoView({block:"nearest"})` stops the moment an element is
+ * technically visible, which on these pages means flush against the sticky
+ * footer that carries Save — visible, and unreadable. A scroll margin makes
+ * "nearest" leave a gap instead, so the field it just reached is clear of
+ * the bar underneath it. */
+input,
+select,
+textarea,
+button,
+[role="radio"],
+[role="combobox"] {
+  scroll-margin-block: 5rem;
+}

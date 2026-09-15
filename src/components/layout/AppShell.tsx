@@ -8,9 +8,13 @@ import { GlobalSearch } from "@/components/GlobalSearch";
 import { WhatsAppStartupNudge } from "@/components/WhatsAppLink";
 import { startOutbox } from "@/store/whatsappOutbox";
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
+import { useKeyboardFocusScroll } from "@/hooks/useKeyboardFocusScroll";
 
 export function AppShell({ children }: { children: ReactNode }) {
   useGlobalShortcuts();
+  // Keyboard-only shop on a 13" laptop: whatever Tab reaches has to be
+  // visible, including inside the nested scrolling panes every list uses.
+  useKeyboardFocusScroll();
   // Idempotent, and outside React's tree on purpose: a bill queued yesterday
   // has to go out when the link recovers, whether or not anyone has opened
   // the Settings page to look at it.
