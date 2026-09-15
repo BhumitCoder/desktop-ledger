@@ -638,6 +638,48 @@ export interface PartyStatementRow {
 }
 
 /**
+ * What a statement row puts in its two money columns.
+ *
+ * The obvious rule — show which way the balance moved — is wrong, and the
+ * shop found it: a bill paid in full at the counter moves the balance by
+ * nothing at all, so a 7,500 sale with 7,500 handed over showed an empty
+ * row. The money was in the ledger and invisible on it.
+ *
+ * A bill has TWO movements on one line: goods out at their full value, and
+ * whatever came back over the counter. Both are shown. A payment, a return
+ * or a write-off has one, and shows one.
+ *
+ * Derived from the net movement rather than from the record's own settled
+ * figure, so the columns can never disagree with the balance beside them:
+ * gave − got equals the net for every row, which is asserted rather than
+ * hoped for. A return stores its settled amount equal to its total for
+ * bookkeeping reasons, and reading that directly would report a second
+ * movement that never happened.
+ */
+export interface LedgerColumns {
+  /** Value that left the shop: goods sold, or money paid out. */
+  gave: number;
+  /** Value that came back: money taken, or goods bought in. */
+  got: number;
+}
+
+export function ledgerColumns(row: PartyStatementRow, net: number): LedgerColumns {
+  const total = row.total || 0;
+
+  if (row.docKind === "sale") {
+    // Goods out at full value; the rest of the line is what was settled on
+    // the spot — total − net, by definition of how the balance moved.
+    return { gave: total, got: Math.max(0, r2(total - net)) };
+  }
+  if (row.docKind === "purchase") {
+    return { got: total, gave: Math.max(0, r2(total + net)) };
+  }
+
+  // One direction only.
+  return net >= 0 ? { gave: r2(net), got: 0 } : { gave: 0, got: r2(-net) };
+}
+
+/**
  * Vyapar-style party statement — one row per transaction (not per debit/
  * credit event like buildPartyLedger), with the invoice's own line items and
  * a running Receivable/Payable balance. Built for the printed/exported

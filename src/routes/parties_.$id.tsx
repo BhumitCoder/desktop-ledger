@@ -11,7 +11,12 @@ import {
   CompanyRepo,
   BankRepo,
 } from "@/repositories";
-import { buildPartyStatement, buildSimpleLedgerRows, type PartyStatementRow } from "@/lib/ledger";
+import {
+  buildPartyStatement,
+  buildSimpleLedgerRows,
+  ledgerColumns,
+  type PartyStatementRow,
+} from "@/lib/ledger";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
@@ -984,6 +989,11 @@ export function PartyStatementRowBlock({
 
   const money = (n: number) => <span className="tabular-nums">{fmtMoney(n).replace("₹", "")}</span>;
 
+  /* Both movements on a bill, not just the net. A sale settled at the
+     counter shifts the balance by nothing, and showing only the shift left
+     the whole amount off the page. */
+  const cols = isOpening ? { gave: 0, got: 0 } : ledgerColumns(e, delta);
+
   return (
     <>
       <tr
@@ -1012,6 +1022,9 @@ export function PartyStatementRowBlock({
                 </span>
               )}
               {detail && <span className="text-[11.5px] text-gray-500">· {detail}</span>}
+              {cols.got > 0 && modeOf(e) && (
+                <span className="text-[11.5px] font-medium text-emerald-700">· {modeOf(e)}</span>
+              )}
               {hasDetail && (
                 <button
                   type="button"
@@ -1031,13 +1044,11 @@ export function PartyStatementRowBlock({
         {/* Blank, not a dash. An empty cell already says "nothing here", and
             forty dashes down a column is forty things to read past. */}
         <td className="px-4 py-2.5 align-top text-right whitespace-nowrap text-[12.5px]">
-          {!isOpening && delta > 0 && (
-            <span className="font-semibold text-rose-600">{money(delta)}</span>
-          )}
+          {cols.gave > 0 && <span className="font-semibold text-rose-600">{money(cols.gave)}</span>}
         </td>
         <td className="px-4 py-2.5 align-top text-right whitespace-nowrap text-[12.5px]">
-          {!isOpening && delta < 0 && (
-            <span className="font-semibold text-emerald-600">{money(-delta)}</span>
+          {cols.got > 0 && (
+            <span className="font-semibold text-emerald-600">{money(cols.got)}</span>
           )}
         </td>
 

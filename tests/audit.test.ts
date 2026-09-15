@@ -49,6 +49,7 @@ import {
   largestSplitMode,
 } from "@/lib/paymentSplit";
 import { readFileSync } from "node:fs";
+import { ledgerColumns } from "@/lib/ledger";
 import {
   classifySendFailure,
   isDue,
@@ -2638,24 +2639,33 @@ console.log(`\n═════════════════════�
      scroll handling of any kind while the bank and item pickers beside it
      did. That is how a shared hook gets written and a caller still gets
      forgotten. */
-  /* The two money columns are mutually exclusive BY CONSTRUCTION — one
-     renders only while the balance rose, the other only while it fell. That
-     is what makes the pair readable at a glance instead of two more numbers
-     to compare, and it is the first thing a careless edit would lose.
+  /* The two money columns were asserted to be mutually exclusive, and that
+     rule was WRONG — the shop found it. A bill settled at the counter moves
+     the balance by nothing, so a 7,500 sale with 7,500 handed over rendered
+     a completely blank row. Both movements belong on a bill's line.
 
-     Asserted from the source after two behavioural attempts failed to catch
-     it: walking table cells by position also picks up the cells of the
-     nested breakdown table inside a row, so the column an index points at
-     depends on the data. A check that cannot be trusted is worse than none. */
+     What replaces it is the property that actually has to hold, tested on
+     values in TEST LC above: gave − got equals the net movement. All that is
+     checked here is that both documents get their columns from the one place
+     that enforces it, rather than each working it out again. */
   const stmt = readFileSync(process.cwd() + "/src/routes/parties_." + "$id.tsx", "utf8");
-  assert(
-    stmt.includes("{!isOpening && delta > 0 && ("),
-    "D4: the You Gave column fills only when the balance rose",
+  const printable = readFileSync(
+    process.cwd() + "/src/components/PrintablePartyStatement.tsx",
+    "utf8",
   );
-  assert(
-    stmt.includes("{!isOpening && delta < 0 && ("),
-    "D4: and You Got only when it fell — never both on one line",
-  );
+  for (const [name, src] of [
+    ["the statement page", stmt],
+    ["the printed statement", printable],
+  ] as const) {
+    assert(
+      src.includes("ledgerColumns("),
+      "D4: " + name + " takes its two columns from the shared rule",
+    );
+    assert(
+      !src.includes("delta > 0 &&") && !src.includes("delta > 0.01 ?"),
+      "D4: " + name + " no longer works the columns out from the net movement itself",
+    );
+  }
 
   const bill = readFileSync(process.cwd() + "/src/components/InvoiceForm.tsx", "utf8");
   assert(
@@ -2850,6 +2860,72 @@ console.log(`\n═════════════════════�
       assert(!re.test(path), "NU2: but it can still be shown on " + path);
     }
   }
+}
+
+/* ═══════ TEST LC: the two money columns always add up to the balance ═══
+   The shop opened a party whose bills were all paid at the counter and saw
+   a statement of blank rows: a 7,500 sale with 7,500 handed over moves the
+   balance by nothing, and the columns were showing the movement. The money
+   was in the ledger and invisible on it.
+
+   A bill has two movements on one line — goods out, and whatever came back
+   over the counter — and both belong on the row. The property that makes
+   that safe is the one asserted here: whatever the two columns say, gave
+   minus got must equal how far the balance actually moved. If that ever
+   stops holding, the statement is telling the shop two different stories
+   about the same rupees. */
+{
+  const check = (
+    label: string,
+    row: Record<string, unknown>,
+    net: number,
+    want: { gave: number; got: number },
+  ) => {
+    const c = ledgerColumns(row as never, net);
+    assert(
+      approx(c.gave, want.gave) && approx(c.got, want.got),
+      "LC: " + label + " — got gave=" + c.gave + " got=" + c.got,
+    );
+    assert(
+      approx(r2(c.gave - c.got), net),
+      "LC: " + label + " reconciles — " + c.gave + " − " + c.got + " should be " + net,
+    );
+  };
+
+  /* The case that was broken: nothing owed before, nothing owed after, and
+     7,500 of trade on the line. */
+  check("a sale settled in full at the counter", { docKind: "sale", total: 7500 }, 0, {
+    gave: 7500,
+    got: 7500,
+  });
+  check("a sale wholly on credit", { docKind: "sale", total: 300 }, 300, { gave: 300, got: 0 });
+  check("a part-paid sale", { docKind: "sale", total: 1000 }, 600, { gave: 1000, got: 400 });
+
+  /* Purchases mirror it: goods IN at full value, money out on the same line. */
+  check("a purchase paid on the spot", { docKind: "purchase", total: 18000 }, 0, {
+    gave: 18000,
+    got: 18000,
+  });
+  check("a purchase on credit", { docKind: "purchase", total: 18000 }, -18000, {
+    gave: 0,
+    got: 18000,
+  });
+
+  /* One-directional rows stay one-directional. A return's stored settled
+     figure equals its total for bookkeeping reasons, and reading that
+     directly would invent a second movement. */
+  check("a payment received", { type: "Payment Received", total: 2890 }, -2890, {
+    gave: 0,
+    got: 2890,
+  });
+  check("a payment made", { type: "Payment Made", total: 5000 }, 5000, { gave: 5000, got: 0 });
+  check(
+    "a sale return, whose settled figure mirrors its total",
+    { docKind: "sale-return", total: 500, receivedOrPaid: 500 },
+    -500,
+    { gave: 0, got: 500 },
+  );
+  check("a write-off", { type: "Discount Given", total: 250 }, -250, { gave: 0, got: 250 });
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);

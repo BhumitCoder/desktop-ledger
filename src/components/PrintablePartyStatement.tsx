@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import { fmtMoney, fmtDate } from "@/lib/format";
-import { buildSimpleLedgerRows, type PartyStatementRow } from "@/lib/ledger";
+import { buildSimpleLedgerRows, ledgerColumns, type PartyStatementRow } from "@/lib/ledger";
 import type { Company, Party } from "@/types";
 
 /**
@@ -368,6 +368,7 @@ export function PrintablePartyStatement({
                breakdown underneath; repeating it word for word is what the
                shop objected to, and on paper there is no fold to hide it. */
             const showBreakdown = items.length > 1 || charges.length > 0;
+            const cols = opening ? { gave: 0, got: 0 } : ledgerColumns(r, delta);
 
             return (
               <Fragment key={i}>
@@ -393,10 +394,10 @@ export function PrintablePartyStatement({
                     )}
                   </td>
                   <td style={{ ...num, color: "#e11d48", fontWeight: 600 }}>
-                    {!opening && delta > 0.01 ? money(delta) : ""}
+                    {cols.gave > 0.01 ? money(cols.gave) : ""}
                   </td>
                   <td style={{ ...num, color: "#059669", fontWeight: 600 }}>
-                    {!opening && delta < -0.01 ? money(-delta) : ""}
+                    {cols.got > 0.01 ? money(cols.got) : ""}
                   </td>
                   <td style={{ ...num, fontWeight: 700 }}>
                     {money(Math.abs(r.balance))}
