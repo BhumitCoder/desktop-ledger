@@ -1588,7 +1588,12 @@ async function runAll(): Promise<Results> {
 
     /* A summary a shop reads before the rows: what was billed, what came
        back, what is left. */
-    for (const box of ["Total Billed", "You Got", "You Gave", "Closing Balance"]) {
+    /* Four boxes that RECONCILE — opening + gave − got = closing — so a
+       reader can check the summary against itself. "Total Billed" took part
+       in no such equation, and a party whose whole balance was an opening
+       figure showed 0, 0, 0 and then a closing balance of 5,100 with nothing
+       on the page explaining it. */
+    for (const box of ["Opening Balance", "You Got", "You Gave", "Closing Balance"]) {
       assert(text.includes(box), `bulk ledger: the summary shows "${box}"`);
     }
     assert(

@@ -21,6 +21,7 @@ import { downloadElementAsPdf } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { sendElementViaWhatsApp } from "@/lib/whatsappSend";
 import { describePayment } from "@/lib/paymentSplit";
+import { PrintablePartyStatement } from "@/components/PrintablePartyStatement";
 import { NEEDS_DATE_HINT } from "@/lib/dateHint";
 import { Wallet, ChevronRight, ChevronDown } from "lucide-react";
 import { ArrowDownCircle, ArrowUpCircle } from "lucide-react";
@@ -157,8 +158,24 @@ function PartyStatementPage() {
   // whatever format the original tap chose isn't carried across tabs.
   useAutoPrintFromUrl(party ? pdfName() : null, !!party);
 
+  /** The offscreen copy that every PDF is made from. */
+  const pdfRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Which element a PDF is built from.
+   *
+   * Not the screen any more. Downloading one party's ledger rendered the
+   * live table, while selecting several on the Parties page rendered
+   * PrintablePartyStatement — two components, so the two downloads drifted
+   * apart and the shop got a visibly different document depending on which
+   * button it pressed. Both go through the printable now, so "same to same"
+   * is structural rather than a thing to keep re-checking.
+   *
+   * Browser Print still uses the on-screen table, which carries its own
+   * print stylesheet and now shows the same layout anyway.
+   */
   const activePrintEl = () =>
-    ledgerFormat === "simple" ? simpleLedgerRef.current : printRef.current;
+    ledgerFormat === "simple" ? simpleLedgerRef.current : pdfRef.current;
 
   const { shareReady, share, resetShare } = useShareablePdf("Statement");
 
@@ -793,6 +810,29 @@ function PartyStatementPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* What every PDF is actually made from: the same component the bulk
+          export uses, kept off-screen. Rendered here rather than built on
+          demand so the download path has nothing to set up and nothing to
+          tear down. */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed left-[-10000px] top-0 w-[1240px] no-print"
+      >
+        <div ref={pdfRef}>
+          <PrintablePartyStatement
+            party={party}
+            rows={rows}
+            company={CompanyRepo.get()}
+            periodLabel={
+              !dateFrom && !dateTo
+                ? "All transactions"
+                : `${dateFrom ? fmtDate(dateFrom) : "Beginning"} — ${dateTo ? fmtDate(dateTo) : "Today"}`
+            }
+            format="full"
+          />
+        </div>
+      </div>
 
       <PartyDialog
         open={editOpen}

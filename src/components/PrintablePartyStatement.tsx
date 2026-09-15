@@ -142,6 +142,15 @@ export function PrintablePartyStatement({
      Adding up "sales" and "payments" by name instead would drift the moment
      a return or a write-off appeared, and a summary that disagrees with the
      rows beneath it is worse than no summary. */
+  /* The balance this party started on. Without it the summary does not add
+     up: a party whose whole balance is an opening figure showed Total Billed
+     0, You Gave 0, You Got 0 — and then a closing balance of 5,100, with
+     nothing on the page saying where it came from. */
+  const opening =
+    rows.length && (rows[0].type === "Beginning Balance" || rows[0].type === "Balance b/f")
+      ? rows[0].balance
+      : 0;
+
   let sumGave = 0;
   let sumGot = 0;
   rows.forEach((r, i) => {
@@ -247,9 +256,14 @@ export function PrintablePartyStatement({
           paper. */}
       <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
         {[
-          { label: "Total Billed", value: money(totalBilled), color: "#111" },
-          { label: "You Gave", value: money(sumGave), color: "#e11d48" },
-          { label: "You Got", value: money(sumGot), color: "#059669" },
+          {
+            label: "Opening Balance",
+            value: money(Math.abs(opening)),
+            color: "#374151",
+            note: opening > 0.01 ? "they owed" : opening < -0.01 ? "you owed" : "nil",
+          },
+          { label: "You Gave", value: money(sumGave), color: "#e11d48", note: "billed to them" },
+          { label: "You Got", value: money(sumGot), color: "#059669", note: "received back" },
           {
             label: "Closing Balance",
             value: money(Math.abs(closing)),

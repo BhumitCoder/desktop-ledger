@@ -2776,6 +2776,51 @@ console.log(`\n═════════════════════�
   );
 }
 
+/* ═══════ TEST SD: one ledger document, however it is downloaded ═══════
+   Downloading one party's ledger built its PDF from the live table on the
+   page; selecting several parties and downloading built theirs from
+   PrintablePartyStatement. Two components rendering the same rows, so the
+   two documents drifted apart — and the shop got a visibly different file
+   depending on which button it pressed. Rebuilding the screen and forgetting
+   the printable is exactly how that gap opened in the first place.
+
+   Both go through the printable now. Asserted structurally, because the
+   guarantee worth having is "there is only one of them", not "these two
+   happen to match today". */
+{
+  const page = readFileSync(process.cwd() + "/src/routes/parties_." + "$id.tsx", "utf8");
+
+  assert(
+    page.includes("<PrintablePartyStatement"),
+    "SD1: the party page renders the same printable the bulk export uses",
+  );
+  /* And points its PDFs at it. Rendering one and then exporting the screen
+     anyway is a failure that looks exactly like success. */
+  assert(
+    page.includes('ledgerFormat === "simple" ? simpleLedgerRef.current : pdfRef.current'),
+    "SD1: and every PDF is built from that, not from the screen",
+  );
+
+  /* The summary has to add up, or it is decoration. Opening + gave − got =
+     closing: a party whose whole balance was an opening figure previously
+     showed 0, 0, 0 and a closing balance of 5,100. */
+  const printable = readFileSync(
+    process.cwd() + "/src/components/PrintablePartyStatement.tsx",
+    "utf8",
+  );
+  assert(
+    printable.includes("Opening Balance") &&
+      printable.includes("You Gave") &&
+      printable.includes("You Got") &&
+      printable.includes("Closing Balance"),
+    "SD2: the summary carries the four figures that reconcile",
+  );
+  assert(
+    !printable.includes('label: "Total Billed"'),
+    "SD2: and not a fifth that takes part in no equation",
+  );
+}
+
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
 if (fails.length) {
   console.log(`\nFailures:`);
