@@ -4500,6 +4500,80 @@ async function runAll(): Promise<Results> {
     } as never);
   }
 
+  /* ── Picking a payment mode carries the keyboard onward ───────────────
+     The shop works a MacBook with no mouse. With macOS "Keyboard
+     navigation" off — the system default — Safari's Tab visits text fields
+     and skips buttons, so tabbing off the Cash pill reached neither the
+     Full button nor the amount, and the run simply died there. Focus is
+     driven explicitly now, so it behaves the same on every browser rather
+     than depending on a setting nobody at a counter will find.
+
+     Asserted on where the focus actually lands, because that is the whole
+     feature; nothing about the rendered markup would change if it broke. */
+  {
+    await renderRoute("/sales/new");
+
+    const cash = document.querySelector('[data-mode="cash"]') as HTMLElement | null;
+    assert(!!cash, "mode focus: the Cash pill is on a new bill");
+    if (cash) {
+      await act(async () => {
+        cash.click();
+      });
+      await settleMs(80);
+      const amount = document.querySelector(
+        'input[aria-label="Received amount"]',
+      ) as HTMLInputElement | null;
+      assert(!!amount, "mode focus: the received-amount box exists");
+      assert(
+        document.activeElement === amount,
+        "mode focus: choosing Cash puts the cursor straight on the amount — focus is on " +
+          (document.activeElement
+            ? document.activeElement.tagName +
+              "[" +
+              (document.activeElement.getAttribute("aria-label") ??
+                document.activeElement.getAttribute("data-mode") ??
+                document.activeElement.getAttribute("placeholder") ??
+                (document.activeElement.textContent ?? "").slice(0, 24)) +
+              "]"
+            : "nothing"),
+      );
+    }
+
+    const bank = document.querySelector('[data-mode="bank"]') as HTMLElement | null;
+    assert(!!bank, "mode focus: the Bank pill is there too");
+    if (bank) {
+      await act(async () => {
+        bank.click();
+      });
+      await settleMs(80);
+      // Bank asks a question Cash does not, so the cursor goes there instead.
+      const bankBox = document.querySelector(
+        'input[placeholder="Search bank account…"]',
+      ) as HTMLInputElement | null;
+      assert(!!bankBox, "mode focus: choosing Bank reveals the account box");
+      assert(
+        document.activeElement === bankBox,
+        "mode focus: and the cursor is in it, not left on the pill",
+      );
+
+      /* The account list is absolutely positioned inside the totals card.
+         That card was overflow-hidden, so every option past its bottom edge
+         was clipped away — reported as a list that would not scroll. */
+      const list = bankBox?.parentElement?.querySelector("[class*='overflow-auto']");
+      if (list) {
+        let clipped = false;
+        for (let el = list.parentElement; el; el = el.parentElement) {
+          if (el === document.body) break;
+          if (getComputedStyle(el).overflow === "hidden") {
+            clipped = true;
+            break;
+          }
+        }
+        assert(!clipped, "mode focus: no ancestor clips the bank list away");
+      }
+    }
+  }
+
   const bulkHost = document.createElement("div");
   document.body.appendChild(bulkHost);
   const bulkRoot = createRoot(bulkHost);
@@ -4555,6 +4629,7 @@ async function runAll(): Promise<Results> {
       );
     }
   }
+
   bulkRoot.unmount();
   bulkHost.remove();
 

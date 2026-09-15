@@ -289,6 +289,10 @@ export function InvoiceForm({ mode, existing }: Props) {
      back to the top, which feels exactly like a list that cannot be
      scrolled. */
   const bankOptionsRef = useRef<HTMLDivElement>(null);
+  /** The received/paid box — where the keyboard goes once a mode is chosen. */
+  const amountRef = useRef<HTMLInputElement>(null);
+  /** Set when a mode is picked, consumed by the effect below. */
+  const focusAfterMode = useRef<PaymentMode | null>(null);
   const prevBankIdx = useRef(bankIdx);
   useEffect(() => {
     if (prevBankIdx.current === bankIdx) return;
@@ -297,6 +301,23 @@ export function InvoiceForm({ mode, existing }: Props) {
       ?.querySelector(`[data-bank-opt="${bankIdx}"]`)
       ?.scrollIntoView({ block: "nearest" });
   }, [bankIdx]);
+
+  /**
+   * Put the cursor on whatever the chosen mode just made necessary.
+   *
+   * In an effect rather than in the click handler because both targets are
+   * rendered BY that same update — Cash reveals the amount box, Bank reveals
+   * the account box — so anything running before React commits is focusing a
+   * ref that is still null. An earlier attempt used requestAnimationFrame and
+   * silently did nothing for exactly that reason.
+   */
+  useEffect(() => {
+    const m = focusAfterMode.current;
+    if (!m) return;
+    focusAfterMode.current = null;
+    if (m === "bank") bankSelectRef.current?.focus();
+    else if (m !== "credit") amountRef.current?.focus();
+  }, [inv.paymentMode, modeChosen]);
 
   const selectBank = (b: BankAccount) => {
     setInv({ ...inv, bankId: b.id });
@@ -1568,7 +1589,12 @@ export function InvoiceForm({ mode, existing }: Props) {
 
         {/* Totals + notes */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
-          <div className="lg:col-span-2 border rounded-lg bg-card shadow-card overflow-hidden text-sm">
+          {/* Not overflow-hidden: the bank-account dropdown is absolutely
+              positioned inside this card, and clipping it cut off every
+              option past the card's bottom edge — reported, reasonably, as a
+              list that would not scroll. The corners stay rounded because
+              nothing inside paints into them. */}
+          <div className="lg:col-span-2 border rounded-lg bg-card shadow-card text-sm">
             {/* Amount breakdown */}
             <div className="p-4 space-y-2.5">
               <Row label="Subtotal" value={fmtMoney(inv.subtotal)} />
@@ -1625,6 +1651,21 @@ export function InvoiceForm({ mode, existing }: Props) {
                       paid: newMode === "credit" ? 0 : inv.paid,
                       bankId: newMode === "bank" ? inv.bankId : undefined,
                     });
+                    /* Move to whatever the choice just made necessary, rather
+                       than leaving it to Tab.
+
+                       macOS is the reason. With "Keyboard navigation" off —
+                       the system default — Safari's Tab visits text fields
+                       and skips buttons entirely, so tabbing off the Cash
+                       pill reached neither "Full" nor anything else useful,
+                       which is precisely the report. Driving the focus here
+                       makes the run behave the same on every browser instead
+                       of depending on a setting nobody at a shop counter is
+                       going to find.
+
+                       After the state update, so the bank field exists to be
+                       focused when the answer was Bank. */
+                    focusAfterMode.current = newMode;
                   }}
                   modes={["cash", "bank", "credit"]}
                 />
@@ -1722,8 +1763,10 @@ export function InvoiceForm({ mode, existing }: Props) {
                       Full
                     </button>
                     <NumInput
+                      ref={amountRef}
                       value={inv.paid}
                       onValue={(n) => setInv({ ...inv, paid: n })}
+                      aria-label={mode === "sale" ? "Received amount" : "Paid amount"}
                       className="w-24 h-8 px-2 text-right border rounded-md bg-background focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none tabular-nums"
                     />
                   </div>
