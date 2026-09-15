@@ -868,19 +868,15 @@ function ReportView({
                   <thead>
                     <tr className="bg-gray-50/60">
                       {[
-                        "Date",
-                        "Txn Type",
-                        "Ref No.",
-                        "Payment Status",
-                        "Total",
-                        "Received/Paid",
-                        "Txn Balance",
-                        "Receivable Balance",
-                        "Payable Balance",
-                      ].map((h, i) => (
+                        ["Date", "left"],
+                        ["Particulars", "left"],
+                        ["You Gave (₹)", "right"],
+                        ["You Got (₹)", "right"],
+                        ["Balance (₹)", "right"],
+                      ].map(([h, align]) => (
                         <th
                           key={h}
-                          className={`px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500 border-b border-gray-100 whitespace-nowrap ${i >= 4 ? "text-right" : "text-left"}`}
+                          className={`px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500 border-b border-gray-100 whitespace-nowrap ${align === "right" ? "text-right" : "text-left"}`}
                         >
                           {h}
                         </th>
@@ -892,21 +888,25 @@ function ReportView({
                       <PartyStatementRowBlock
                         key={i}
                         row={r}
-                        prevBalance={i === 0 ? 0 : ledger.rows[i - 1].balance}
+                        prev={i === 0 ? undefined : ledger.rows[i - 1]}
                         onOpen={() => openRow(r)}
                       />
                     ))}
                   </tbody>
                   <tfoot>
                     <tr className="bg-gray-50 border-t-2 border-gray-200 font-bold">
-                      <td colSpan={7} className="px-3 py-2.5 text-[10px] uppercase text-gray-500">
+                      <td colSpan={4} className="px-3 py-2.5 text-[10px] uppercase text-gray-500">
                         Closing Balance
                       </td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-rose-600">
-                        {closing > 0 ? fmtMoney(closing) : "—"}
-                      </td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-amber-600">
-                        {closing < 0 ? fmtMoney(-closing) : "—"}
+                      <td className="px-3 py-2.5 text-right">
+                        <div className="tabular-nums text-gray-800">
+                          {fmtMoney(Math.abs(closing))}
+                        </div>
+                        <div
+                          className={`text-[10px] font-normal ${closing > 0 ? "text-rose-500" : closing < 0 ? "text-amber-600" : "text-gray-400"}`}
+                        >
+                          {closing > 0 ? "they owe you" : closing < 0 ? "you owe them" : "settled"}
+                        </div>
                       </td>
                     </tr>
                   </tfoot>

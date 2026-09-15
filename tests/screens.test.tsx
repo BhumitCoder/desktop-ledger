@@ -4684,16 +4684,27 @@ async function runAll(): Promise<Results> {
   {
     const stmt = await renderRoute("/parties/P1");
 
-    for (const heading of [
-      "Transaction Type",
-      "Reference No.",
-      "Description",
-      "Quantity",
-      "Amount",
-      "Balance",
-    ]) {
+    /* Two money columns and a balance, which is the shape of every
+       hand-written khata in the country. Eight columns of Quantity / Rate /
+       Amount put a bill's internals on the same line as the running account
+       and made a month of trading unreadable. */
+    for (const heading of ["Date", "Particulars", "You Gave", "You Got", "Balance"]) {
       has(stmt, heading, "statement: the column named " + heading);
     }
+    /* Scoped to the header, not the page: "Quantity" legitimately appears
+       inside an opened breakdown and on the mobile card, and asserting
+       against the whole document fails for the wrong reason. */
+    const head = document.querySelector("table thead")?.textContent ?? "";
+    assert(
+      head.length > 0 && !head.includes("Quantity") && !head.includes("Reference No."),
+      "statement: a bill's internals are no longer columns of the account — " + head,
+    );
+
+    /* The detail is folded away, not thrown away. Seven item lines under
+       every sale is what turned this into six screens of scrolling. */
+    has(stmt, "View details", "statement: the breakdown can be opened");
+    const anyItemLine = /S22U LCD TAPE|SM A16 NEW WITH FRAME LCD/.test(stmt);
+    assert(!anyItemLine, "statement: but it starts closed, so the account reads as an account");
 
     /* The three that had to go. "Dr" is the clearest example of the whole
        complaint: correct, conventional, and unreadable to this shop. */
@@ -4785,11 +4796,11 @@ async function runAll(): Promise<Results> {
         const cells = rows[i].querySelectorAll("td");
         // A transaction row has the full set of columns; a breakdown line
         // has two (a spacer and a wide cell).
-        if (cells.length < 6) continue;
-        const description = (cells[3].textContent ?? "").trim();
+        if (cells.length < 5) continue;
+        const description = (cells[1].textContent ?? "").trim();
         if (!description) continue;
         const next = rows[i + 1];
-        if (next.querySelectorAll("td").length >= 6) continue; // another txn
+        if (next.querySelectorAll("td").length >= 5) continue; // another txn
         const detail = (next.textContent ?? "").trim();
         if (detail.includes(description) && description.length > 3) {
           repeats++;
@@ -4806,16 +4817,21 @@ async function runAll(): Promise<Results> {
 
       /* And the description of a row with no items of its own says where the
          money went, which is the question that row is actually asked. */
-      const payment = rows.find((r) => (r.textContent ?? "").includes("Payment Received"));
-      if (payment) {
-        const cells = payment.querySelectorAll("td");
-        if (cells.length >= 6) {
-          assert(
-            (cells[3].textContent ?? "").trim() !== "Payment Received",
-            "statement dupes: a payment's description is not just the pill said twice",
-          );
-        }
+      /* Money in and money out are never both filled on one line — that is
+         what makes the two columns readable at a glance rather than two more
+         numbers to compare. */
+      let bothSides = 0;
+      for (const r of rows) {
+        const cells = r.querySelectorAll("td");
+        if (cells.length < 5) continue;
+        const gave = (cells[2].textContent ?? "").trim();
+        const got = (cells[3].textContent ?? "").trim();
+        if (gave !== "—" && got !== "—") bothSides++;
       }
+      assert(
+        bothSides === 0,
+        "statement dupes: no line fills both You Gave and You Got — " + bothSides + " did",
+      );
     }
   }
 

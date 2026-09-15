@@ -22,7 +22,7 @@ import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { sendElementViaWhatsApp } from "@/lib/whatsappSend";
 import { describePayment } from "@/lib/paymentSplit";
 import { NEEDS_DATE_HINT } from "@/lib/dateHint";
-import { Wallet, Package, ArrowUp, ArrowDown } from "lucide-react";
+import { Wallet, ChevronRight, ChevronDown } from "lucide-react";
 import { ArrowDownCircle, ArrowUpCircle } from "lucide-react";
 import { partyStatementSheet } from "@/lib/partySheet";
 import { PartyDialog } from "./parties";
@@ -590,12 +590,9 @@ function PartyStatementPage() {
                       the bottom rather than as Dr/Cr. */}
                   {[
                     ["Date", "left"],
-                    ["Transaction Type", "left"],
-                    ["Reference No.", "left"],
-                    ["Description", "left"],
-                    ["Quantity", "right"],
-                    ["Rate (₹)", "right"],
-                    ["Amount (₹)", "right"],
+                    ["Particulars", "left"],
+                    ["You Gave (₹)", "right"],
+                    ["You Got (₹)", "right"],
                     ["Balance (₹)", "right"],
                   ].map(([h, align]) => (
                     <th
@@ -610,7 +607,7 @@ function PartyStatementPage() {
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="text-center py-14 text-gray-400">
+                    <td colSpan={5} className="text-center py-14 text-gray-400">
                       No transactions with this party yet
                     </td>
                   </tr>
@@ -623,7 +620,7 @@ function PartyStatementPage() {
                       // ledger can show, and it is only knowable against the
                       // row before — so it is passed rather than guessed from
                       // the transaction's name.
-                      prevBalance={i === 0 ? 0 : rows[i - 1].balance}
+                      prev={i === 0 ? undefined : rows[i - 1]}
                       onOpen={() => openRow(e)}
                     />
                   ))
@@ -636,7 +633,7 @@ function PartyStatementPage() {
                       of them made the reader do that work themselves — and
                       "Dr" meant nothing at all to the person this is for. */}
                   <tr className={balance < 0 ? "bg-amber-50/70" : "bg-rose-50/70"}>
-                    <td colSpan={6} className="px-4 py-4">
+                    <td colSpan={3} className="px-4 py-4">
                       <div className="flex items-center gap-2.5">
                         <Wallet
                           className={`h-5 w-5 shrink-0 ${balance < 0 ? "text-amber-600" : "text-rose-500"}`}
@@ -888,153 +885,155 @@ function modeOf(e: PartyStatementRow): string | undefined {
  * in the bill. */
 export function PartyStatementRowBlock({
   row: e,
-  prevBalance,
+  prev,
   onOpen,
 }: {
   row: PartyStatementRow;
-  /** The balance before this row, so the arrow can show which way it moved. */
-  prevBalance: number;
+  /** The row above, for the running direction and for hiding a repeated date. */
+  prev?: PartyStatementRow;
   onOpen: () => void;
 }) {
   const isOpening = e.type === "Beginning Balance" || e.type === "Balance b/f";
-  const delta = e.balance - prevBalance;
+  const delta = e.balance - (prev?.balance ?? 0);
+  const [open, setOpen] = useState(false);
 
-  /* One item is the common case in this shop, and when there is exactly one
-     its quantity and rate belong on the row itself — putting them only in a
-     sub-table made every sale a two-step read. More than one, and the row
-     shows the count and lets the breakdown underneath do the work. */
   const items = e.items ?? [];
+  const charges = e.charges ?? [];
+  const hasDetail = items.length > 0 || charges.length > 0;
   const oneItem = items.length === 1 ? items[0] : null;
-  const totalQty = items.reduce((t, it) => t + (it.qty || 0), 0);
+
+  /* The date only when it changes. A page where every line repeats the same
+     date reads as a list of dates with some money attached, instead of a
+     day's trading. */
+  const sameDayAsPrev = !!prev && prev.date === e.date;
 
   const description = isOpening
-    ? "Beginning Balance"
+    ? "Opening Balance"
     : oneItem
-      ? oneItem.name
+      ? `${oneItem.name}  ·  ${oneItem.qty} × ${fmtMoney(oneItem.price)}`
       : items.length > 1
         ? `${items.length} items`
-        : // No items to describe — a payment, or a write-off. Repeating the
-          // pill's own words here taught nobody anything; where the money
-          // went is the question this row is actually asked.
-          (modeOf(e) ?? e.type);
+        : (modeOf(e) ?? "");
 
   return (
     <>
       <tr
         onClick={onOpen}
         title={e.docId ? "Open this bill" : undefined}
-        className={`border-b border-gray-100 hover:bg-gray-50/60 ${e.docId ? "cursor-pointer" : ""} ${isOpening ? "bg-gray-50/40 font-semibold" : ""}`}
-        style={{
-          breakInside: "avoid",
-          breakAfter: items.length > 1 ? "avoid" : undefined,
-        }}
+        className={`border-b border-gray-100 ${e.docId ? "cursor-pointer hover:bg-gray-50/70" : ""} ${isOpening ? "bg-gray-50/60" : ""}`}
+        style={{ breakInside: "avoid" }}
       >
-        <td className="px-3 py-2.5 text-gray-600 whitespace-nowrap">
-          {isOpening ? <Wallet className="h-4 w-4 text-gray-400" /> : e.date ? fmtDate(e.date) : ""}
+        <td className="px-4 py-3 align-top whitespace-nowrap text-gray-500">
+          {isOpening ? "" : sameDayAsPrev ? "" : fmtDate(e.date)}
         </td>
 
-        {/* A pill with the direction on it. Which way the balance moved is the
-            one thing a ledger can say without any accounting vocabulary at
-            all — up means they owe more than they did on the line above, down
-            means less. */}
-        <td className="px-3 py-2.5 whitespace-nowrap">
-          {isOpening ? (
-            <span className="text-gray-400">—</span>
-          ) : (
-            <span
-              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                delta >= 0 ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-600"
-              }`}
+        {/* Everything that describes the transaction in one cell, stacked, so
+            the eye runs down a single column of words instead of hopping
+            across four narrow ones. */}
+        <td className="px-4 py-3 align-top">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            {isOpening ? (
+              <span className="font-semibold text-gray-700">Opening Balance</span>
+            ) : (
+              <>
+                <span
+                  className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide ${
+                    delta >= 0 ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-emerald-700"
+                  }`}
+                >
+                  {e.type}
+                </span>
+                {e.ref && e.ref !== "—" && (
+                  <span className="font-mono text-[11.5px] text-blue-600" title={e.ref}>
+                    {shortRef(e.ref)}
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+          {!isOpening && description && (
+            <div className="mt-0.5 text-[12px] text-gray-600">{description}</div>
+          )}
+          {/* The breakdown is folded away. Seven item lines under every bill
+              is what turned a month's trading into six screens of scrolling —
+              the detail is wanted, but not all of it at once. */}
+          {hasDetail && (
+            <button
+              type="button"
+              onClick={(ev) => {
+                ev.stopPropagation();
+                setOpen((v) => !v);
+              }}
+              className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-gray-400 hover:text-gray-600"
             >
-              {delta >= 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
-              {e.type}
-            </span>
+              {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              {open ? "Hide details" : "View details"}
+            </button>
           )}
         </td>
 
-        {/* A receipt settling seven bills printed all seven numbers here and
-            pushed every column after it off the screen. Two, then a count —
-            the full list is on hover, and on the bill itself. */}
-        <td className="px-3 py-2.5 font-mono text-xs text-blue-600 whitespace-nowrap" title={e.ref}>
-          {isOpening ? <span className="text-gray-400">—</span> : shortRef(e.ref)}
+        {/* Two money columns, which is how every hand-written bahi khata in
+            the country already works: what you gave out on one side, what
+            came back on the other. It answers "did this line help me or cost
+            me" without reading a word. */}
+        <td className="px-4 py-3 align-top text-right tabular-nums whitespace-nowrap">
+          {!isOpening && delta > 0 ? (
+            <span className="font-semibold text-rose-600">{fmtMoney(delta)}</span>
+          ) : (
+            <span className="text-gray-300">—</span>
+          )}
         </td>
-
-        <td className="px-3 py-2.5 text-gray-800">
-          {description}
-          {/* Only when the row has items of its own to name; otherwise the
-              description IS the mode and this would repeat it. */}
-          {!!items.length && modeOf(e) && (
-            <span className="block text-[10px] text-gray-400 leading-tight">{modeOf(e)}</span>
+        <td className="px-4 py-3 align-top text-right tabular-nums whitespace-nowrap">
+          {!isOpening && delta < 0 ? (
+            <span className="font-semibold text-emerald-600">{fmtMoney(-delta)}</span>
+          ) : (
+            <span className="text-gray-300">—</span>
           )}
         </td>
 
-        <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap text-gray-700">
-          {totalQty ? totalQty : <span className="text-gray-400">—</span>}
-        </td>
-
-        <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap text-gray-700">
-          {oneItem ? fmtMoney(oneItem.price) : <span className="text-gray-400">—</span>}
-        </td>
-
-        <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap font-medium text-gray-800">
-          {e.total ? fmtMoney(e.total) : <span className="text-gray-400">—</span>}
-        </td>
-
-        {/* One running balance, coloured by whose money it is. The sentence
-            under Closing Balance says which, once, rather than every row
-            carrying a Dr or a Cr nobody reads. */}
-        <td
-          className={`px-3 py-2.5 text-right tabular-nums whitespace-nowrap font-semibold ${
-            e.balance > 0 ? "text-rose-600" : e.balance < 0 ? "text-amber-600" : "text-gray-400"
-          }`}
-        >
-          {e.balance === 0 ? "Settled" : fmtMoney(Math.abs(e.balance))}
+        <td className="px-4 py-3 align-top text-right whitespace-nowrap">
+          <div className="font-bold tabular-nums text-gray-800">
+            {e.balance === 0 ? "0.00" : fmtMoney(Math.abs(e.balance))}
+          </div>
+          <div
+            className={`text-[10px] ${e.balance > 0 ? "text-rose-500" : e.balance < 0 ? "text-amber-600" : "text-gray-400"}`}
+          >
+            {e.balance > 0 ? "they owe" : e.balance < 0 ? "you owe" : "settled"}
+          </div>
         </td>
       </tr>
 
-      {/* The breakdown, as one quiet line per item rather than a table with
-          its own headers inside every row — which is what made a statement of
-          twenty sales read like twenty separate documents. */}
-      {(items.length > 1 ? items : []).map((it, i) => (
-        <tr
-          key={i}
-          className="border-b border-gray-100 bg-gray-50/40"
-          style={{ breakInside: "avoid", breakBefore: "avoid" }}
-        >
-          <td className="px-3 py-1.5" />
-          <td colSpan={7} className="px-3 py-1.5">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11.5px] text-gray-600">
-              <span className="flex items-center gap-1.5 font-medium text-gray-700">
-                <Package className="h-3.5 w-3.5 text-gray-400" />
-                {it.name}
-              </span>
-              <span className="text-gray-400">
-                Qty: <span className="tabular-nums text-gray-700">{it.qty}</span>
-              </span>
-              <span className="text-gray-400">
-                Rate: <span className="tabular-nums text-gray-700">{fmtMoney(it.price)}</span>
-              </span>
-              <span className="text-gray-400">
-                Amount: <span className="tabular-nums text-gray-700">{fmtMoney(it.amount)}</span>
-              </span>
-            </div>
+      {open && hasDetail && (
+        <tr className="border-b border-gray-100 bg-gray-50/60" style={{ breakInside: "avoid" }}>
+          <td />
+          <td colSpan={4} className="px-4 pb-3 pt-0">
+            <table className="w-full text-[11.5px]">
+              <tbody>
+                {items.map((it, i) => (
+                  <tr key={i}>
+                    <td className="py-1 pr-3 text-gray-700">{it.name}</td>
+                    <td className="py-1 px-3 text-right tabular-nums text-gray-500 whitespace-nowrap">
+                      {it.qty} × {fmtMoney(it.price)}
+                    </td>
+                    <td className="py-1 pl-3 text-right tabular-nums text-gray-700 whitespace-nowrap">
+                      {fmtMoney(it.amount)}
+                    </td>
+                  </tr>
+                ))}
+                {charges.map((c, i) => (
+                  <tr key={"c" + i}>
+                    <td className="py-1 pr-3 text-gray-500">{c.label}</td>
+                    <td />
+                    <td className="py-1 pl-3 text-right tabular-nums text-gray-600 whitespace-nowrap">
+                      {c.amount < 0 ? `−${fmtMoney(-c.amount)}` : fmtMoney(c.amount)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </td>
         </tr>
-      ))}
-
-      {/* Shipping, discounts and the like — shown only when there are any, so
-          an ordinary bill stays two lines. */}
-      {(e.charges ?? []).map((c, i) => (
-        <tr key={"c" + i} className="border-b border-gray-100 bg-gray-50/40">
-          <td className="px-3 py-1.5" />
-          <td colSpan={7} className="px-3 py-1.5 text-[11.5px] text-gray-500">
-            {c.label}:{" "}
-            <span className="tabular-nums text-gray-700">
-              {c.amount < 0 ? `−${fmtMoney(-c.amount)}` : fmtMoney(c.amount)}
-            </span>
-          </td>
-        </tr>
-      ))}
+      )}
     </>
   );
 }
