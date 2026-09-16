@@ -518,7 +518,7 @@ export function InvoiceForm({ mode, existing }: Props) {
       name: it.name,
       qty: 1,
       unit: it.unit,
-      price: historicalPrice ?? (isSale ? (it.salePrice ?? 0) : it.purchasePrice),
+      price: isSale ? (it.salePrice ?? 0) : (historicalPrice ?? it.purchasePrice),
       discountPct: 0,
       gstRate: it.gstRate,
       amount: 0,
@@ -660,7 +660,7 @@ export function InvoiceForm({ mode, existing }: Props) {
       name: it.name,
       unit: it.unit,
       gstRate: it.gstRate,
-      price: historicalPrice ?? (isSale ? (it.salePrice ?? 0) : it.purchasePrice),
+      price: isSale ? (it.salePrice ?? 0) : (historicalPrice ?? it.purchasePrice),
       costPrice: it.purchasePrice,
       // The old item's foreign price must not survive the swap — a later
       // exchange-rate change re-prices every line that still has one, which
@@ -2207,18 +2207,24 @@ function ItemEntryRow({
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="font-semibold tabular-nums">
-                        {isSale && !it.salePrice ? (
-                          <span className="text-[11px] font-normal text-amber-600">
-                            No sale price
-                          </span>
-                        ) : (
-                          fmtMoney(isSale ? it.salePrice : it.purchasePrice)
-                        )}
-                      </div>
-                      {isSale && !it.salePrice && !!it.purchasePrice && (
-                        <div className="text-[10.5px] text-muted-foreground tabular-nums">
-                          cost {fmtMoney(it.purchasePrice)}
+                      {isSale ? (
+                        <>
+                          <div className="text-[11px] text-muted-foreground tabular-nums">
+                            cost {fmtMoney(it.purchasePrice)}
+                          </div>
+                          <div className="font-semibold tabular-nums">
+                            {it.salePrice ? (
+                              <>sells {fmtMoney(it.salePrice)}</>
+                            ) : (
+                              <span className="text-[11px] font-normal text-amber-600">
+                                No sale price
+                              </span>
+                            )}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="font-semibold tabular-nums">
+                          {fmtMoney(it.purchasePrice)}
                         </div>
                       )}
                       {gstOn && (
@@ -2510,19 +2516,23 @@ function ItemNameCell({
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="font-semibold tabular-nums">
-                      {isSale && !it.salePrice ? (
-                        <span className="text-[11px] font-normal text-amber-600">
-                          No sale price
-                        </span>
-                      ) : (
-                        fmtMoney(isSale ? it.salePrice : it.purchasePrice)
-                      )}
-                    </div>
-                    {isSale && !it.salePrice && !!it.purchasePrice && (
-                      <div className="text-[10.5px] text-muted-foreground tabular-nums">
-                        cost {fmtMoney(it.purchasePrice)}
-                      </div>
+                    {isSale ? (
+                      <>
+                        <div className="text-[11px] text-muted-foreground tabular-nums">
+                          cost {fmtMoney(it.purchasePrice)}
+                        </div>
+                        <div className="font-semibold tabular-nums">
+                          {it.salePrice ? (
+                            <>sells {fmtMoney(it.salePrice)}</>
+                          ) : (
+                            <span className="text-[11px] font-normal text-amber-600">
+                              No sale price
+                            </span>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="font-semibold tabular-nums">{fmtMoney(it.purchasePrice)}</div>
                     )}
                     {gstOn && (
                       <div className="text-[11px] text-muted-foreground">GST {it.gstRate}%</div>

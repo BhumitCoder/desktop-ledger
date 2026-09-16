@@ -4905,6 +4905,61 @@ async function runAll(): Promise<Results> {
     );
   }
 
+  /* ── A sale line starts at the item's selling price ───────────────────
+     The picker showed 7,000 and the line came out at 6,105, because this
+     party's own last price beat the catalogue. That preference made sense
+     while an item's sale price was rewritten by whatever bill went out last;
+     since that write was removed the sale price IS the shop's decision, and
+     a different figure arriving on the line is the shop being overruled by
+     its own history.
+
+     Asserted because nothing did: all 630 assertions passed both before and
+     after the behaviour was reversed, which is the definition of untested. */
+  {
+    await renderRoute("/sales/new");
+
+    const add = document.querySelector(
+      'input[placeholder="Type item name to add…"]',
+    ) as HTMLInputElement | null;
+    assert(!!add, "sale price: the new-bill form has an item entry row");
+
+    if (add) {
+      await act(async () => {
+        setInput(add, "USB Cable");
+      });
+      await settleMs(120);
+
+      /* The option the picker itself marks, not the first div whose text
+         happens to start with the name — the outer container matches that
+         too, and clicking it does nothing because React events bubble up. */
+      const option = Array.from(document.querySelectorAll("[data-opt]")).find((el) =>
+        (el.textContent ?? "").includes("USB Cable"),
+      );
+      assert(!!option, "sale price: the item is offered");
+      if (option) {
+        await act(async () => {
+          option.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        });
+        await settleMs(160);
+
+        /* USB Cable: cost 60, sells 100. The line must start at 100 — and
+           must never start at 60, which is the failure that quietly bills
+           at cost. */
+        const values = Array.from(document.querySelectorAll("input"))
+          .map((el) => (el as HTMLInputElement).value)
+          .filter(Boolean);
+        assert(
+          values.includes("100"),
+          "sale price: picking an item creates a line at its price — saw " + values.join(","),
+        );
+        assert(
+          !values.includes("60"),
+          "sale price: and never at the purchase price — saw " + values.join(","),
+        );
+      }
+    }
+  }
+
   const bulkHost = document.createElement("div");
   document.body.appendChild(bulkHost);
   const bulkRoot = createRoot(bulkHost);

@@ -2928,6 +2928,37 @@ console.log(`\n═════════════════════�
   check("a write-off", { type: "Discount Given", total: 250 }, -250, { gave: 0, got: 250 });
 }
 
+/* ═══════ TEST SP: what a line starts at ═══════
+   Two rules, both of which have already gone wrong in production.
+
+   A sale line must start at the item selling price — not at this party own
+   last price, which is how a picker showing 7,000 produced a line of 6,105.
+   That preference was right while an item selling price was rewritten by
+   whatever bill went out last; once that write was removed the selling price
+   became the shop own decision, and history quietly overruling it is the
+   shop being argued with by its records.
+
+   And it must never fall back to the purchase price, which billed at cost
+   with nothing on screen looking wrong.
+
+   Source-level, and honestly so: the behavioural version of this passes
+   whichever rule is in force, because the seeded item sells at 100 and has
+   no differing history, so both mutations survive it. A test that cannot
+   fail is not evidence. */
+{
+  const form = readFileSync(process.cwd() + "/src/components/InvoiceForm.tsx", "utf8");
+  const want = "price: isSale ? (it.salePrice ?? 0) : (historicalPrice ?? it.purchasePrice),";
+  const n = form.split(want).length - 1;
+  assert(
+    n === 2,
+    "SP1: both places that build a line start a sale at the selling price — found " + n + " of 2",
+  );
+  assert(
+    !form.includes("it.salePrice || it.purchasePrice"),
+    "SP2: and no sale ever falls back to cost",
+  );
+}
+
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
 if (fails.length) {
   console.log(`\nFailures:`);
