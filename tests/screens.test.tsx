@@ -435,6 +435,37 @@ async function runAll(): Promise<Results> {
   has(plAfterArrival, fmtMoney(1000), "cold open: P&L fills in once data arrives (no remount)");
   has(plAfterArrival, fmtMoney(360), "cold open: derived gross profit fills in too");
 
+  /* ── Nothing on a bill spills off the side of a phone ─────────────────
+     Reported as "sale and purchase invoice form not responsive, many bugs".
+     Measured rather than guessed: at a phone width, walk the form and report
+     anything wider than the screen it has to fit on. Runs only when the
+     suite is given a phone viewport, because at the default 800px there is
+     nothing to find. */
+  if (window.innerWidth <= 480) {
+    await renderRoute("/sales/new");
+    await settleMs(120);
+
+    const overflow: string[] = [];
+    document.querySelectorAll<HTMLElement>("main *").forEach((el) => {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return;
+      // Its own scrolling region is allowed to be wider than the screen —
+      // that is what makes it scroll. Anything else is a spill.
+      const scrolls = /auto|scroll/.test(getComputedStyle(el).overflowX);
+      if (scrolls) return;
+      if (r.right > window.innerWidth + 1 || r.left < -1) {
+        const cls = (el.className || "").toString().slice(0, 60);
+        overflow.push(
+          el.tagName + "." + cls + " @" + Math.round(r.left) + ".." + Math.round(r.right),
+        );
+      }
+    });
+    assert(
+      overflow.length === 0,
+      "mobile bill: nothing spills off the screen — " + overflow.slice(0, 6).join(" | "),
+    );
+  }
+
   const listAfterArrival = await renderRoute("/sales");
   has(listAfterArrival, "INV-0001", "cold open: the list screen shows the arrived data");
 
