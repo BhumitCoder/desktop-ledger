@@ -518,7 +518,7 @@ export function InvoiceForm({ mode, existing }: Props) {
       name: it.name,
       qty: 1,
       unit: it.unit,
-      price: historicalPrice ?? (isSale ? it.salePrice || it.purchasePrice : it.purchasePrice),
+      price: historicalPrice ?? (isSale ? (it.salePrice ?? 0) : it.purchasePrice),
       discountPct: 0,
       gstRate: it.gstRate,
       amount: 0,
@@ -660,7 +660,7 @@ export function InvoiceForm({ mode, existing }: Props) {
       name: it.name,
       unit: it.unit,
       gstRate: it.gstRate,
-      price: historicalPrice ?? (isSale ? it.salePrice || it.purchasePrice : it.purchasePrice),
+      price: historicalPrice ?? (isSale ? (it.salePrice ?? 0) : it.purchasePrice),
       costPrice: it.purchasePrice,
       // The old item's foreign price must not survive the swap — a later
       // exchange-rate change re-prices every line that still has one, which
@@ -2208,7 +2208,9 @@ function ItemEntryRow({
                     </div>
                     <div className="text-right">
                       <div className="font-semibold tabular-nums">
-                        {fmtMoney(isSale ? it.salePrice || it.purchasePrice : it.purchasePrice)}
+                        {isSale && !it.salePrice
+                          ? "No sale price"
+                          : fmtMoney(isSale ? it.salePrice : it.purchasePrice)}
                       </div>
                       {gstOn && (
                         <div className="text-[11px] text-muted-foreground">GST {it.gstRate}%</div>
@@ -2500,7 +2502,9 @@ function ItemNameCell({
                   </div>
                   <div className="text-right">
                     <div className="font-semibold tabular-nums">
-                      {fmtMoney(isSale ? it.salePrice || it.purchasePrice : it.purchasePrice)}
+                      {isSale && !it.salePrice
+                        ? "No sale price"
+                        : fmtMoney(isSale ? it.salePrice : it.purchasePrice)}
                     </div>
                     {gstOn && (
                       <div className="text-[11px] text-muted-foreground">GST {it.gstRate}%</div>

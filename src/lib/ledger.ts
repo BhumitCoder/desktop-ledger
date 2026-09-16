@@ -894,6 +894,17 @@ export interface BankLedgerRow {
   balance: number;
   docId?: string;
   docKind?: "sale" | "purchase";
+  /**
+   * Set on the two legs of a cash/bank transfer, so the passbook can offer
+   * to correct one.
+   *
+   * A transfer is two records — money out of one account, into the other —
+   * and the only safe way to change it is as the single thing it is. Without
+   * this the passbook had no way of telling a transfer leg apart from an
+   * ordinary deposit, so it offered nothing at all and a mistyped transfer
+   * had to be deleted from the Cash page and re-entered from memory.
+   */
+  transferId?: string;
 }
 
 /**
@@ -978,6 +989,7 @@ export function buildBankLedger(
         ref: t.notes || "—",
         debit: 0,
         credit: t.amount,
+        transferId: t.transferId,
       });
     } else if (t.type === "withdraw") {
       entries.push({
@@ -987,6 +999,7 @@ export function buildBankLedger(
         ref: t.notes || "—",
         debit: t.amount,
         credit: 0,
+        transferId: t.transferId,
       });
     }
   }
