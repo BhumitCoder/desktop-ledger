@@ -372,53 +372,18 @@ export function PrintablePartyStatement({
 
             return (
               <Fragment key={i}>
-                <tr style={{ pageBreakInside: "avoid", breakInside: "avoid" }}>
-                  <td style={{ ...td, color: "#6b7280" }}>{opening ? "" : fmtDate(r.date)}</td>
-                  <td style={{ ...td, whiteSpace: "normal" }}>
-                    {opening ? (
-                      <span style={{ fontWeight: 700 }}>Opening Balance</span>
-                    ) : (
-                      <>
-                        <span style={{ fontWeight: 700 }}>{r.type}</span>
-                        {r.ref && r.ref !== "—" && (
-                          <span style={{ marginLeft: 6, color: "#1d4ed8", fontSize: 10 }}>
-                            {r.ref}
-                          </span>
-                        )}
-                        {detail && (
-                          <span style={{ marginLeft: 6, color: "#6b7280", fontSize: 10 }}>
-                            · {detail}
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </td>
-                  <td style={{ ...num, color: "#e11d48", fontWeight: 600 }}>
-                    {cols.gave > 0.01 ? money(cols.gave) : ""}
-                  </td>
-                  <td style={{ ...num, color: "#059669", fontWeight: 600 }}>
-                    {cols.got > 0.01 ? money(cols.got) : ""}
-                  </td>
-                  <td style={{ ...num, fontWeight: 700 }}>
-                    {money(Math.abs(r.balance))}
-                    {showSide && (
-                      <span
-                        style={{ marginLeft: 5, fontSize: 9, fontWeight: 500, color: "#6b7280" }}
-                      >
-                        {side}
-                      </span>
-                    )}
-                  </td>
-                </tr>
-
                 {showBreakdown && (
                   <tr style={{ pageBreakInside: "avoid", breakInside: "avoid" }}>
-                    <td style={{ borderBottom: "1px solid #eceef1" }} />
+                    <td />
                     <td
                       colSpan={4}
                       style={{
                         ...td,
-                        padding: "0 10px 9px 10px",
+                        // The rule under this block would cut the items off
+                        // from the total they add up to. The total row draws
+                        // its own, and that one closes the whole entry.
+                        borderBottom: "none",
+                        padding: "7px 10px 2px 10px",
                         whiteSpace: "normal",
                         background: "#fbfcfd",
                       }}
@@ -459,6 +424,51 @@ export function PrintablePartyStatement({
                     </td>
                   </tr>
                 )}
+
+                <tr
+                  style={{
+                    pageBreakInside: "avoid",
+                    breakInside: "avoid",
+                    ...(showBreakdown ? { pageBreakBefore: "avoid", breakBefore: "avoid" } : null),
+                  }}
+                >
+                  <td style={{ ...td, color: "#6b7280" }}>{opening ? "" : fmtDate(r.date)}</td>
+                  <td style={{ ...td, whiteSpace: "normal" }}>
+                    {opening ? (
+                      <span style={{ fontWeight: 700 }}>Opening Balance</span>
+                    ) : (
+                      <>
+                        <span style={{ fontWeight: 700 }}>{r.type}</span>
+                        {r.ref && r.ref !== "—" && (
+                          <span style={{ marginLeft: 6, color: "#1d4ed8", fontSize: 10 }}>
+                            {r.ref}
+                          </span>
+                        )}
+                        {detail && (
+                          <span style={{ marginLeft: 6, color: "#6b7280", fontSize: 10 }}>
+                            · {detail}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </td>
+                  <td style={{ ...num, color: "#e11d48", fontWeight: 600 }}>
+                    {cols.gave > 0.01 ? money(cols.gave) : ""}
+                  </td>
+                  <td style={{ ...num, color: "#059669", fontWeight: 600 }}>
+                    {cols.got > 0.01 ? money(cols.got) : ""}
+                  </td>
+                  <td style={{ ...num, fontWeight: 700 }}>
+                    {money(Math.abs(r.balance))}
+                    {showSide && (
+                      <span
+                        style={{ marginLeft: 5, fontSize: 9, fontWeight: 500, color: "#6b7280" }}
+                      >
+                        {side}
+                      </span>
+                    )}
+                  </td>
+                </tr>
               </Fragment>
             );
           })}

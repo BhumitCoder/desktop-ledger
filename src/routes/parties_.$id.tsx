@@ -996,11 +996,48 @@ export function PartyStatementRowBlock({
 
   return (
     <>
+      {hasDetail && (
+        <tr
+          className={`bg-gray-50/70 ${open ? "" : "hidden print:table-row"}`}
+          style={{ breakInside: "avoid" }}
+        >
+          <td />
+          <td colSpan={4} className="px-4 pt-2.5 pb-1">
+            <table className="w-full text-[11.5px]">
+              <tbody>
+                {items.map((it, i) => (
+                  <tr key={i}>
+                    <td className="py-0.5 pr-3 text-gray-600">{it.name}</td>
+                    <td className="py-0.5 px-3 text-right tabular-nums text-gray-400 whitespace-nowrap">
+                      {it.qty} × {fmtMoney(it.price).replace("₹", "")}
+                    </td>
+                    <td className="py-0.5 pl-3 text-right tabular-nums text-gray-700 whitespace-nowrap">
+                      {fmtMoney(it.amount).replace("₹", "")}
+                    </td>
+                  </tr>
+                ))}
+                {charges.map((c, i) => (
+                  <tr key={"c" + i}>
+                    <td className="py-0.5 pr-3 text-gray-500">{c.label}</td>
+                    <td />
+                    <td className="py-0.5 pl-3 text-right tabular-nums text-gray-600 whitespace-nowrap">
+                      {c.amount < 0
+                        ? `−${fmtMoney(-c.amount).replace("₹", "")}`
+                        : fmtMoney(c.amount).replace("₹", "")}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </td>
+        </tr>
+      )}
+
       <tr
         onClick={onOpen}
         title={e.docId ? "Open this bill" : undefined}
         className={`border-b border-gray-100 ${e.docId ? "cursor-pointer hover:bg-primary-soft/40" : ""} ${isOpening ? "bg-gray-50" : ""}`}
-        style={{ breakInside: "avoid" }}
+        style={{ breakInside: "avoid", breakBefore: hasDetail ? "avoid" : undefined }}
       >
         <td className="px-4 py-2.5 align-top whitespace-nowrap text-[11.5px] text-gray-500">
           {isOpening ? "" : fmtDate(e.date)}
@@ -1063,43 +1100,6 @@ export function PartyStatementRowBlock({
           )}
         </td>
       </tr>
-
-      {hasDetail && (
-        <tr
-          className={`border-b border-gray-100 bg-gray-50/70 ${open ? "" : "hidden print:table-row"}`}
-          style={{ breakInside: "avoid" }}
-        >
-          <td />
-          <td colSpan={4} className="px-4 pb-2.5 pt-0">
-            <table className="w-full text-[11.5px]">
-              <tbody>
-                {items.map((it, i) => (
-                  <tr key={i}>
-                    <td className="py-0.5 pr-3 text-gray-600">{it.name}</td>
-                    <td className="py-0.5 px-3 text-right tabular-nums text-gray-400 whitespace-nowrap">
-                      {it.qty} × {fmtMoney(it.price).replace("₹", "")}
-                    </td>
-                    <td className="py-0.5 pl-3 text-right tabular-nums text-gray-700 whitespace-nowrap">
-                      {fmtMoney(it.amount).replace("₹", "")}
-                    </td>
-                  </tr>
-                ))}
-                {charges.map((c, i) => (
-                  <tr key={"c" + i}>
-                    <td className="py-0.5 pr-3 text-gray-500">{c.label}</td>
-                    <td />
-                    <td className="py-0.5 pl-3 text-right tabular-nums text-gray-600 whitespace-nowrap">
-                      {c.amount < 0
-                        ? `−${fmtMoney(-c.amount).replace("₹", "")}`
-                        : fmtMoney(c.amount).replace("₹", "")}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </td>
-        </tr>
-      )}
     </>
   );
 }

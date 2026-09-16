@@ -2959,6 +2959,43 @@ console.log(`\n═════════════════════�
   );
 }
 
+/* ═══════ TEST LO: the total closes the entry, it does not open it ═══════
+   A bill on paper lists what was bought and totals it underneath. The
+   statement was doing the reverse — announcing "7 items · 17,790.00" and then
+   showing the seven — which is an order you have to be taught to read. Every
+   hand-written khata in the shop already works the other way round.
+
+   Pinned at the source because document ORDER is the whole claim, and the two
+   documents have to agree: the screen and the PDF are the same statement, and
+   the shop has already been burnt once by them disagreeing. */
+{
+  const screen = readFileSync(process.cwd() + "/src/routes/parties_.$id.tsx", "utf8");
+  const itemsAt = screen.indexOf("{hasDetail && (");
+  const totalAt = screen.indexOf("onClick={onOpen}");
+  assert(itemsAt > 0 && totalAt > 0, "LO1: the statement row still has both halves");
+  assert(
+    itemsAt < totalAt,
+    "LO2: on screen the item lines come first and the total closes the entry",
+  );
+
+  const pdf = readFileSync(process.cwd() + "/src/components/PrintablePartyStatement.tsx", "utf8");
+  const pItems = pdf.indexOf("{showBreakdown && (");
+  const pTotal = pdf.indexOf(`{opening ? "" : fmtDate(r.date)}`);
+  assert(pItems > 0 && pTotal > 0, "LO3: the printed statement still has both halves");
+  assert(pItems < pTotal, "LO4: and the PDF prints them in that same order");
+
+  /* A total torn onto the next page away from the lines it totals is the
+     failure this order introduces, so both documents refuse that break. */
+  assert(
+    screen.includes(`breakBefore: hasDetail ? "avoid" : undefined`),
+    "LO5: on screen a total is never broken away from its items",
+  );
+  assert(
+    pdf.includes(`...(showBreakdown ? { pageBreakBefore: "avoid", breakBefore: "avoid" } : null)`),
+    "LO6: nor in the PDF",
+  );
+}
+
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
 if (fails.length) {
   console.log(`\nFailures:`);
