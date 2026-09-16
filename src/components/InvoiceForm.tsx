@@ -2208,10 +2208,19 @@ function ItemEntryRow({
                     </div>
                     <div className="text-right">
                       <div className="font-semibold tabular-nums">
-                        {isSale && !it.salePrice
-                          ? "No sale price"
-                          : fmtMoney(isSale ? it.salePrice : it.purchasePrice)}
+                        {isSale && !it.salePrice ? (
+                          <span className="text-[11px] font-normal text-amber-600">
+                            No sale price
+                          </span>
+                        ) : (
+                          fmtMoney(isSale ? it.salePrice : it.purchasePrice)
+                        )}
                       </div>
+                      {isSale && !it.salePrice && !!it.purchasePrice && (
+                        <div className="text-[10.5px] text-muted-foreground tabular-nums">
+                          cost {fmtMoney(it.purchasePrice)}
+                        </div>
+                      )}
                       {gstOn && (
                         <div className="text-[11px] text-muted-foreground">GST {it.gstRate}%</div>
                       )}
@@ -2502,10 +2511,19 @@ function ItemNameCell({
                   </div>
                   <div className="text-right">
                     <div className="font-semibold tabular-nums">
-                      {isSale && !it.salePrice
-                        ? "No sale price"
-                        : fmtMoney(isSale ? it.salePrice : it.purchasePrice)}
+                      {isSale && !it.salePrice ? (
+                        <span className="text-[11px] font-normal text-amber-600">
+                          No sale price
+                        </span>
+                      ) : (
+                        fmtMoney(isSale ? it.salePrice : it.purchasePrice)
+                      )}
                     </div>
+                    {isSale && !it.salePrice && !!it.purchasePrice && (
+                      <div className="text-[10.5px] text-muted-foreground tabular-nums">
+                        cost {fmtMoney(it.purchasePrice)}
+                      </div>
+                    )}
                     {gstOn && (
                       <div className="text-[11px] text-muted-foreground">GST {it.gstRate}%</div>
                     )}

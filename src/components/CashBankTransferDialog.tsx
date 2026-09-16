@@ -60,6 +60,7 @@ export function CashBankTransferDialog({
   onSaved,
   initialBankId,
   editing,
+  editingTransferId,
   onEditingDone,
 }: {
   open: boolean;
@@ -76,6 +77,14 @@ export function CashBankTransferDialog({
    * answer, not a good one: correcting a mistyped transfer meant deleting it
    * and entering it again from memory. */
   editing?: CashAdjustment | null;
+  /**
+   * A transfer being corrected that has NO cash leg — bank to bank.
+   *
+   * Identified by the id both legs share. The cash-led form above stays as
+   * it is because the Cash page has a CashAdjustment in hand and nothing
+   * else; this is the same transfer seen from the other kind of account.
+   */
+  editingTransferId?: string | null;
   /** Clear the caller's "editing" state when this closes. */
   onEditingDone?: () => void;
 }) {
@@ -112,14 +121,31 @@ export function CashBankTransferDialog({
 
   // The legs of the transfer being edited, and which way it went. The cash
   // leg says the direction: cash OUT means cash was the source.
-  const editLegs = useMemo(
-    () => (editing ? transferLegsFor(editing, BankTxnRepo.all()) : []),
-    [editing],
-  );
-  const isOpen = open || !!editing;
+  const editLegs = useMemo(() => {
+    const all = BankTxnRepo.all();
+    if (editing) return transferLegsFor(editing, all);
+    if (editingTransferId) return all.filter((t) => t.transferId === editingTransferId);
+    return [];
+  }, [editing, editingTransferId]);
+  const isOpen = open || !!editing || !!editingTransferId;
 
   useEffect(() => {
     if (!isOpen) return;
+    /* Bank to bank: the two legs say everything. The one money left is the
+       source, the one it arrived on is the destination — no cash record is
+       involved at any point. */
+    if (!editing && editingTransferId) {
+      const out = editLegs.find((l) => l.type === "withdraw");
+      const into = editLegs.find((l) => l.type === "deposit");
+      setFromId(out?.bankId ?? CASH);
+      setToId(into?.bankId ?? "");
+      const leg = out ?? into;
+      setAmount(leg?.amount ?? 0);
+      setDate(leg?.date ?? today());
+      setNotes((leg?.notes ?? "").replace(/^Transfer\b[^—]*—\s*/i, "").trim());
+      setSaving(false);
+      return;
+    }
     if (editing) {
       const bankLeg = editLegs[0];
       const cashIsSource = editing.type === "reduce";
@@ -144,7 +170,7 @@ export function CashBankTransferDialog({
     // `banks` deliberately not a dependency: reopening resets the form, a
     // background sync must not wipe what is half-typed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, initialBankId, editing, editLegs]);
+  }, [isOpen, initialBankId, editing, editingTransferId, editLegs]);
 
   const from = accounts.find((a) => a.id === fromId);
   const to = accounts.find((a) => a.id === toId);
@@ -187,13 +213,14 @@ export function CashBankTransferDialog({
     const batch = newBatch();
     // Keep the pair's id across an edit, and give an older unstamped pair one
     // now, so the two legs stay recognisable as one movement afterwards.
-    const transferId = editing?.transferId ?? genId();
+    const transferId = editing?.transferId ?? editingTransferId ?? genId();
 
     // An edit is "undo the old movement, make the new one" — both on this one
     // batch, so a correction can never land halfway and leave the books with
     // one and a half transfers in them.
-    if (editing) {
-      CashAdjustmentRepo.removeBatched(batch, editing.id);
+    if (editing || editingTransferId) {
+      // Only a cash-led transfer has one of these to undo.
+      if (editing) CashAdjustmentRepo.removeBatched(batch, editing.id);
       for (const leg of editLegs) {
         BankTxnRepo.removeBatched(batch, leg.id);
         BankRepo.adjustFieldBatched(
@@ -275,7 +302,7 @@ export function CashBankTransferDialog({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="text-base">
-            {editing ? "Edit Transfer" : "Transfer Money"}
+            {editing || editingTransferId ? "Edit Transfer" : "Transfer Money"}
           </DialogTitle>
         </DialogHeader>
 

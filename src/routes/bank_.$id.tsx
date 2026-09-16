@@ -70,8 +70,18 @@ function BankStatementPage() {
      one side alone is the outcome that must never happen: the money would
      move on one account and not the other. */
   const [editingTransfer, setEditingTransfer] = useState<CashAdjustment | null>(null);
-  const cashLegFor = (transferId?: string) =>
-    transferId ? (CashAdjustmentRepo.all().find((a) => a.transferId === transferId) ?? null) : null;
+  const [editingTransferId, setEditingTransferId] = useState<string | null>(null);
+
+  /** Open whichever kind of transfer this row belongs to. */
+  const editTransfer = (transferId: string) => {
+    const cashLeg = CashAdjustmentRepo.all().find((a) => a.transferId === transferId) ?? null;
+    if (cashLeg) setEditingTransfer(cashLeg);
+    else setEditingTransferId(transferId);
+  };
+  const closeTransfer = () => {
+    setEditingTransfer(null);
+    setEditingTransferId(null);
+  };
 
   const { rows } = useRepoMemo(() => {
     if (!bank) return { rows: [] as BankLedgerRow[] };
@@ -414,9 +424,7 @@ function BankStatementPage() {
                         <button
                           onClick={(ev) => {
                             ev.stopPropagation();
-                            const leg = cashLegFor(e.transferId);
-                            if (leg) setEditingTransfer(leg);
-                            else toast.error("Could not find the other half of this transfer");
+                            editTransfer(e.transferId!);
                           }}
                           className="rounded p-1.5 text-gray-300 transition hover:bg-blue-50 hover:text-blue-600"
                           title="Edit this transfer (both accounts)"
@@ -456,11 +464,12 @@ function BankStatementPage() {
           implementation of that is a second chance to move money on one
           account and not the other. */}
       <CashBankTransferDialog
-        open={!!editingTransfer}
-        onOpenChange={(v) => !v && setEditingTransfer(null)}
+        open={!!editingTransfer || !!editingTransferId}
+        onOpenChange={(v) => !v && closeTransfer()}
         editing={editingTransfer}
-        onEditingDone={() => setEditingTransfer(null)}
-        onSaved={() => setEditingTransfer(null)}
+        editingTransferId={editingTransferId}
+        onEditingDone={closeTransfer}
+        onSaved={closeTransfer}
       />
     </div>
   );
