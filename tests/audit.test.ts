@@ -61,6 +61,7 @@ import {
   type OutboxItem,
 } from "@/lib/outbox";
 import { transferLegsFor } from "@/lib/transferLegs";
+import { popupRect } from "@/lib/popupRect";
 import {
   deriveLinkState,
   linkSeverity,
@@ -2994,6 +2995,83 @@ console.log(`\n═════════════════════�
     pdf.includes(`...(showBreakdown ? { pageBreakBefore: "avoid", breakBefore: "avoid" } : null)`),
     "LO6: nor in the PDF",
   );
+}
+
+/* ═══════ TEST PP: a dropdown that lands on the screen ═══════
+   Photographed at the counter, on a phone: the item search dropdown opened
+   with its prices hanging off the right edge of the display, and the
+   last-prices popup lost its heading off the left. Both were anchored to an
+   input inside a 720px-wide table on a 390px screen, and neither ever
+   compared its answer to the width of the phone.
+
+   The phone is the case every assertion here is built around, because the
+   desk is the case that already worked. */
+{
+  const phone = { width: 390, height: 844 };
+  /* An input sitting 140px into a table that is wider than the screen — so
+     its right edge is already past the display. */
+  const scrolledOff = { top: 300, bottom: 328, left: 140, right: 440, width: 300 };
+
+  {
+    const p = popupRect(scrolledOff, phone, { minWidth: 260 });
+    assert(p.left >= 8, "PP1: a dropdown starts on the screen — left " + p.left);
+    assert(p.left + p.width <= 390 - 8, "PP2: and ends on it — right edge " + (p.left + p.width));
+    assert(p.width >= 260, "PP3: without being squeezed below readable — " + p.width);
+  }
+
+  /* Right-aligned, which is the one that walked off the LEFT: 256 subtracted
+     from an input near the left gutter is a negative x. */
+  {
+    const nearLeft = { top: 300, bottom: 328, left: 12, right: 120, width: 108 };
+    const p = popupRect(nearLeft, phone, { align: "right", preferredWidth: 256 });
+    assert(p.left >= 8, "PP4: a right-aligned popup does not walk off the left — " + p.left);
+    assert(p.left + p.width <= 382, "PP5: nor off the right — " + (p.left + p.width));
+  }
+
+  /* A panel may never be wider than the screen it has to fit on, however wide
+     the thing it is anchored to. */
+  {
+    const wide = { top: 100, bottom: 130, left: 0, right: 700, width: 700 };
+    const p = popupRect(wide, phone, { minWidth: 600 });
+    assert(p.width <= 390 - 16, "PP6: never wider than the screen — " + p.width);
+    assert(p.left >= 8 && p.left + p.width <= 382, "PP7: and still inside both gutters");
+  }
+
+  /* The keyboard. Callers pass the VISIBLE viewport, so with a keyboard up
+     the screen is ~400px tall and an input near its bottom has no room
+     below — the list has to open upwards or it opens under the keyboard. */
+  {
+    const keyboardUp = { width: 390, height: 400 };
+    const low = { top: 330, bottom: 360, left: 20, right: 300, width: 280 };
+    const p = popupRect(low, keyboardUp);
+    assert(p.top === undefined, "PP8: with no room below, the list does not open downwards");
+    assert(
+      p.bottom !== undefined && p.bottom >= 400 - 330,
+      "PP9: it grows upward from the input — bottom " + p.bottom,
+    );
+    assert(p.maxHeight > 0 && p.maxHeight <= 330, "PP10: within the room above it");
+  }
+
+  /* And when there IS room below, it stays below — flipping a dropdown that
+     had somewhere to go is its own kind of wrong. */
+  {
+    const high = { top: 100, bottom: 130, left: 20, right: 300, width: 280 };
+    const p = popupRect(high, phone);
+    assert(p.top === 134, "PP11: with room below, it hangs below the input — " + p.top);
+    assert(p.bottom === undefined, "PP12: and is not bottom-anchored");
+    assert(p.maxHeight <= 844 - 134, "PP13: never taller than the room it was given");
+  }
+
+  /* The desk, unchanged: a dropdown under a 200px input on a wide screen
+     lines up with the input's own left edge and takes its own width. */
+  {
+    const desk = { width: 1440, height: 900 };
+    const input = { top: 300, bottom: 328, left: 420, right: 620, width: 200 };
+    const p = popupRect(input, desk);
+    assert(p.left === 420, "PP14: on a desk it still lines up with its input");
+    assert(p.width === 200, "PP15: at the input's own width");
+    assert(p.top === 332, "PP16: just below it");
+  }
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);

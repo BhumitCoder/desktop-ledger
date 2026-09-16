@@ -21,6 +21,7 @@ import {
 import { partyBalances } from "@/lib/ledger";
 import { correctBankPaidAmount } from "@/lib/bankRepair";
 import { matchesQuery, byRelevance } from "@/lib/search";
+import { popupRect, currentViewport, type PopupPlacement } from "@/lib/popupRect";
 
 /** Rendering guard for the search dropdowns, NOT a search limit: every match
  * is found and ranked, this only bounds how many rows go into the DOM at once
@@ -66,6 +67,71 @@ import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 interface Props {
   mode: "sale" | "purchase";
   existing?: Invoice | null;
+}
+
+/**
+ * Which of a pair of twins is the one on screen.
+ *
+ * The bill's item lines are rendered twice — a table for a desk and a card
+ * list for a phone — and CSS hides one of them. So "the Qty box for this
+ * line" is a question with two answers, and the right one is whichever is
+ * not inside a display:none subtree. offsetParent answers exactly that.
+ */
+function visibleOf<T extends HTMLElement>(...els: (T | null | undefined)[]): T | null {
+  return els.find((el) => el && el.offsetParent !== null) ?? els.find(Boolean) ?? null;
+}
+
+/** Phone-sized control. 16px is not a taste: below it, iOS zooms the whole
+ *  page the moment the box is focused, and the bill jumps out from under the
+ *  person filling it in. */
+const PHONE_NUM =
+  "w-full h-11 rounded-lg border bg-background px-3 text-right text-[16px] tabular-nums outline-none focus:border-primary focus:ring-2 focus:ring-ring/20";
+
+/** One labelled box in a phone line-item card. */
+function PhoneField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+/** Whether a recomputed placement actually differs. The scroll listeners
+ *  below run with capture:true, so they also fire for scrolls INSIDE the
+ *  panel; writing a fresh object there re-rendered a 200-row list on every
+ *  frame and threw it back to the top. */
+function samePlacement(a: PopupPlacement | null, b: PopupPlacement): boolean {
+  return (
+    !!a &&
+    a.left === b.left &&
+    a.width === b.width &&
+    a.top === b.top &&
+    a.bottom === b.bottom &&
+    a.maxHeight === b.maxHeight
+  );
+}
+
+/**
+ * Turn a placement into the style a portalled panel is positioned with.
+ *
+ * `cap` is the panel's own maximum, kept separate from the room it happens to
+ * have: a dropdown on a tall desk monitor should still be a dropdown, not a
+ * 500px wall of options. The available room is a ceiling, never a target.
+ */
+function placementStyle(p: PopupPlacement, cap?: number): React.CSSProperties {
+  return {
+    position: "fixed",
+    left: p.left,
+    width: p.width,
+    ...(p.top !== undefined ? { top: p.top } : { bottom: p.bottom }),
+    maxHeight: cap ? Math.min(p.maxHeight, cap) : p.maxHeight,
+    // A modal Radix dialog switches pointer events off on <body>, and
+    // anything portalled there goes with it unless it says otherwise.
+    pointerEvents: "auto",
+  };
 }
 
 export function InvoiceForm({ mode, existing }: Props) {
@@ -185,14 +251,21 @@ export function InvoiceForm({ mode, existing }: Props) {
   const focusQtyId = useRef<string | null>(null);
   useEffect(() => {
     if (focusQtyId.current) {
-      const el = document.getElementById(`qty-${focusQtyId.current}`) as HTMLInputElement | null;
+      const el = visibleOf(
+        document.getElementById(`qty-${focusQtyId.current}`) as HTMLInputElement | null,
+        document.getElementById(`qty-m-${focusQtyId.current}`) as HTMLInputElement | null,
+      );
       el?.focus();
       el?.select();
       focusQtyId.current = null;
     }
   }, [inv.lineItems]);
   const focusFirstPendingRow = () => {
-    pendingInputRefs.current[pendingRowIds[0]]?.focus();
+    const id = pendingRowIds[0];
+    visibleOf(
+      pendingInputRefs.current[`row:${id}`],
+      pendingInputRefs.current[`card:${id}`],
+    )?.focus();
   };
   // A party or item typed at the counter that doesn't exist yet is no longer
   // silently created with blank/zero defaults — these open a quick-add
@@ -1142,7 +1215,7 @@ export function InvoiceForm({ mode, existing }: Props) {
   );
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" data-bill-form>
       {/* Header */}
       <div className="px-4 md:px-5 py-3 border-b bg-card flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center justify-between gap-3 min-w-0">
@@ -1474,11 +1547,11 @@ export function InvoiceForm({ mode, existing }: Props) {
         <div className="border rounded-lg bg-card shadow-card">
           <div className="px-4 py-2.5 border-b bg-muted/50 flex items-center justify-between rounded-t-lg">
             <span className="text-[13px] font-semibold">Items ({inv.lineItems.length})</span>
-            <span className="text-[11px] text-muted-foreground">
+            <span className="hidden text-[11px] text-muted-foreground sm:inline">
               Type an item name in a row below to add it
             </span>
           </div>
-          <div className="overflow-x-auto rounded-b-lg">
+          <div className="hidden overflow-x-auto rounded-b-lg md:block">
             <table className="w-full text-[13px] min-w-[720px]">
               <thead className="text-[11px] text-muted-foreground uppercase tracking-wider">
                 <tr className="bg-muted/40">
@@ -1612,7 +1685,7 @@ export function InvoiceForm({ mode, existing }: Props) {
                     }}
                     onAddNew={(name) => setQuickAddItem({ name, rowId: id })}
                     registerInput={(el) => {
-                      pendingInputRefs.current[id] = el;
+                      pendingInputRefs.current[`row:${id}`] = el;
                     }}
                   />
                 ))}
@@ -1650,6 +1723,154 @@ export function InvoiceForm({ mode, existing }: Props) {
                 </tfoot>
               )}
             </table>
+          </div>
+
+          {/* The same lines, shaped for a phone.
+              Both layouts are mounted and CSS shows one — which is why the
+              focus helpers above look for the visible twin rather than the
+              first match. Rendering only one would mean measuring the
+              viewport in JavaScript and re-mounting inputs on rotation, and
+              re-mounting an input while somebody is typing in it is its own
+              bug. */}
+          <div className="md:hidden">
+            {inv.lineItems.map((l, idx) => (
+              <div key={l.id} className="border-t px-3 py-3">
+                <div className="flex items-start gap-2">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted text-[11px] font-semibold text-muted-foreground">
+                    {idx + 1}
+                  </span>
+                  {/* The name gets the whole width and wraps. In the table it
+                      was the first thing to scroll off the side. */}
+                  <div className="min-w-0 flex-1 text-[14px] leading-snug break-words">
+                    <ItemNameCell
+                      name={l.name}
+                      items={items}
+                      isSale={isSale}
+                      gstOn={gstOn}
+                      onChange={(it) => changeLineItem(l.id, it)}
+                      onAddNew={(name) =>
+                        setQuickAddItem({ name, rowId: null, replaceLineId: l.id })
+                      }
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeLine(l.id)}
+                    aria-label="Remove this item"
+                    className="-mr-1 shrink-0 rounded p-1.5 text-destructive hover:bg-destructive/10"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="mt-2.5 grid grid-cols-2 gap-2.5">
+                  <PhoneField label="Qty">
+                    <NumInput
+                      id={`qty-m-${l.id}`}
+                      value={l.qty}
+                      onValue={(n) => updateLine(l.id, { qty: n })}
+                      className={PHONE_NUM}
+                    />
+                  </PhoneField>
+                  {showUnitCol && (
+                    <PhoneField label="Unit">
+                      <input
+                        value={l.unit}
+                        onChange={(e) => updateLine(l.id, { unit: e.target.value })}
+                        className={`${PHONE_NUM} text-left`}
+                      />
+                    </PhoneField>
+                  )}
+                  {inv.isInternational && (
+                    <PhoneField label="Foreign Price">
+                      <NumInput
+                        value={l.foreignPrice ?? 0}
+                        onValue={(n) => updateLine(l.id, { foreignPrice: n })}
+                        className={PHONE_NUM}
+                      />
+                    </PhoneField>
+                  )}
+                  <PhoneField label="Price">
+                    {inv.partyId ? (
+                      <PriceHistoryCell
+                        value={l.price}
+                        onValue={(n) => updateLine(l.id, { price: n })}
+                        history={partyItemHistory(l.itemId)}
+                        partyName={inv.partyName}
+                        isSale={isSale}
+                        inputClassName={PHONE_NUM}
+                      />
+                    ) : (
+                      <NumInput
+                        value={l.price}
+                        onValue={(n) => updateLine(l.id, { price: n })}
+                        className={PHONE_NUM}
+                      />
+                    )}
+                  </PhoneField>
+                  {showDiscCol && (
+                    <PhoneField label="Disc %">
+                      <NumInput
+                        value={l.discountPct}
+                        onValue={(n) => updateLine(l.id, { discountPct: n })}
+                        className={PHONE_NUM}
+                      />
+                    </PhoneField>
+                  )}
+                  {gstOn && (
+                    <PhoneField label="GST %">
+                      <NumInput
+                        value={l.gstRate}
+                        onValue={(n) => updateLine(l.id, { gstRate: n })}
+                        className={PHONE_NUM}
+                      />
+                    </PhoneField>
+                  )}
+                </div>
+
+                <div className="mt-2.5 flex items-center justify-between border-t pt-2">
+                  <span className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Amount
+                  </span>
+                  <span className="text-[15px] font-bold tabular-nums">{fmtMoney(l.amount)}</span>
+                </div>
+              </div>
+            ))}
+
+            {pendingRowIds.map((id) => (
+              <ItemEntryRow
+                key={id}
+                layout="card"
+                items={items}
+                gstOn={gstOn}
+                isSale={isSale}
+                isInternational={!!inv.isInternational}
+                showUnit={showUnitCol}
+                showDisc={showDiscCol}
+                onAdd={(it) => {
+                  focusQtyId.current = addLineItem(it);
+                  completePendingRow(id);
+                }}
+                onAddNew={(name) => setQuickAddItem({ name, rowId: id })}
+                registerInput={(el) => {
+                  pendingInputRefs.current[`card:${id}`] = el;
+                }}
+              />
+            ))}
+
+            {/* The same check the printed bill and the table footing give:
+                eleven pieces on the counter, so the bill had better say
+                eleven. */}
+            {inv.lineItems.length > 0 && (
+              <div className="flex items-center justify-between gap-3 border-t-2 bg-muted/30 px-3 py-2.5">
+                <span className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Total · {totalQty} qty
+                </span>
+                <span className="text-[15px] font-bold tabular-nums">
+                  {fmtMoney(totalLineAmount)}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -2027,6 +2248,7 @@ function ItemEntryRow({
   showUnit,
   showDisc,
   registerInput,
+  layout = "row",
 }: {
   items: Item[];
   onAdd: (i: Item) => void;
@@ -2040,16 +2262,22 @@ function ItemEntryRow({
   showUnit: boolean;
   showDisc: boolean;
   registerInput: (el: HTMLInputElement | null) => void;
+  /**
+   * A phone gets a card, not a table row.
+   *
+   * The nine-column row needs 720px to lay out and a phone has 390, so on a
+   * phone it became a thing you drag sideways: the photograph from the
+   * counter shows Qty, Price and Amount on screen with the item NAME
+   * scrolled off to the left. A card is the same fields stacked, which is
+   * what every phone billing app does and what was asked for here.
+   */
+  layout?: "row" | "card";
 }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [idx, setIdx] = useState(0);
   const inputElRef = useRef<HTMLInputElement | null>(null);
-  const [dropdownRect, setDropdownRect] = useState<{
-    top: number;
-    left: number;
-    width: number;
-  } | null>(null);
+  const [dropdownRect, setDropdownRect] = useState<PopupPlacement | null>(null);
 
   // The row lives inside a horizontally-scrollable table
   // (overflow-x-auto), which per the CSS spec also forces overflow-y to
@@ -2063,7 +2291,9 @@ function ItemEntryRow({
       const el = inputElRef.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
-      const next = { top: r.bottom + 4, left: r.left, width: r.width };
+      // Widened past the input on purpose: in a card layout the input is the
+      // width of a phone, and in the table it is a third of one.
+      const next = popupRect(r, currentViewport(), { minWidth: 260 });
       // Bail out when nothing actually moved. This listener is registered
       // with capture:true, so it also fires for scrolls that happen INSIDE
       // the dropdown — and writing a fresh object there re-rendered the list
@@ -2071,11 +2301,7 @@ function ItemEntryRow({
       // input hasn't moved when you scroll the options, so returning the
       // previous state makes React skip the render entirely (it also stops
       // a 200-row list re-rendering on every frame of an outer scroll).
-      setDropdownRect((prev) =>
-        prev && prev.top === next.top && prev.left === next.left && prev.width === next.width
-          ? prev
-          : next,
-      );
+      setDropdownRect((prev) => (samePlacement(prev, next) ? prev : next));
     };
     updateRect();
     window.addEventListener("scroll", updateRect, true);
@@ -2136,129 +2362,142 @@ function ItemEntryRow({
     else if (showAddNew) pickNew();
   };
 
+  const field = (
+    <>
+      <input
+        ref={(el) => {
+          inputElRef.current = el;
+          registerInput(el);
+        }}
+        value={q}
+        onChange={(e) => {
+          setQ(e.target.value);
+          setOpen(true);
+          setIdx(0);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setIdx((i) => Math.min(optionCount - 1, i + 1));
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setIdx((i) => Math.max(0, i - 1));
+          } else if (e.key === "Enter") {
+            e.preventDefault();
+            if (optionCount > 0) choose(idx);
+          } else if (e.key === "Escape" && open) {
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen(false);
+          }
+        }}
+        placeholder="Type item name to add…"
+        className={
+          layout === "card"
+            ? "w-full h-11 px-3 border rounded-lg bg-background focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none text-[16px]"
+            : "w-full h-8 px-2 border rounded bg-background focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none text-sm"
+        }
+      />
+      {open &&
+        optionCount > 0 &&
+        dropdownRect &&
+        createPortal(
+          <div
+            style={placementStyle(dropdownRect, 288)}
+            className="z-50 border rounded-md bg-popover shadow-elevated flex flex-col overflow-hidden"
+          >
+            {/* The list scrolls; the "+N more" note below does NOT live
+                  inside it. As a sticky child of the scroller it sat on top
+                  of the last row and hid it. */}
+            <div ref={optionsRef} className="overflow-auto flex-1 min-h-0">
+              {suggests.map((it, i) => (
+                <div
+                  key={it.id}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    pick(it);
+                  }}
+                  data-opt={i}
+                  className={`px-3 py-2 text-sm cursor-pointer flex justify-between ${i === idx ? "bg-accent" : "hover:bg-accent"}`}
+                >
+                  <div>
+                    <div className="font-semibold">{it.name}</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      Stock: {it.stock} {it.unit}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    {isSale ? (
+                      <>
+                        <div className="text-[11px] text-muted-foreground tabular-nums">
+                          cost {fmtMoney(it.purchasePrice)}
+                        </div>
+                        <div className="font-semibold tabular-nums">
+                          {it.salePrice ? (
+                            <>sells {fmtMoney(it.salePrice)}</>
+                          ) : (
+                            <span className="text-[11px] font-normal text-amber-600">
+                              No sale price
+                            </span>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="font-semibold tabular-nums">{fmtMoney(it.purchasePrice)}</div>
+                    )}
+                    {gstOn && (
+                      <div className="text-[11px] text-muted-foreground">GST {it.gstRate}%</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {showAddNew && (
+                <div
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    pickNew();
+                  }}
+                  className={`px-3 py-2 text-sm cursor-pointer flex items-center gap-2 border-t ${idx === suggests.length ? "bg-accent" : "hover:bg-accent"}`}
+                >
+                  <span className="h-5 w-5 rounded bg-primary-soft text-primary flex items-center justify-center text-xs font-bold">
+                    +
+                  </span>
+                  <span>
+                    Add "<span className="font-semibold">{trimmed}</span>" as new item
+                  </span>
+                </div>
+              )}
+            </div>
+            {hiddenCount > 0 && (
+              <div className="shrink-0 px-3 py-2 text-[11px] text-muted-foreground border-t bg-muted/40">
+                +{hiddenCount} more — keep typing to narrow it down
+              </div>
+            )}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+
+  if (layout === "card") {
+    return (
+      <div className="border-t bg-muted/20 px-3 py-2.5">
+        <div className="flex items-center gap-2">
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary-soft text-primary">
+            <Plus className="h-3.5 w-3.5" />
+          </span>
+          <div className="min-w-0 flex-1">{field}</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <tr className="border-t hover:bg-accent/20">
       <td className="px-3 py-1.5"></td>
-      <td className="px-3 py-1.5">
-        <input
-          ref={(el) => {
-            inputElRef.current = el;
-            registerInput(el);
-          }}
-          value={q}
-          onChange={(e) => {
-            setQ(e.target.value);
-            setOpen(true);
-            setIdx(0);
-          }}
-          onFocus={() => setOpen(true)}
-          onBlur={() => setTimeout(() => setOpen(false), 150)}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowDown") {
-              e.preventDefault();
-              setIdx((i) => Math.min(optionCount - 1, i + 1));
-            } else if (e.key === "ArrowUp") {
-              e.preventDefault();
-              setIdx((i) => Math.max(0, i - 1));
-            } else if (e.key === "Enter") {
-              e.preventDefault();
-              if (optionCount > 0) choose(idx);
-            } else if (e.key === "Escape" && open) {
-              e.preventDefault();
-              e.stopPropagation();
-              setOpen(false);
-            }
-          }}
-          placeholder="Type item name to add…"
-          className="w-full h-8 px-2 border rounded bg-background focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none text-sm"
-        />
-        {open &&
-          optionCount > 0 &&
-          dropdownRect &&
-          createPortal(
-            <div
-              style={{
-                position: "fixed",
-                top: dropdownRect.top,
-                left: dropdownRect.left,
-                width: dropdownRect.width,
-                pointerEvents: "auto",
-              }}
-              className="z-50 border rounded-md bg-popover shadow-elevated max-h-72 flex flex-col"
-            >
-              {/* The list scrolls; the "+N more" note below does NOT live
-                  inside it. As a sticky child of the scroller it sat on top
-                  of the last row and hid it. */}
-              <div ref={optionsRef} className="overflow-auto flex-1 min-h-0">
-                {suggests.map((it, i) => (
-                  <div
-                    key={it.id}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      pick(it);
-                    }}
-                    data-opt={i}
-                    className={`px-3 py-2 text-sm cursor-pointer flex justify-between ${i === idx ? "bg-accent" : "hover:bg-accent"}`}
-                  >
-                    <div>
-                      <div className="font-semibold">{it.name}</div>
-                      <div className="text-[11px] text-muted-foreground">
-                        Stock: {it.stock} {it.unit}
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      {isSale ? (
-                        <>
-                          <div className="text-[11px] text-muted-foreground tabular-nums">
-                            cost {fmtMoney(it.purchasePrice)}
-                          </div>
-                          <div className="font-semibold tabular-nums">
-                            {it.salePrice ? (
-                              <>sells {fmtMoney(it.salePrice)}</>
-                            ) : (
-                              <span className="text-[11px] font-normal text-amber-600">
-                                No sale price
-                              </span>
-                            )}
-                          </div>
-                        </>
-                      ) : (
-                        <div className="font-semibold tabular-nums">
-                          {fmtMoney(it.purchasePrice)}
-                        </div>
-                      )}
-                      {gstOn && (
-                        <div className="text-[11px] text-muted-foreground">GST {it.gstRate}%</div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                {showAddNew && (
-                  <div
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      pickNew();
-                    }}
-                    className={`px-3 py-2 text-sm cursor-pointer flex items-center gap-2 border-t ${idx === suggests.length ? "bg-accent" : "hover:bg-accent"}`}
-                  >
-                    <span className="h-5 w-5 rounded bg-primary-soft text-primary flex items-center justify-center text-xs font-bold">
-                      +
-                    </span>
-                    <span>
-                      Add "<span className="font-semibold">{trimmed}</span>" as new item
-                    </span>
-                  </div>
-                )}
-              </div>
-              {hiddenCount > 0 && (
-                <div className="shrink-0 px-3 py-2 text-[11px] text-muted-foreground border-t bg-muted/40">
-                  +{hiddenCount} more — keep typing to narrow it down
-                </div>
-              )}
-            </div>,
-            document.body,
-          )}
-      </td>
+      <td className="px-3 py-1.5">{field}</td>
       <td className="py-1.5 px-1">
         <input
           disabled
@@ -2342,15 +2581,15 @@ function ItemNameCell({
   const [q, setQ] = useState("");
   const [idx, setIdx] = useState(0);
   const inputElRef = useRef<HTMLInputElement | null>(null);
-  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [rect, setRect] = useState<PopupPlacement | null>(null);
 
   useEffect(() => {
     if (!editing) return;
     const updateRect = () => {
       const el = inputElRef.current;
       if (!el) return;
-      const r = el.getBoundingClientRect();
-      setRect({ top: r.bottom + 4, left: r.left, width: Math.max(r.width, 240) });
+      const next = popupRect(el.getBoundingClientRect(), currentViewport(), { minWidth: 240 });
+      setRect((prev) => (samePlacement(prev, next) ? prev : next));
     };
     updateRect();
     window.addEventListener("scroll", updateRect, true);
@@ -2419,8 +2658,10 @@ function ItemNameCell({
     setEditing(false);
     const focusId = onChange(it);
     setTimeout(() => {
-      const qtyEl = document.getElementById(`qty-${focusId}`) as HTMLInputElement | null;
-      qtyEl?.focus();
+      visibleOf(
+        document.getElementById(`qty-${focusId}`) as HTMLInputElement | null,
+        document.getElementById(`qty-m-${focusId}`) as HTMLInputElement | null,
+      )?.focus();
     }, 0);
   };
 
@@ -2481,17 +2722,8 @@ function ItemNameCell({
       {rect &&
         createPortal(
           <div
-            style={{
-              position: "fixed",
-              top: rect.top,
-              left: rect.left,
-              width: rect.width,
-              // See the note in ComboInput: a modal Radix dialog switches
-              // pointer events off on <body>, and anything portalled there
-              // goes with it unless it says otherwise.
-              pointerEvents: "auto",
-            }}
-            className="z-50 border rounded-md bg-popover shadow-elevated max-h-72 flex flex-col"
+            style={placementStyle(rect, 288)}
+            className="z-50 border rounded-md bg-popover shadow-elevated flex flex-col overflow-hidden"
           >
             <div ref={optionsRef} className="overflow-auto flex-1 min-h-0">
               {suggests.length === 0 && !showAddNew && (
@@ -2574,27 +2806,35 @@ function PriceHistoryCell({
   history,
   partyName,
   isSale,
+  inputClassName,
 }: {
   value: number;
   onValue: (n: number) => void;
   history: { date: string; qty: number; price: number }[];
   partyName: string;
   isSale: boolean;
+  /** The phone card wants a full-height box; the table wants a 28px one. */
+  inputClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const inputElRef = useRef<HTMLInputElement | null>(null);
-  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [rect, setRect] = useState<PopupPlacement | null>(null);
 
   // Same portal trick as ItemEntryRow's dropdown — this cell lives inside
   // the overflow-x-auto item table, so a plain absolutely positioned popup
-  // gets clipped by the table's own scroll box.
+  // gets clipped by the table's own scroll box. Right-aligned, which is
+  // precisely how it used to walk off the LEFT edge of a phone: 256 taken
+  // off an input already near the screen's left gutter is a negative x.
   useEffect(() => {
     if (!open) return;
     const updateRect = () => {
       const el = inputElRef.current;
       if (!el) return;
-      const r = el.getBoundingClientRect();
-      setRect({ top: r.bottom + 4, left: r.right - 256, width: 256 });
+      const next = popupRect(el.getBoundingClientRect(), currentViewport(), {
+        align: "right",
+        preferredWidth: 256,
+      });
+      setRect((prev) => (samePlacement(prev, next) ? prev : next));
     };
     updateRect();
     window.addEventListener("scroll", updateRect, true);
@@ -2613,23 +2853,17 @@ function PriceHistoryCell({
         onValue={onValue}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
-        className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
+        className={
+          inputClassName ??
+          "w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
+        }
       />
       {open &&
         rect &&
         createPortal(
           <div
-            style={{
-              position: "fixed",
-              top: rect.top,
-              left: rect.left,
-              width: rect.width,
-              // See the note in ComboInput: a modal Radix dialog switches
-              // pointer events off on <body>, and anything portalled there
-              // goes with it unless it says otherwise.
-              pointerEvents: "auto",
-            }}
-            className="z-50 border rounded-md bg-popover shadow-elevated overflow-hidden"
+            style={placementStyle(rect)}
+            className="z-50 border rounded-md bg-popover shadow-elevated overflow-auto"
           >
             <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground bg-muted/50 border-b">
               Last {isSale ? "Sale" : "Purchase"} Prices — {partyName}

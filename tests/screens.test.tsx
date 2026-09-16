@@ -357,6 +357,20 @@ async function renderRoute(path: string | string[]): Promise<string> {
   return host.textContent ?? "";
 }
 
+/**
+ * The bill form mounts a desk table and a phone card list at once and lets
+ * CSS hide one of them, so "the add-item field" is a question with two
+ * answers. The hidden one cannot be focused or typed into — focus() on a
+ * display:none input is a no-op — so every test that drives this field has
+ * to ask for the one actually on screen.
+ */
+function visibleAddItemInput(): HTMLInputElement | null {
+  const all = Array.from(
+    document.querySelectorAll<HTMLInputElement>('input[placeholder="Type item name to add…"]'),
+  );
+  return all.find((el) => el.offsetParent !== null) ?? all[0] ?? null;
+}
+
 /** Re-read the currently mounted page after letting React settle. */
 async function readMounted(): Promise<string> {
   await act(async () => {
@@ -445,8 +459,16 @@ async function runAll(): Promise<Results> {
     await renderRoute("/sales/new");
     await settleMs(120);
 
+    const scope = host as HTMLElement;
+    assert(
+      scope.querySelectorAll("*").length > 50,
+      "mobile bill: the form is actually mounted — " +
+        scope.querySelectorAll("*").length +
+        " nodes",
+    );
+
     const overflow: string[] = [];
-    document.querySelectorAll<HTMLElement>("main *").forEach((el) => {
+    scope.querySelectorAll<HTMLElement>("*").forEach((el) => {
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) return;
       // Its own scrolling region is allowed to be wider than the screen —
@@ -464,6 +486,186 @@ async function runAll(): Promise<Results> {
       overflow.length === 0,
       "mobile bill: nothing spills off the screen — " + overflow.slice(0, 6).join(" | "),
     );
+
+    /* ── The lines are a card list, not a table dragged sideways ────────
+       The nine-column row needs 720px; the phone has 390. The photograph
+       from the counter shows the result: Qty, Price and Amount on screen
+       and the item NAME scrolled off to the left, so the person billing
+       cannot see what they are billing for. */
+    const wideTable = Array.from(document.querySelectorAll<HTMLElement>("table")).find((t) =>
+      t.className.includes("min-w-[720px]"),
+    );
+    assert(!!wideTable, "mobile bill: the desktop item table is still built");
+    assert(
+      !wideTable || wideTable.offsetParent === null,
+      "mobile bill: but a phone is not shown it",
+    );
+
+    /* ── A dropdown that opens on the screen ────────────────────────────
+       Photographed: the item search opened with its prices hanging off the
+       right edge, because it was anchored to an input inside that 720px
+       table and nothing compared the answer to the width of the phone. */
+    const phoneAdd = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input[placeholder="Type item name to add…"]'),
+    ).find((el) => el.offsetParent !== null);
+    assert(!!phoneAdd, "mobile bill: the phone layout offers an add-item field");
+
+    if (phoneAdd) {
+      await act(async () => {
+        phoneAdd.focus();
+        setInput(phoneAdd, "USB Cable");
+      });
+      await settleMs(160);
+
+      const panel = Array.from(document.body.querySelectorAll<HTMLElement>("div")).find(
+        (d) =>
+          getComputedStyle(d).position === "fixed" &&
+          d.className.includes("z-50") &&
+          (d.textContent ?? "").includes("USB Cable"),
+      );
+      assert(!!panel, "mobile bill: typing an item name opens the picker");
+      if (panel) {
+        const pr = panel.getBoundingClientRect();
+        assert(
+          pr.left >= -1 && pr.right <= window.innerWidth + 1,
+          "mobile bill: the picker opens fully on the screen — " +
+            Math.round(pr.left) +
+            ".." +
+            Math.round(pr.right) +
+            " of " +
+            window.innerWidth,
+        );
+        assert(
+          pr.top >= -1 && pr.bottom <= window.innerHeight + 1,
+          "mobile bill: and fully above the bottom of it — " +
+            Math.round(pr.top) +
+            ".." +
+            Math.round(pr.bottom),
+        );
+
+        /* ── And the name of what was added stays readable ──────────── */
+        /* The OPTION, not whatever container happens to start with the same
+           text: when the item is first in the list, the scroller's own
+           textContent starts with it too, and a mousedown on the scroller
+           never reaches the row's handler. data-opt marks the real one. */
+        const option = Array.from(panel.querySelectorAll<HTMLElement>("[data-opt]")).find((d) =>
+          (d.textContent ?? "").startsWith("USB Cable"),
+        );
+        assert(!!option, "mobile bill: the item is offered");
+        if (option) {
+          await act(async () => {
+            option.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+          });
+          await settleMs(200);
+
+          const nameEl = Array.from(scope.querySelectorAll<HTMLElement>("div")).find(
+            (d) =>
+              (d.textContent ?? "").trim() === "USB Cable" &&
+              d.children.length === 0 &&
+              d.offsetParent !== null &&
+              d.getBoundingClientRect().width > 0,
+          );
+          assert(!!nameEl, "mobile bill: the added item's name is on the page");
+          if (nameEl) {
+            const nr = nameEl.getBoundingClientRect();
+            assert(
+              nr.left >= -1 && nr.right <= window.innerWidth + 1,
+              "mobile bill: and wholly on the screen without dragging it sideways — " +
+                Math.round(nr.left) +
+                ".." +
+                Math.round(nr.right),
+            );
+          }
+
+          /* ── The last-prices popup, which walked off the LEFT ───────
+             It right-aligns itself by subtracting its own 256px width from
+             the input's right edge. On a phone card the Price box ends
+             around x=190, so that arithmetic produces a negative x — which
+             is the second photograph from the counter: the heading "LAST
+             SALE PRICES — GOPAL MOBILE" cut off by the edge of the screen.
+             It only appears once the bill has a party, because it is that
+             party's own history.
+
+             Honest about what this proves: in the CARD layout the Price box
+             sits far enough right that the subtraction lands on screen even
+             unclamped — removing the clamp does not make this fail. It is a
+             regression guard on the shipped layout. The clamp itself is
+             proved by TEST PP in the audit suite, where the anchor can be
+             put where the photograph found it. */
+          const partyInput = Array.from(
+            scope.querySelectorAll<HTMLInputElement>('input[placeholder="Type name or search…"]'),
+          ).find((el) => el.offsetParent !== null);
+          if (partyInput) {
+            await act(async () => {
+              partyInput.focus();
+              setInput(partyInput, "Ramesh");
+            });
+            await settleMs(140);
+            const partyOpt = Array.from(document.querySelectorAll<HTMLElement>("div")).find(
+              (d) =>
+                (d.textContent ?? "").trim() === "Ramesh Traders" &&
+                !d.querySelector("div div") &&
+                !d.querySelector("input"),
+            );
+            if (partyOpt) {
+              await act(async () => {
+                partyOpt.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+              });
+              await settleMs(160);
+            }
+
+            const priceBox = Array.from(scope.querySelectorAll<HTMLInputElement>("input")).find(
+              (el) =>
+                el.offsetParent !== null &&
+                el.className.includes("h-11") &&
+                (el.parentElement?.textContent ?? "").trim().toUpperCase() === "PRICE",
+            );
+            assert(!!priceBox, "mobile bill: the card has a Price box");
+            if (priceBox) {
+              await act(async () => {
+                priceBox.focus();
+                priceBox.dispatchEvent(new FocusEvent("focus", { bubbles: true }));
+              });
+              await settleMs(160);
+              const pricePanel = Array.from(
+                document.body.querySelectorAll<HTMLElement>("div"),
+              ).find(
+                (d) =>
+                  getComputedStyle(d).position === "fixed" &&
+                  d.className.includes("z-50") &&
+                  (d.textContent ?? "").includes("Prices"),
+              );
+              assert(!!pricePanel, "mobile bill: the last-prices popup opens");
+              if (pricePanel) {
+                const lr = pricePanel.getBoundingClientRect();
+                assert(
+                  lr.left >= -1,
+                  "mobile bill: the last-prices popup does not run off the left — left " +
+                    Math.round(lr.left),
+                );
+                assert(
+                  lr.right <= window.innerWidth + 1,
+                  "mobile bill: nor off the right — right " + Math.round(lr.right),
+                );
+              }
+            }
+          }
+
+          /* Every box on a phone card is at least 16px of text: below that,
+             iOS zooms the page the moment it is focused and the bill jumps
+             out from under the person filling it in. */
+          const small = Array.from(scope.querySelectorAll<HTMLInputElement>("input"))
+            .filter((el) => el.offsetParent !== null && el.type !== "checkbox")
+            .filter((el) => parseFloat(getComputedStyle(el).fontSize) < 16)
+            .map((el) => (el.id || el.placeholder || el.className.slice(0, 30)) + " ")
+            .slice(0, 5);
+          assert(
+            small.length === 0,
+            "mobile bill: no box small enough to make iOS zoom the page — " + small.join("| "),
+          );
+        }
+      }
+    }
   }
 
   const listAfterArrival = await renderRoute("/sales");
@@ -741,9 +943,12 @@ async function runAll(): Promise<Results> {
     }
 
     await renderRoute("/sales/new");
-    const input = Array.from(document.querySelectorAll("input")).find((el) =>
+    const namedInputs = Array.from(document.querySelectorAll("input")).filter((el) =>
       (el.getAttribute("placeholder") ?? "").startsWith("Type item name"),
     );
+    // The bill renders a desk table and a phone card list at once and hides
+    // one of them. Focusing the hidden one does nothing, so take the visible.
+    const input = namedInputs.find((el) => el.offsetParent !== null) ?? namedInputs[0];
     assert(!!input, "item dropdown: found the item search input");
     if (input) {
       await act(async () => {
@@ -1890,9 +2095,7 @@ async function runAll(): Promise<Results> {
     await renderRoute("/sales/new");
 
     // Add a line by picking an item from the entry row.
-    const addRow = document.querySelector(
-      'input[placeholder="Type item name to add…"]',
-    ) as HTMLInputElement | null;
+    const addRow = visibleAddItemInput();
     assert(!!addRow, "step back: found the item entry row");
     if (addRow) {
       await act(async () => {
@@ -1907,7 +2110,12 @@ async function runAll(): Promise<Results> {
 
     const row = document.querySelector("tbody tr") as HTMLTableRowElement | null;
     assert(!!row, "step back: a bill line was added");
-    if (row) {
+    /* Enter-walks-along-the-row is a KEYBOARD flow, and a keyboard means a
+       desk. A phone is given the card list instead, where there is no row to
+       walk along. Run this where it is the layout actually in use: asserting
+       it against a display:none table proves nothing in either direction,
+       because focus() on a hidden input silently does nothing. */
+    if (row && row.offsetParent !== null) {
       const fields = Array.from(row.querySelectorAll("input")) as HTMLInputElement[];
       assert(
         fields.length >= 2,
@@ -1984,9 +2192,7 @@ async function runAll(): Promise<Results> {
     await renderRoute(["/sales", "/sales/new"]);
 
     // Put something on the bill so leaving would cost work.
-    const addRow2 = document.querySelector(
-      'input[placeholder="Type item name to add…"]',
-    ) as HTMLInputElement | null;
+    const addRow2 = visibleAddItemInput();
     if (addRow2) {
       await act(async () => {
         setInput(addRow2, "USB Cable");
@@ -2555,9 +2761,7 @@ async function runAll(): Promise<Results> {
      still sitting above it. */
   {
     await renderRoute("/sales/new");
-    const addRow = document.querySelector(
-      'input[placeholder="Type item name to add…"]',
-    ) as HTMLInputElement | null;
+    const addRow = visibleAddItemInput();
     assert(!!addRow, "change item: found the item entry row");
     await act(async () => {
       setInput(addRow, "USB Cable");
@@ -2721,9 +2925,7 @@ async function runAll(): Promise<Results> {
     ItemRepo.update("I1", { category: "Accessories" } as never);
     await renderRoute("/sales/new");
 
-    const addRow = document.querySelector(
-      'input[placeholder="Type item name to add…"]',
-    ) as HTMLInputElement | null;
+    const addRow = visibleAddItemInput();
     assert(!!addRow, "new item category: found the item entry row");
     await act(async () => {
       setInput(addRow, "Tempered Glass X99");
@@ -2906,9 +3108,7 @@ async function runAll(): Promise<Results> {
       await settleMs(140);
     }
 
-    const addRow = document.querySelector(
-      'input[placeholder="Type item name to add…"]',
-    ) as HTMLInputElement | null;
+    const addRow = visibleAddItemInput();
     await act(async () => {
       setInput(addRow, "USB Cable");
     });
@@ -4918,9 +5118,7 @@ async function runAll(): Promise<Results> {
   {
     await renderRoute("/sales/new");
 
-    const add = document.querySelector(
-      'input[placeholder="Type item name to add…"]',
-    ) as HTMLInputElement | null;
+    const add = visibleAddItemInput();
     assert(!!add, "sale price: the new-bill form has an item entry row");
 
     if (add) {
