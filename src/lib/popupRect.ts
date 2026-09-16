@@ -28,7 +28,23 @@ export type Anchor = {
   width: number;
 };
 
-export type Viewport = { width: number; height: number };
+export type Viewport = {
+  width: number;
+  /** The LAYOUT viewport's height — the box `position: fixed` measures against. */
+  height: number;
+  /**
+   * The band of that box a person can actually see, in the same client
+   * coordinates. A keyboard covers the bottom of the screen without changing
+   * the layout viewport at all, so this is what decides whether a panel has
+   * room below — and the layout viewport is still what positions it.
+   *
+   * Keeping these apart is the whole point. Conflating them put a popup 220px
+   * above the box it belongs to, photographed at the counter: the panel was
+   * positioned with a number measured in the wrong space.
+   */
+  visibleTop?: number;
+  visibleBottom?: number;
+};
 
 export type PopupPlacement = {
   left: number;
@@ -82,8 +98,18 @@ export function popupRect(
   const rightmost = viewport.width - margin - width;
   left = Math.min(Math.max(left, margin), Math.max(margin, rightmost));
 
-  const below = viewport.height - (anchor.bottom + gap) - margin;
-  const above = anchor.top - gap - margin;
+  /* Clamped into the layout box on the way in. A visual-viewport reading can
+     briefly disagree with it — iOS scrolls for the keyboard before it reports
+     the smaller height — and a "visible" edge below the bottom of the screen
+     is not a reading worth acting on. */
+  const seenTop = Math.min(Math.max(viewport.visibleTop ?? 0, 0), viewport.height);
+  const seenBottom = Math.min(
+    Math.max(viewport.visibleBottom ?? viewport.height, 0),
+    viewport.height,
+  );
+
+  const below = seenBottom - (anchor.bottom + gap) - margin;
+  const above = anchor.top - gap - seenTop - margin;
 
   /* Open upwards only when down is genuinely too tight AND up is better —
      which on a phone is what a keyboard does to the bottom half of the
@@ -93,6 +119,9 @@ export function popupRect(
     return {
       left,
       width,
+      /* Measured against the LAYOUT viewport, because that is what a fixed
+         element's `bottom` is measured against. The panel's bottom edge
+         lands exactly gap above the anchor — it cannot drift away from it. */
       bottom: viewport.height - (anchor.top - gap),
       maxHeight: Math.max(0, above),
     };
@@ -101,17 +130,49 @@ export function popupRect(
 }
 
 /**
- * The part of the screen that is actually visible, in the coordinates
- * getBoundingClientRect and `position: fixed` both speak.
+ * The screen, in the coordinates getBoundingClientRect and `position: fixed`
+ * both speak — plus, separately, how much of it a keyboard has left.
  *
- * On a phone the on-screen keyboard shrinks the visual viewport without
- * touching window.innerHeight, so measuring the old way put dropdowns
- * underneath the keyboard and called it "on screen".
+ * The two must not be mixed. `innerHeight` is the box a fixed element is
+ * placed in and the keyboard does not change it; the visual viewport is what
+ * the person can see and the keyboard shrinks it. Feeding the second into a
+ * `bottom` offset is what threw a popup to the top of the screen: at the
+ * moment a field is focused, iOS has already scrolled (offsetTop ≈ 217) but
+ * not yet reported the shorter height, so the sum came to 1061 on an 844px
+ * phone and the panel was placed against a screen that does not exist.
  */
 export function currentViewport(win: Window = window): Viewport {
   const vv = win.visualViewport;
   return {
     width: win.innerWidth,
-    height: vv ? vv.height + vv.offsetTop : win.innerHeight,
+    height: win.innerHeight,
+    ...(vv ? { visibleTop: vv.offsetTop, visibleBottom: vv.offsetTop + vv.height } : null),
+  };
+}
+
+/**
+ * Re-measure whenever anything could have moved the anchor or resized the
+ * screen — including the keyboard.
+ *
+ * `window`'s resize event does NOT fire when a phone keyboard opens: the
+ * layout viewport is unchanged, only the visible band shrinks, and that is
+ * reported on visualViewport alone. Without these two a panel keeps whatever
+ * placement it was given at focus time, which is the worst possible moment to
+ * measure — the keyboard is mid-animation and the page is mid-scroll.
+ *
+ * Scroll is captured so it also catches scrolling containers, not just the
+ * window. Returns its own cleanup.
+ */
+export function watchViewport(onChange: () => void, win: Window = window): () => void {
+  win.addEventListener("scroll", onChange, true);
+  win.addEventListener("resize", onChange);
+  const vv = win.visualViewport;
+  vv?.addEventListener("resize", onChange);
+  vv?.addEventListener("scroll", onChange);
+  return () => {
+    win.removeEventListener("scroll", onChange, true);
+    win.removeEventListener("resize", onChange);
+    vv?.removeEventListener("resize", onChange);
+    vv?.removeEventListener("scroll", onChange);
   };
 }

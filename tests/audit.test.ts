@@ -3037,19 +3037,48 @@ console.log(`\n═════════════════════�
     assert(p.left >= 8 && p.left + p.width <= 382, "PP7: and still inside both gutters");
   }
 
-  /* The keyboard. Callers pass the VISIBLE viewport, so with a keyboard up
-     the screen is ~400px tall and an input near its bottom has no room
-     below — the list has to open upwards or it opens under the keyboard. */
+  /* The keyboard, and the trap underneath it.
+     A keyboard does not change the layout viewport at all — window.innerHeight
+     is still 844 — it only covers the bottom of it. So the room below is
+     measured against the visible band and the placement is measured against
+     the layout box, and those are two different numbers that must not be
+     swapped. */
   {
-    const keyboardUp = { width: 390, height: 400 };
+    const keyboardUp = { width: 390, height: 844, visibleTop: 0, visibleBottom: 400 };
     const low = { top: 330, bottom: 360, left: 20, right: 300, width: 280 };
     const p = popupRect(low, keyboardUp);
-    assert(p.top === undefined, "PP8: with no room below, the list does not open downwards");
+    assert(p.top === undefined, "PP8: with the keyboard over it, the list does not open downwards");
+    /* The one that matters. `bottom` on a fixed element is measured from the
+       bottom of the LAYOUT viewport, so this is the only value that puts the
+       panel's lower edge against the input. Photographed failing: it was
+       computed against the visible band instead and landed 220px above the
+       box it belongs to, up beside the Bill Date field. */
     assert(
-      p.bottom !== undefined && p.bottom >= 400 - 330,
-      "PP9: it grows upward from the input — bottom " + p.bottom,
+      p.bottom === 844 - (330 - 4),
+      "PP9: it grows upward FROM the input — bottom " + p.bottom,
     );
-    assert(p.maxHeight > 0 && p.maxHeight <= 330, "PP10: within the room above it");
+    assert(
+      844 - (p.bottom ?? 0) === 326,
+      "PP10: whose lower edge is 4px above the input, not somewhere up the page",
+    );
+    assert(p.maxHeight > 0 && p.maxHeight <= 330, "PP11: within the room above it");
+  }
+
+  /* The exact reading that produced the photograph. At the moment a field is
+     focused, iOS has already scrolled for the keyboard (offsetTop ≈ 217) but
+     has not yet reported the shorter height, so visibleBottom comes back as
+     1061 on an 844px phone. A bottom edge below the bottom of the screen is
+     not a reading worth acting on: clamp it, and the answer is simply "there
+     is room below", which there is. */
+  {
+    const stale = { width: 390, height: 844, visibleTop: 217, visibleBottom: 1061 };
+    const box = { top: 330, bottom: 360, left: 20, right: 300, width: 280 };
+    const p = popupRect(box, stale);
+    assert(p.top === 364, "PP12: a viewport taller than the screen is not believed — top " + p.top);
+    assert(
+      (p.top ?? 0) + p.maxHeight <= 844,
+      "PP13: and nothing is placed past the bottom of the real screen",
+    );
   }
 
   /* And when there IS room below, it stays below — flipping a dropdown that
@@ -3057,9 +3086,9 @@ console.log(`\n═════════════════════�
   {
     const high = { top: 100, bottom: 130, left: 20, right: 300, width: 280 };
     const p = popupRect(high, phone);
-    assert(p.top === 134, "PP11: with room below, it hangs below the input — " + p.top);
-    assert(p.bottom === undefined, "PP12: and is not bottom-anchored");
-    assert(p.maxHeight <= 844 - 134, "PP13: never taller than the room it was given");
+    assert(p.top === 134, "PP14: with room below, it hangs below the input — " + p.top);
+    assert(p.bottom === undefined, "PP15: and is not bottom-anchored");
+    assert(p.maxHeight <= 844 - 134, "PP16: never taller than the room it was given");
   }
 
   /* The desk, unchanged: a dropdown under a 200px input on a wide screen
@@ -3068,9 +3097,9 @@ console.log(`\n═════════════════════�
     const desk = { width: 1440, height: 900 };
     const input = { top: 300, bottom: 328, left: 420, right: 620, width: 200 };
     const p = popupRect(input, desk);
-    assert(p.left === 420, "PP14: on a desk it still lines up with its input");
-    assert(p.width === 200, "PP15: at the input's own width");
-    assert(p.top === 332, "PP16: just below it");
+    assert(p.left === 420, "PP17: on a desk it still lines up with its input");
+    assert(p.width === 200, "PP18: at the input's own width");
+    assert(p.top === 332, "PP19: just below it");
   }
 }
 

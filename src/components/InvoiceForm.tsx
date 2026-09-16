@@ -21,7 +21,7 @@ import {
 import { partyBalances } from "@/lib/ledger";
 import { correctBankPaidAmount } from "@/lib/bankRepair";
 import { matchesQuery, byRelevance } from "@/lib/search";
-import { popupRect, currentViewport, type PopupPlacement } from "@/lib/popupRect";
+import { popupRect, currentViewport, watchViewport, type PopupPlacement } from "@/lib/popupRect";
 
 /** Rendering guard for the search dropdowns, NOT a search limit: every match
  * is found and ranked, this only bounds how many rows go into the DOM at once
@@ -2304,12 +2304,7 @@ function ItemEntryRow({
       setDropdownRect((prev) => (samePlacement(prev, next) ? prev : next));
     };
     updateRect();
-    window.addEventListener("scroll", updateRect, true);
-    window.addEventListener("resize", updateRect);
-    return () => {
-      window.removeEventListener("scroll", updateRect, true);
-      window.removeEventListener("resize", updateRect);
-    };
+    return watchViewport(updateRect);
   }, [open]);
 
   // Empty query — browse the full item catalog (like a combobox), instead
@@ -2592,12 +2587,7 @@ function ItemNameCell({
       setRect((prev) => (samePlacement(prev, next) ? prev : next));
     };
     updateRect();
-    window.addEventListener("scroll", updateRect, true);
-    window.addEventListener("resize", updateRect);
-    return () => {
-      window.removeEventListener("scroll", updateRect, true);
-      window.removeEventListener("resize", updateRect);
-    };
+    return watchViewport(updateRect);
   }, [editing]);
 
   const startEdit = () => {
@@ -2837,12 +2827,7 @@ function PriceHistoryCell({
       setRect((prev) => (samePlacement(prev, next) ? prev : next));
     };
     updateRect();
-    window.addEventListener("scroll", updateRect, true);
-    window.addEventListener("resize", updateRect);
-    return () => {
-      window.removeEventListener("scroll", updateRect, true);
-      window.removeEventListener("resize", updateRect);
-    };
+    return watchViewport(updateRect);
   }, [open]);
 
   return (
