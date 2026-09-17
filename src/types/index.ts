@@ -26,7 +26,19 @@ export interface Item {
   sku?: string;
   barcode?: string;
   category?: string;
+  /** What stock is counted in — the BASE unit. Every stock figure, valuation
+   *  and report is in this, whatever a bill was typed in. */
   unit: string;
+  /**
+   * A larger unit the shop also trades in — a box, a carton, a dozen.
+   *
+   * Optional and opt-in per item: most things are bought and sold as one
+   * piece, and an item that offers a second unit it does not need puts a
+   * choice on the counter that can only be got wrong. See lib/units.ts.
+   */
+  altUnit?: string;
+  /** How many base units are in one `altUnit`. Meaningless without it. */
+  altPerBase?: number;
   hsn?: string;
   gstRate: number;
   purchasePrice: number;
@@ -55,8 +67,22 @@ export interface LineItem {
   id: ID;
   itemId: ID;
   name: string;
+  /** As typed, in `unitUsed`. What the customer sees and checks against the
+   *  price beside it. NOT what moves stock — see `baseQty`. */
   qty: number;
   unit: string;
+  /** Which of the item's units `qty` is in. Absent means the base unit,
+   *  which is every line written before units existed. */
+  unitUsed?: string;
+  /**
+   * `qty` in base units — the only quantity stock, valuation and reports use.
+   *
+   * Written once, when the line is, and never recomputed: `altPerBase` is an
+   * item field a shop can edit, and re-deriving this would let next year's
+   * "1 box = 12" silently restate what last year's bills moved. A snapshot,
+   * like `costPrice`. Absent means it equals `qty`.
+   */
+  baseQty?: number;
   price: number;
   discountPct: number;
   gstRate: number;

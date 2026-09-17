@@ -38,6 +38,7 @@ import { VoidDialog, VoidedBadge } from "@/components/VoidDialog";
 import { canDeleteOutright, isVoided, removalWord } from "@/lib/voiding";
 import { SerialRepo } from "@/repositories";
 import { undoSerialsOf, soldSerialsOf } from "@/lib/serialMoves";
+import { qtyInBase } from "@/lib/units";
 
 /** An account's name for display. The word "Bank" three times over is
  *  exactly what a split is meant to stop being ambiguous. */
@@ -243,7 +244,7 @@ function PurchasePage() {
   const undoPurchaseEffects = (batch: ReturnType<typeof newBatch>, live: Invoice) => {
     for (const l of live.lineItems) {
       const it = ItemRepo.get(l.itemId);
-      if (it && !it.trackSerials) ItemRepo.adjustFieldBatched(batch, it.id, "stock", -l.qty);
+      if (it && !it.trackSerials) ItemRepo.adjustFieldBatched(batch, it.id, "stock", -qtyInBase(l));
     }
     for (const u of undoSerialsOf(live, "purchase", (id) => ItemRepo.get(id))) {
       SerialRepo.updateBatched(batch, u.id, u.patch as never);

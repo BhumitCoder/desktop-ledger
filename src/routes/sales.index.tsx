@@ -40,6 +40,7 @@ import { VoidDialog, VoidedBadge } from "@/components/VoidDialog";
 import { canDeleteOutright, isVoided, removalWord } from "@/lib/voiding";
 import { SerialRepo } from "@/repositories";
 import { undoSerialsOf } from "@/lib/serialMoves";
+import { qtyInBase } from "@/lib/units";
 
 /** An account's name for display. The word "Bank" three times over is
  *  exactly what a split is meant to stop being ambiguous. */
@@ -258,7 +259,7 @@ function SalesPage() {
       // A serialised item's stock is its serials, moved just below — nudging
       // the stored number as well would leave a second figure that nothing
       // reads and somebody eventually believes.
-      if (it && !it.trackSerials) ItemRepo.adjustFieldBatched(batch, it.id, "stock", l.qty);
+      if (it && !it.trackSerials) ItemRepo.adjustFieldBatched(batch, it.id, "stock", qtyInBase(l));
     }
     for (const u of undoSerialsOf(live, "sale", (id) => ItemRepo.get(id))) {
       SerialRepo.updateBatched(batch, u.id, u.patch as never);

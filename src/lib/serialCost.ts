@@ -17,6 +17,7 @@
  */
 
 import type { Serial } from "@/types";
+import { qtyInBase } from "@/lib/units";
 
 /** Units that carry a real recorded cost. A unit with none is not a unit
  *  costing zero — it is a unit we cannot cost, which is a different thing and
@@ -47,7 +48,15 @@ export interface LineCostBasis {
  * and nobody could later say which lines it applied to.
  */
 export function lineCostBasis(
-  line: { itemId: string; qty: number; costPrice?: number; serialIds?: string[] },
+  line: {
+    itemId: string;
+    qty: number;
+    costPrice?: number;
+    serialIds?: string[];
+    /** See lib/units.ts. A line entered in boxes costs a box's worth of
+     *  pieces, not a piece's worth — the snapshot price is per base unit. */
+    baseQty?: number;
+  },
   serialCosts: Map<string, number>,
   fallbackUnitCost: (itemId: string) => number,
 ): LineCostBasis {
@@ -66,5 +75,5 @@ export function lineCostBasis(
     if (all) return { amount: r2(total), exact: true };
   }
   const snapshot = line.costPrice ?? fallbackUnitCost(line.itemId) ?? 0;
-  return { amount: r2(snapshot * (line.qty || 0)), exact: false };
+  return { amount: r2(snapshot * qtyInBase(line)), exact: false };
 }

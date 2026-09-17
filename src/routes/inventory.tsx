@@ -20,6 +20,7 @@ import { useStickyState } from "@/hooks/useStickySearch";
 import type { Item } from "@/types";
 import { fmtMoney } from "@/lib/format";
 import { Boxes, Package, Search } from "lucide-react";
+import { qtyInBase } from "@/lib/units";
 
 export const Route = createFileRoute("/inventory")({ component: InventoryPage });
 
@@ -45,17 +46,25 @@ function InventoryPage() {
   // Stock Out = sales + purchase returns + manual reductions
   const salesQty = new Map<string, number>();
   SalesRepo.all().forEach((s) =>
-    s.lineItems.forEach((l) => salesQty.set(l.itemId, (salesQty.get(l.itemId) ?? 0) + l.qty)),
+    s.lineItems.forEach((l) =>
+      salesQty.set(l.itemId, (salesQty.get(l.itemId) ?? 0) + qtyInBase(l)),
+    ),
   );
   PurchaseReturnRepo.all().forEach((r) =>
-    r.lineItems.forEach((l) => salesQty.set(l.itemId, (salesQty.get(l.itemId) ?? 0) + l.qty)),
+    r.lineItems.forEach((l) =>
+      salesQty.set(l.itemId, (salesQty.get(l.itemId) ?? 0) + qtyInBase(l)),
+    ),
   );
   const purchaseQty = new Map<string, number>();
   PurchaseRepo.all().forEach((s) =>
-    s.lineItems.forEach((l) => purchaseQty.set(l.itemId, (purchaseQty.get(l.itemId) ?? 0) + l.qty)),
+    s.lineItems.forEach((l) =>
+      purchaseQty.set(l.itemId, (purchaseQty.get(l.itemId) ?? 0) + qtyInBase(l)),
+    ),
   );
   SaleReturnRepo.all().forEach((r) =>
-    r.lineItems.forEach((l) => purchaseQty.set(l.itemId, (purchaseQty.get(l.itemId) ?? 0) + l.qty)),
+    r.lineItems.forEach((l) =>
+      purchaseQty.set(l.itemId, (purchaseQty.get(l.itemId) ?? 0) + qtyInBase(l)),
+    ),
   );
   StockAdjustmentRepo.all().forEach((a) => {
     const map = a.type === "add" ? purchaseQty : salesQty;

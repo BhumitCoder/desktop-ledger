@@ -31,6 +31,7 @@ import { NumInput } from "@/components/NumInput";
 import { QuickAddPartyDialog, type QuickAddPartyDetails } from "@/components/QuickAddPartyDialog";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 import { matchesQuery, byRelevance } from "@/lib/search";
+import { qtyInBase } from "@/lib/units";
 
 /** See the note on the same constant in InvoiceForm — a rendering guard, not
  * a search limit. */
@@ -343,7 +344,7 @@ export function ReturnForm({ mode }: Props) {
       // below. Nudging the stored number too would leave a second figure
       // that nothing reads and somebody eventually believes.
       if (it && !it.trackSerials) {
-        ItemRepo.adjustFieldBatched(batch, it.id, "stock", stockDelta * l.qty);
+        ItemRepo.adjustFieldBatched(batch, it.id, "stock", stockDelta * qtyInBase(l));
       }
     }
 

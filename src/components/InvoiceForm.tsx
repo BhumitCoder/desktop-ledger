@@ -68,6 +68,7 @@ import { enterMovesAlongRow, useEscapeToLeave } from "@/hooks/useFormKeys";
 import { usePeriodLock } from "@/hooks/usePeriodLock";
 import { stockShortfalls } from "@/lib/stock";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
+import { qtyInBase } from "@/lib/units";
 
 interface Props {
   mode: "sale" | "purchase";
@@ -955,7 +956,7 @@ export function InvoiceForm({ mode, existing }: Props) {
         // Serialised items are reversed by moving their serials, not by
         // nudging a number nothing reads.
         if (it && !isSerialised(it))
-          ItemRepo.adjustFieldBatched(batch, it.id, "stock", origDelta * l.qty);
+          ItemRepo.adjustFieldBatched(batch, it.id, "stock", origDelta * qtyInBase(l));
       }
     }
 
@@ -1057,7 +1058,7 @@ export function InvoiceForm({ mode, existing }: Props) {
         // maintains and somebody eventually believes.
         if (Object.keys(extra).length) ItemRepo.updateBatched(batch, it.id, extra);
       } else {
-        ItemRepo.adjustFieldBatched(batch, it.id, "stock", stockDelta * l.qty, extra);
+        ItemRepo.adjustFieldBatched(batch, it.id, "stock", stockDelta * qtyInBase(l), extra);
       }
     }
 

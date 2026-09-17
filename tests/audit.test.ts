@@ -120,6 +120,17 @@ import {
 } from "@/lib/outbox";
 import { popupRect } from "@/lib/popupRect";
 import {
+  unitsOf,
+  unitOptions,
+  unitFactor,
+  toBase,
+  qtyInBase,
+  priceToBase,
+  priceFromBase,
+  describeQty,
+  hasAltUnit,
+} from "@/lib/units";
+import {
   deriveLinkState,
   linkSeverity,
   needsScan,
@@ -6738,6 +6749,206 @@ console.log(`\n═════════════════════�
     ) === "offline",
     "WA5: a session taken over means nothing was sent, so the queue may retry it",
   );
+}
+
+/* ═══════ TEST U: one item, two units ═══════════════════════════════════
+   A shop buys cables by the box of ten and sells them singly. Phase 5 of
+   docs/ERP-PLAN.md. The rule the whole phase rests on, and the only reason it
+   is safe to add to a live app: stock, valuation and every report read
+   baseQty and nothing else — the unit a line was typed in is presentation. */
+{
+  const cable = { unit: "pcs", altUnit: "box", altPerBase: 10 };
+  const cableScheme = unitsOf(cable);
+
+  /* ── An item with no second unit is exactly what it was ──────────────
+     Every item in the shop today. If this is not true, the phase rewrote
+     records it promised not to touch. */
+  {
+    const plain = unitsOf({ unit: "pcs" });
+    assert(plain.base === "pcs" && !plain.alt, "U1: an item with one unit has one unit");
+    assert(!hasAltUnit({ unit: "pcs" }), "U2: and does not offer a choice");
+    assert(unitOptions(plain).length === 1, "U3: so the picker has nothing to get wrong");
+    assert(unitFactor(undefined, plain) === 1, "U4: and its quantities convert to themselves");
+  }
+
+  /* ── A half-finished unit is not a unit ──────────────────────────────
+     These are the values that reach the item form between keystrokes, and
+     every one of them would corrupt stock if it were honoured: 0 multiplies
+     a bill's movement to nothing, a negative moves it backwards, and 1 is a
+     second unit that means the same as the first. */
+  for (const per of [0, 1, -5, NaN, undefined as unknown as number]) {
+    assert(
+      !unitsOf({ unit: "pcs", altUnit: "box", altPerBase: per }).alt,
+      `U5: altPerBase ${per} is not a conversion`,
+    );
+  }
+  assert(
+    !unitsOf({ unit: "pcs", altUnit: "  ", altPerBase: 10 }).alt,
+    "U6: nor is a blank unit name",
+  );
+  assert(
+    !unitsOf({ unit: "pcs", altUnit: "PCS", altPerBase: 10 }).alt,
+    "U7: nor a second unit that is the first one spelled differently",
+  );
+
+  /* ── The conversion itself ───────────────────────────────────────────── */
+  {
+    assert(cableScheme.alt === "box" && cableScheme.perBase === 10, "U8: the scheme reads back");
+    assert(unitOptions(cableScheme).join("/") === "pcs/box", "U9: base first on the picker");
+    assert(toBase(2, "box", cableScheme) === 20, "U10: two boxes are twenty pieces");
+    assert(toBase(2, "pcs", cableScheme) === 2, "U11: two pieces are two pieces");
+    assert(toBase(2, undefined, cableScheme) === 2, "U12: and no unit named means the base one");
+    assert(toBase(1.5, "box", cableScheme) === 15, "U13: half boxes convert too");
+
+    /* A unit the item no longer has — renamed or removed months later. The
+       line must stay the number written on it rather than silently becoming
+       ten times the stock. */
+    assert(unitFactor("carton", cableScheme) === 1, "U14: an unknown unit is one base unit");
+  }
+
+  /* ── What every reader uses ──────────────────────────────────────────
+     The stored figure wins, and that is the half that matters. altPerBase is
+     an item field a shop can edit: change "1 box = 10" to "1 box = 12" next
+     year and re-deriving would silently restate the stock every historical
+     bill moved, the COGS it carried and the profit it earned. */
+  {
+    assert(
+      qtyInBase({ qty: 2, unitUsed: "box", baseQty: 20 }) === 20,
+      "U15: a line reports what it moved",
+    );
+    assert(
+      qtyInBase({ qty: 2, unitUsed: "box", baseQty: 20 }) !== 24,
+      "U16: and is not restated when the item's conversion is edited later",
+    );
+    /* Every bill ever written before this existed. */
+    assert(qtyInBase({ qty: 7 }) === 7, "U17: a line with neither field is already in base units");
+    assert(qtyInBase({ qty: 7, unitUsed: "pcs" }) === 7, "U18: as is one naming the base unit");
+    assert(qtyInBase({ qty: 0 }) === 0, "U19: and nothing is nothing");
+  }
+
+  /* ── Price follows the unit, so the bill's arithmetic checks out ─────
+     Prices are stored per base unit and quoted per typed unit, so qty × price
+     is the line's amount however it was entered — the sum a customer can do
+     in their head has to be the sum on the paper. */
+  {
+    assert(priceFromBase(50, "box", cableScheme) === 500, "U20: a box costs ten pieces' worth");
+    assert(priceToBase(500, "box", cableScheme) === 50, "U21: and back again");
+    assert(priceFromBase(50, "pcs", cableScheme) === 50, "U22: the base price is itself");
+    const qty = 2,
+      boxPrice = priceFromBase(50, "box", cableScheme);
+    assert(qty * boxPrice === 1000, "U23: two boxes at 500 is 1,000 on the bill");
+    assert(
+      qtyInBase({ qty, unitUsed: "box", baseQty: toBase(qty, "box", cableScheme) }) * 50 === 1000,
+      "U24: and twenty pieces at 50 is the same 1,000 in the ledger",
+    );
+  }
+
+  /* ── The wiring, not just the arithmetic ─────────────────────────────
+     Everything above is a pure function agreeing with itself. This is the
+     part that matters: the stock a document is understood to have moved.
+
+     planStockRepair is the right place to prove it — it is what Fix
+     Calculations runs, the one tool the shop is told to trust when a stock
+     figure looks wrong, and it recomputes every item from the documents. If
+     it read the typed quantity, it would "correct" every multi-unit item to
+     the wrong number, with the shop's blessing. */
+  {
+    const boxItem = {
+      id: "IU",
+      name: "Cable",
+      unit: "pcs",
+      altUnit: "box",
+      altPerBase: 10,
+      gstRate: 0,
+      purchasePrice: 50,
+      salePrice: 100,
+      stock: 20,
+      openingStock: 0,
+      createdAt: "2026-01-01T00:00:00Z",
+    } as unknown as Item;
+
+    const line = (extra: Record<string, unknown>) =>
+      ({
+        id: "L1",
+        itemId: "IU",
+        name: "Cable",
+        qty: 2,
+        unit: "pcs",
+        price: 500,
+        discountPct: 0,
+        gstRate: 0,
+        amount: 1000,
+        ...extra,
+      }) as unknown as LineItem;
+
+    const bill = (lines: LineItem[]) =>
+      ({
+        id: "B1",
+        number: "P-1",
+        date: "2026-02-01",
+        partyId: "P",
+        partyName: "V",
+        lineItems: lines,
+        total: 1000,
+        paid: 0,
+        paymentMode: "credit",
+      }) as unknown as Invoice;
+
+    const emptyBook = {
+      items: [boxItem],
+      sales: [],
+      purchases: [],
+      saleReturns: [],
+      purchaseReturns: [],
+      stockAdjustments: [],
+    };
+
+    /* Two boxes bought. Twenty pieces on the shelf, and the item already says
+       20 — so a repair tool that understands units finds nothing to fix. */
+    const understood = planStockRepair({
+      ...emptyBook,
+      purchases: [bill([line({ unitUsed: "box", baseQty: 20 })])],
+    });
+    assert(
+      understood.length === 0,
+      "U27: two boxes bought is twenty pieces, and stock of 20 needs no repair — got " +
+        JSON.stringify(understood),
+    );
+
+    /* And the failure it replaces, stated as its own assertion: reading the
+       typed figure would see 2 and offer to "correct" 20 down to it. */
+    const wrongIfTyped = planStockRepair({
+      ...emptyBook,
+      items: [{ ...boxItem, stock: 2 } as unknown as Item],
+      purchases: [bill([line({ unitUsed: "box", baseQty: 20 })])],
+    });
+    assert(
+      wrongIfTyped.length === 1 && wrongIfTyped[0].correct === 20,
+      "U28: an item left at 2 is corrected UP to the twenty pieces the bill moved — got " +
+        JSON.stringify(wrongIfTyped),
+    );
+
+    /* A bill written before any of this existed still means what it said. */
+    const legacy = planStockRepair({
+      ...emptyBook,
+      items: [{ ...boxItem, stock: 2 } as unknown as Item],
+      purchases: [bill([line({})])],
+    });
+    assert(legacy.length === 0, "U29: and a line with no unit fields still moves its own qty");
+  }
+
+  /* ── Read back, a quantity says what it means ────────────────────────
+     "2 box" alone is the ambiguity this phase exists to remove. */
+  {
+    assert(
+      describeQty({ qty: 2, unitUsed: "box", baseQty: 20 }, cableScheme) === "2 box (20 pcs)",
+      "U25: a line in boxes says how many pieces that is",
+    );
+    assert(
+      describeQty({ qty: 2 }, cableScheme) === "2 pcs",
+      "U26: a line in the base unit says it once, not twice",
+    );
+  }
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);

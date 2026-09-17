@@ -1,5 +1,6 @@
 import { planBankRepair, type BankRepairData, type BankRepairPlan } from "@/lib/bankRepair";
 import type { Invoice, Item, Return, StockAdjustment } from "@/types";
+import { qtyInBase } from "@/lib/units";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -46,11 +47,16 @@ export function planStockRepair(data: {
   const add = (itemId: string, qty: number) =>
     movement.set(itemId, (movement.get(itemId) ?? 0) + qty);
 
-  for (const s of data.sales) for (const l of s.lineItems) add(l.itemId, -num(l.qty));
-  for (const p of data.purchases) for (const l of p.lineItems) add(l.itemId, num(l.qty));
+  /* qtyInBase, not qty: a line entered as 2 boxes moved twenty pieces, and
+     this function's whole job is to say what the documents add up to. Reading
+     the typed figure here would have Fix Calculations "correct" every
+     multi-unit item to the wrong number — the one repair tool the shop is
+     told to trust. */
+  for (const s of data.sales) for (const l of s.lineItems) add(l.itemId, -qtyInBase(l));
+  for (const p of data.purchases) for (const l of p.lineItems) add(l.itemId, qtyInBase(l));
   // A sale return brings goods back in; a purchase return sends them out.
-  for (const r of data.saleReturns) for (const l of r.lineItems) add(l.itemId, num(l.qty));
-  for (const r of data.purchaseReturns) for (const l of r.lineItems) add(l.itemId, -num(l.qty));
+  for (const r of data.saleReturns) for (const l of r.lineItems) add(l.itemId, qtyInBase(l));
+  for (const r of data.purchaseReturns) for (const l of r.lineItems) add(l.itemId, -qtyInBase(l));
   for (const a of data.stockAdjustments) {
     add(a.itemId, a.type === "add" ? num(a.qty) : -num(a.qty));
   }

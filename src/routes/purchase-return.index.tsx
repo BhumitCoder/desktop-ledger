@@ -17,6 +17,7 @@ import { canDeleteOutright, isVoided, removalWord } from "@/lib/voiding";
 import { SerialRepo } from "@/repositories";
 import { undoSerialsOf } from "@/lib/serialMoves";
 import { Ban } from "lucide-react";
+import { qtyInBase } from "@/lib/units";
 
 export const Route = createFileRoute("/purchase-return/")({ component: PurchaseReturnPage });
 
@@ -81,7 +82,7 @@ function PurchaseReturnPage() {
       // stored number as well would leave a second figure that nothing reads
       // and somebody eventually believes.
       if (it && !it.trackSerials) {
-        ItemRepo.adjustFieldBatched(batch, l.itemId, "stock", l.qty);
+        ItemRepo.adjustFieldBatched(batch, l.itemId, "stock", qtyInBase(l));
       }
     }
     for (const u of undoSerialsOf(live, "purchase-return", (id) => ItemRepo.get(id))) {
