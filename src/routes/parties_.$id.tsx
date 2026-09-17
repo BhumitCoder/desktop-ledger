@@ -226,8 +226,13 @@ function PartyStatementPage() {
         label: `${party.name} statement`,
         orientation: "landscape",
       });
-      if (outcome.status === "sent") toast.success("Statement sent on WhatsApp");
-      else if (outcome.kind === "offline") toast.info(outcome.message, { duration: 8000 });
+      if (outcome.status === "sent") {
+        // See the note on the invoice page: "sent" is reserved for a message
+        // WhatsApp has confirmed receiving.
+        if (outcome.deduped) toast.success("That statement had already been sent");
+        else if (outcome.acknowledged) toast.success("Statement sent on WhatsApp");
+        else toast.info("Statement handed to WhatsApp — not confirmed delivered yet");
+      } else if (outcome.kind === "offline") toast.info(outcome.message, { duration: 8000 });
       else toast.warning(outcome.message, { duration: 10000 });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not send via WhatsApp");

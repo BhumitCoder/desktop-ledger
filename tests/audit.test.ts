@@ -3103,6 +3103,62 @@ console.log(`\n═════════════════════�
   }
 }
 
+/* ═══════ TEST WA: what the bridge now says, and what we do about it ═══════
+   The bridge was rebuilt to answer honestly instead of optimistically, and
+   every new sentence it can produce has to land in the right bucket here.
+   Getting one wrong costs the shop a customer's trust in one direction or a
+   duplicate invoice in the other. */
+{
+  /* A number that is not on WhatsApp. Before the bridge asked, this send
+     "succeeded" into nothing — a landline or a mistyped digit swallowed a
+     bill silently. It is a real answer about the number, so it must reach a
+     person and must never sit in a retry queue: no amount of waiting makes a
+     number exist. */
+  assert(
+    classifySendFailure(
+      "919999999999 is not on WhatsApp — check the number saved for this party",
+      true,
+    ) === "permanent",
+    "WA1: a number that is not on WhatsApp is never queued",
+  );
+  assert(
+    classifySendFailure("919999999999 is not on WhatsApp — check the number", false) ===
+      "permanent",
+    "WA2: and stays permanent even when the app thought the link was down",
+  );
+
+  /* The two that must never be retried by a timer. Both can arrive while the
+     app believes the link is down, which is exactly the path that used to
+     classify them "offline" — safe to retry — when a message may already be
+     on its way. */
+  assert(
+    classifySendFailure(
+      "This message is already being sent — wait for that attempt to finish",
+      false,
+    ) === "uncertain",
+    "WA3: a send already in flight is never auto-retried, link state notwithstanding",
+  );
+  assert(
+    classifySendFailure(
+      "The WhatsApp service didn't answer in time — the message may or may not have been sent.",
+      false,
+    ) === "uncertain",
+    "WA4: nor is a request that timed out with no answer at all",
+  );
+
+  /* And the opposite mistake. A halted bridge reports through "not
+     connected", which means nothing was handed over — so this one IS safe for
+     the queue to retry on its own, and treating it as uncertain would leave
+     the shop hand-sending every bill after a blip. */
+  assert(
+    classifySendFailure(
+      "WhatsApp is not connected — this session was taken over by another connection",
+      true,
+    ) === "offline",
+    "WA5: a session taken over means nothing was sent, so the queue may retry it",
+  );
+}
+
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
 if (fails.length) {
   console.log(`\nFailures:`);

@@ -158,6 +158,7 @@ export const disconnectWhatsAppServerFn = createServerFn({ method: "POST" })
     const res = await fetch(`${url}/disconnect`, {
       method: "POST",
       headers: { "x-api-key": key },
+      signal: AbortSignal.timeout(20_000),
     });
     if (!res.ok) throw new Error("Could not disconnect WhatsApp");
     return res.json();
@@ -170,6 +171,25 @@ export const disconnectWhatsAppServerFn = createServerFn({ method: "POST" })
 function toInternational(phone: string): string {
   const digits = phone.replace(/\D/g, "");
   return digits.length === 10 ? `91${digits}` : digits;
+}
+
+/**
+ * What the bridge says happened.
+ *
+ * `acknowledged` is the distinction that matters: the bridge hands a message
+ * to WhatsApp's socket and could once report that as sent, which is how a bill
+ * got a green tick at the counter while the customer's phone showed "Waiting
+ * for this message". It now waits for WhatsApp's own server ack, and false
+ * here means handed over but unconfirmed.
+ *
+ * `deduped` means this exact bill had already gone out and was NOT sent again
+ * — which is the whole point of `clientMessageId`, and the thing that stops a
+ * retry costing the customer a second invoice.
+ */
+export interface SendResult {
+  ok: true;
+  acknowledged: boolean;
+  deduped: boolean;
 }
 
 type SendMessageInput = {
@@ -198,26 +218,54 @@ export const sendWhatsAppMessageServerFn = createServerFn({ method: "POST" })
       clientMessageId: d.clientMessageId?.trim() || undefined,
     };
   })
-  .handler(async ({ data }): Promise<{ ok: true }> => {
+  .handler(async ({ data }): Promise<SendResult> => {
     // Any active team member can send a bill/statement they can already
     // view — this isn't an owner-only action like managing the connection
     // itself (QR link/disconnect).
     await requireActiveUser(data.callerIdToken);
     const { url, key } = serviceConfig();
-    const res = await fetch(`${url}/send`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": key },
-      body: JSON.stringify({
-        phone: toInternational(data.phone),
-        message: data.message,
-        pdfBase64: data.pdfBase64,
-        fileName: data.fileName,
-        clientMessageId: data.clientMessageId,
-      }),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${url}/send`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": key },
+        body: JSON.stringify({
+          phone: toInternational(data.phone),
+          message: data.message,
+          pdfBase64: data.pdfBase64,
+          fileName: data.fileName,
+          clientMessageId: data.clientMessageId,
+        }),
+        /* Long, on purpose, and finite for the same reason: the bridge waits
+           for WhatsApp's own acknowledgement before answering, which is what
+           makes its answer worth having — but a bridge that accepts the
+           connection and then never replies would otherwise hold the counter
+           on a spinner for as long as the platform allows. */
+        signal: AbortSignal.timeout(45_000),
+      });
+    } catch (err) {
+      /* Nothing came back, so nothing here knows whether the message went.
+         Said in those words deliberately: the outbox reads this sentence and
+         must NOT file it as a safe-to-retry failure, because retrying a send
+         that actually succeeded is how a customer gets two invoices. */
+      const timedOut = err instanceof Error && err.name === "TimeoutError";
+      throw new Error(
+        timedOut
+          ? "The WhatsApp service didn't answer in time — the message may or may not have been sent."
+          : `Couldn't reach the WhatsApp service (${err instanceof Error ? err.message : "network error"})`,
+      );
+    }
     if (!res.ok) {
       const body = await res.json().catch(() => null);
       throw new Error(body?.error || "Could not send WhatsApp message");
     }
-    return { ok: true };
+    const body = (await res.json().catch(() => null)) as Partial<SendResult> | null;
+    return {
+      ok: true,
+      // Absent on an older bridge that does not report either. Treated as
+      // "cannot confirm" rather than "confirmed", so a stale deployment
+      // understates delivery instead of overstating it.
+      acknowledged: body?.acknowledged === true,
+      deduped: body?.deduped === true,
+    };
   });

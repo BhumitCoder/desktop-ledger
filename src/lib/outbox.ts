@@ -35,6 +35,11 @@ export type FailureKind =
  */
 const PERMANENT = [
   "no phone number saved",
+  /* The bridge asked WhatsApp and WhatsApp said no such account. A landline
+     or a mistyped digit in a party record — common, and until the bridge
+     started checking, a send that "succeeded" into nothing. No amount of
+     retrying makes a number exist, so this belongs in front of a person. */
+  "is not on WhatsApp",
   "Not signed in",
   "Not authenticated",
   "isn't configured",
@@ -58,9 +63,27 @@ const DEFINITELY_NOT_SENT = [
   "logged out",
 ];
 
+/**
+ * Failures where an automatic retry is the dangerous move.
+ *
+ * Checked BEFORE the "the link was down, so nothing was sent" shortcut,
+ * because both of these can happen while the app believes the link is down and
+ * both mean a message may already be on its way. A timer must not be the thing
+ * that decides to send a customer a second invoice.
+ */
+const NEVER_AUTOMATIC = [
+  // The bridge is mid-send on this very bill under the same id. Whatever it
+  // is doing, adding a second attempt to it cannot help.
+  "already being sent",
+  // Our own request timed out. The bridge waits for WhatsApp to acknowledge
+  // before it answers, so no answer means precisely that: unknown.
+  "may or may not have been sent",
+];
+
 export function classifySendFailure(message: string, linkWasConnected: boolean): FailureKind {
   const m = message || "";
   if (PERMANENT.some((p) => m.toLowerCase().includes(p.toLowerCase()))) return "permanent";
+  if (NEVER_AUTOMATIC.some((p) => m.toLowerCase().includes(p.toLowerCase()))) return "uncertain";
   if (!linkWasConnected) return "offline";
   if (DEFINITELY_NOT_SENT.some((p) => m.toLowerCase().includes(p.toLowerCase()))) return "offline";
   return "uncertain";

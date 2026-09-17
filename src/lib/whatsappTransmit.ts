@@ -51,8 +51,20 @@ export interface Printable {
   clientMessageId?: string;
 }
 
+/**
+ * What came back from a send that did not throw.
+ *
+ * `acknowledged: false` is not a failure — the bill was handed to WhatsApp —
+ * but it is not the same as delivered, and saying "Sent" over it is the lie
+ * the shop has been complaining about.
+ */
+export interface TransmitResult {
+  acknowledged: boolean;
+  deduped: boolean;
+}
+
 /** Renders and sends, or throws with a message worth showing someone. */
-export async function transmit(p: Printable): Promise<void> {
+export async function transmit(p: Printable): Promise<TransmitResult> {
   const phone = p.phone?.trim();
   if (!phone) {
     throw new TransmitError(
@@ -85,8 +97,9 @@ export async function transmit(p: Printable): Promise<void> {
      running — it will answer "connected" from a host whose WhatsApp session
      died hours ago. A send that goes through proves the socket was alive a
      second ago, and one that fails proves it was not. */
+  let result: { acknowledged: boolean; deduped: boolean };
   try {
-    await sendWhatsAppMessageServerFn({
+    result = await sendWhatsAppMessageServerFn({
       data: {
         callerIdToken,
         phone,
@@ -104,4 +117,5 @@ export async function transmit(p: Printable): Promise<void> {
     );
   }
   useWhatsAppLinkStore.getState().noteSendResult(true);
+  return { acknowledged: result.acknowledged, deduped: result.deduped };
 }

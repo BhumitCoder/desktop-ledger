@@ -13,7 +13,19 @@ import { classifySendFailure, queuedMessage, type FailureKind } from "@/lib/outb
  * improves by waiting and the person needs to fix it now.
  */
 export type SendOutcome =
-  | { status: "sent" }
+  | {
+      status: "sent";
+      /**
+       * WhatsApp's own servers confirmed it, not merely that the bridge
+       * handed it over. False is still a send — but the counter is told
+       * "sending" rather than "sent", because a green tick over an
+       * unconfirmed message is exactly what the shop reported as the app
+       * lying to them.
+       */
+      acknowledged: boolean;
+      /** It had already gone out; this attempt did not send a second copy. */
+      deduped: boolean;
+    }
   | { status: "queued"; kind: Exclude<FailureKind, "permanent">; message: string };
 
 /**
@@ -59,8 +71,8 @@ export async function sendElementViaWhatsApp(opts: {
   const wasConnected = useWhatsAppLinkStore.getState().state === "connected";
 
   try {
-    await transmit(printable);
-    return { status: "sent" };
+    const { acknowledged, deduped } = await transmit(printable);
+    return { status: "sent", acknowledged, deduped };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Could not send via WhatsApp";
 

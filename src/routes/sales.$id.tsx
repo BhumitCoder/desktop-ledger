@@ -162,8 +162,15 @@ function InvoiceDetailPage() {
       /* "Queued" is not a failure and must not be dressed as one — but it is
          not a success either, so it does not get the green tick that tells
          the counter the customer has their bill. */
-      if (outcome.status === "sent") toast.success("Invoice sent on WhatsApp");
-      else if (outcome.kind === "offline") toast.info(outcome.message, { duration: 8000 });
+      if (outcome.status === "sent") {
+        /* "Sent" only when WhatsApp itself confirmed it. Otherwise the bill
+           has been handed over and is on its way, which is true and is not
+           the same thing — the green tick over an unconfirmed message is
+           what the shop reported as the app telling them it had gone. */
+        if (outcome.deduped) toast.success(`Invoice ${inv.number} had already been sent`);
+        else if (outcome.acknowledged) toast.success("Invoice sent on WhatsApp");
+        else toast.info("Invoice handed to WhatsApp — not confirmed delivered yet");
+      } else if (outcome.kind === "offline") toast.info(outcome.message, { duration: 8000 });
       else toast.warning(outcome.message, { duration: 10000 });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not send via WhatsApp");
