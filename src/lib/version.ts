@@ -8,4 +8,4 @@ export const APP_NAME = "AIM ENTERPRISE";
 
 /** Bump on every deploy â€” shown on the login page and Settings so we can
  * always tell which version a user is actually running. */
-export const APP_VERSION = "09 Sep 2026 · v83";
+export const APP_VERSION = "17 Sep 2026 · v84";
