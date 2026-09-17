@@ -129,6 +129,8 @@ import {
   priceFromBase,
   describeQty,
   hasAltUnit,
+  lineUnitLabel,
+  lineBaseNote,
 } from "@/lib/units";
 import {
   deriveLinkState,
@@ -6840,6 +6842,35 @@ console.log(`\n═════════════════════�
     assert(
       qtyInBase({ qty, unitUsed: "box", baseQty: toBase(qty, "box", cableScheme) }) * 50 === 1000,
       "U24: and twenty pieces at 50 is the same 1,000 in the ledger",
+    );
+  }
+
+  /* ── What the customer keeps ─────────────────────────────────────────
+     Computed from the LINE alone, never from the item. A bill has to say the
+     same thing in five years as it said on the day, and by then the item may
+     have been renamed, had its conversion changed, or been deleted. */
+  {
+    const boxLine = { qty: 2, unit: "pcs", unitUsed: "box", baseQty: 20 };
+    assert(lineUnitLabel(boxLine) === "box", "U30: the paper names the unit that was used");
+    assert(
+      lineBaseNote(boxLine) === "2 box = 20 pcs",
+      "U31: and says what it came to — got " + lineBaseNote(boxLine),
+    );
+
+    /* The ordinary line, which is nearly all of them, must gain nothing. An
+       extra line of noise on every bill in the shop is a worse outcome than
+       the ambiguity this was fixing. */
+    assert(lineUnitLabel({ qty: 3, unit: "pcs" }) === "pcs", "U32: a plain line names its unit");
+    assert(lineBaseNote({ qty: 3, unit: "pcs" }) === "", "U33: and says nothing further");
+    assert(
+      lineBaseNote({ qty: 3, unit: "pcs", unitUsed: "pcs", baseQty: 3 }) === "",
+      "U34: nor does one that names the base unit explicitly",
+    );
+
+    /* An item deleted since the bill was written. The line still reads back. */
+    assert(
+      lineBaseNote({ qty: 2, unit: "pcs", unitUsed: "box", baseQty: 20 }) === "2 box = 20 pcs",
+      "U35: and none of it needs the item to still exist",
     );
   }
 

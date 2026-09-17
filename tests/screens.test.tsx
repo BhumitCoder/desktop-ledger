@@ -169,6 +169,24 @@ function seed() {
     openingBalance: 0,
   } as never);
 
+  // An item the shop buys by the box and sells by the piece — Phase 5.
+  ItemRepo.add({
+    id: "IBOX",
+    createdAt: "2026-01-01T00:00:00Z",
+    name: "Boxed Cable",
+    unit: "pcs",
+    altUnit: "box",
+    altPerBase: 10,
+    gstRate: 0,
+    purchasePrice: 50,
+    salePrice: 100,
+    // Zero on purpose: this item exists to exercise the unit choice, and
+    // giving it stock would silently restate the stock-value figure other
+    // assertions are pinned to.
+    stock: 0,
+    openingStock: 0,
+  } as never);
+
   ItemRepo.add({
     id: "I1",
     createdAt: "2026-01-01T00:00:00Z",
@@ -7469,6 +7487,178 @@ async function runAll(): Promise<Results> {
         );
       }
     }
+  }
+
+  /* ── A bill written in boxes ──────────────────────────────────────────
+     Phase 5. The shop buys cables by the box of ten and sells them singly,
+     and has been doing that arithmetic at the counter in its head.
+
+     The assertion that earns its keep is the PRICE. Switching a line to boxes
+     and leaving 100 on it is a bill that undercharges by nine tenths with
+     nothing on screen looking wrong — the till agrees with itself, the
+     customer pays a tenth, and the shop finds out at stock-take. */
+  {
+    await renderRoute("/sales/new");
+    const add = visibleAddItemInput();
+    assert(!!add, "units: the bill form has an item entry row");
+    if (add) {
+      await act(async () => {
+        setInput(add, "Boxed Cable");
+      });
+      await settleMs(140);
+      const opt = Array.from(document.querySelectorAll<HTMLElement>("[data-opt]")).find((d) =>
+        (d.textContent ?? "").startsWith("Boxed Cable"),
+      );
+      assert(!!opt, "units: the two-unit item is offered");
+      if (opt) {
+        await act(async () => {
+          opt.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        });
+        await settleMs(180);
+
+        /* The choice appears only for an item that HAS two units. */
+        const selects = Array.from(document.querySelectorAll<HTMLSelectElement>("select")).filter(
+          (el) => Array.from(el.options).some((o) => o.value === "box"),
+        );
+        assert(selects.length > 0, "units: a two-unit item offers its units on the line");
+        const unitSel = selects.find((el) => el.offsetParent !== null) ?? selects[0];
+
+        const priceNow = () =>
+          Array.from(document.querySelectorAll<HTMLInputElement>("input"))
+            .map((el) => el.value)
+            .filter(Boolean);
+
+        assert(
+          priceNow().includes("100"),
+          "units: the line starts at the per-piece price — saw " + priceNow().join(","),
+        );
+
+        await act(async () => {
+          unitSel.value = "box";
+          unitSel.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        await settleMs(160);
+
+        assert(
+          priceNow().includes("1000"),
+          "units: switching to boxes reprices the line to a box — saw " + priceNow().join(","),
+        );
+        assert(
+          !priceNow().includes("100"),
+          "units: and does not leave the per-piece price on it — saw " + priceNow().join(","),
+        );
+
+        /* And back, because a cashier who picked the wrong unit must be able
+           to undo it without the price drifting. */
+        await act(async () => {
+          unitSel.value = "pcs";
+          unitSel.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        await settleMs(160);
+        assert(
+          priceNow().includes("100"),
+          "units: switching back restores the per-piece price exactly — saw " +
+            priceNow().join(","),
+        );
+      }
+    }
+  }
+
+  /* ── What the bill actually moves ─────────────────────────────────────
+     The price is what the customer argues about; THIS is what the shelf
+     loses, and no screen shows it. A form that reprices correctly but records
+     the typed quantity as the movement takes one piece off the shelf for a
+     box that left the shop, and nothing looks wrong until stock-take.
+
+     Its own render rather than a continuation of the block above: saving
+     leaves the page, and a test that asserts through a navigation is a test
+     that reports the next screen's problems as this one's. */
+  {
+    await renderRoute("/sales/new");
+
+    const partyBox = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input[placeholder="Type name or search…"]'),
+    ).find((el) => el.offsetParent !== null);
+    assert(!!partyBox, "units save: the bill form has a customer box");
+    if (partyBox) {
+      await act(async () => {
+        setInput(partyBox, "Ramesh Traders");
+      });
+      await settleMs(140);
+      const pOpt = Array.from(document.querySelectorAll<HTMLElement>("div")).find(
+        (d) =>
+          (d.textContent ?? "").trim() === "Ramesh Traders" &&
+          !d.querySelector("div div") &&
+          !d.querySelector("input"),
+      );
+      if (pOpt) {
+        await act(async () => {
+          pOpt.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        });
+        await settleMs(140);
+      }
+    }
+
+    const add2 = visibleAddItemInput();
+    if (add2) {
+      await act(async () => {
+        setInput(add2, "Boxed Cable");
+      });
+      await settleMs(140);
+      const opt2 = Array.from(document.querySelectorAll<HTMLElement>("[data-opt]")).find((d) =>
+        (d.textContent ?? "").startsWith("Boxed Cable"),
+      );
+      if (opt2) {
+        await act(async () => {
+          opt2.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        });
+        await settleMs(200);
+      }
+    }
+
+    const sel = Array.from(document.querySelectorAll<HTMLSelectElement>("select")).find(
+      (el) => Array.from(el.options).some((o) => o.value === "box") && el.offsetParent !== null,
+    );
+    assert(!!sel, "units save: the line offers its units");
+    if (sel) {
+      await act(async () => {
+        sel.value = "box";
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await settleMs(180);
+    }
+
+    const stockBefore = ItemRepo.get("IBOX")?.stock ?? 0;
+    const before = SalesRepo.all().length;
+    const saveBtn = Array.from(document.querySelectorAll("button")).find(
+      (b) => (b.textContent ?? "").trim() === "Save",
+    );
+    assert(!!saveBtn, "units save: found the Save button");
+    await act(async () => {
+      saveBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settleMs(400);
+    assert(SalesRepo.all().length === before + 1, "units save: the bill saved");
+
+    const line = SalesRepo.all()
+      .flatMap((inv) => inv.lineItems ?? [])
+      .find((l) => l.itemId === "IBOX");
+    assert(!!line, "units save: the saved bill carries the boxed line");
+    assert(
+      line?.unitUsed === "box",
+      "units save: the line records the unit it was written in — " + line?.unitUsed,
+    );
+    assert(
+      line?.baseQty === 10,
+      "units save: and one box is ten pieces — baseQty " + line?.baseQty,
+    );
+    assert(
+      (ItemRepo.get("IBOX")?.stock ?? 0) === stockBefore - 10,
+      "units save: so the shelf loses ten, not one — " +
+        stockBefore +
+        " to " +
+        ItemRepo.get("IBOX")?.stock,
+    );
   }
 
   const bulkHost = document.createElement("div");

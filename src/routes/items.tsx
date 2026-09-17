@@ -43,6 +43,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { usePermissions } from "@/hooks/usePermissions";
+import { hasAltUnit } from "@/lib/units";
 
 /** Bulk import/export columns — kept in lockstep with the New/Edit Item form
  * fields (Name, Category, Purchase/Sale/Wholesale Price, Min/Opening Stock).
@@ -791,6 +792,83 @@ export function ItemDialog({
               setF({ ...f, minStock: v === "" ? undefined : Math.max(0, parseFloat(v) || 0) });
             }}
           />
+          {/* A second unit. Its own block for the same reason serial tracking
+              has one: it changes what a number on a bill MEANS, and that is
+              worth more than a box squeezed between two others. */}
+          <div className="sm:col-span-3 rounded-md border bg-muted/30 px-3 py-2.5">
+            <label
+              className={`flex items-start gap-2.5 ${f.trackSerials ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+            >
+              <input
+                type="checkbox"
+                disabled={!!f.trackSerials}
+                checked={!!f.altUnit}
+                onChange={(e) =>
+                  setF(
+                    e.target.checked
+                      ? { ...f, altUnit: "box", altPerBase: f.altPerBase ?? undefined }
+                      : /* Cleared with values, not with undefined: an update is
+                           a MERGE and stripUndefined drops undefined keys before
+                           the write, so unticking this would leave the old unit
+                           in the record and the box would come back. "" and 0
+                           are what unitsOf already reads as "no second unit". */
+                        { ...f, altUnit: "", altPerBase: 0 },
+                  )
+                }
+                className="mt-0.5 h-4 w-4 accent-primary"
+              />
+              <span>
+                <span className="text-[13px] font-semibold text-foreground block">
+                  Also buy or sell this in a bigger unit
+                </span>
+                <span className="text-[11px] text-muted-foreground block mt-0.5">
+                  {f.trackSerials
+                    ? "Not available while serial numbers are tracked — each unit is counted individually, so there is no box to convert."
+                    : `A box, a carton, a dozen. Stock stays counted in ${f.unit || "pcs"}: a bill written in the bigger unit moves the right number of ${f.unit || "pcs"} on its own, and says both on the printed copy.`}
+                </span>
+              </span>
+            </label>
+            {!f.trackSerials && !!f.altUnit && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2.5 pl-6">
+                <Field
+                  label="Name of the bigger unit"
+                  value={f.altUnit ?? ""}
+                  placeholder="box"
+                  onChange={(e) => setF({ ...f, altUnit: e.target.value })}
+                />
+                <Field
+                  label={`How many ${f.unit || "pcs"} in one ${f.altUnit?.trim() || "box"}?`}
+                  type="text"
+                  inputMode="decimal"
+                  value={f.altPerBase ?? ""}
+                  placeholder="10"
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (!/^\d*\.?\d*$/.test(v)) return;
+                    setF({ ...f, altPerBase: v === "" ? undefined : parseFloat(v) });
+                  }}
+                />
+                {/* Said out loud, because it is the whole thing: a shop that
+                    reads this line and recognises its own boxes has got it
+                    right, and one that does not has caught the mistake here
+                    rather than on a stock figure three weeks later. */}
+                <p className="sm:col-span-2 text-[11px] text-muted-foreground">
+                  {hasAltUnit(f as unknown as Item) ? (
+                    <>
+                      1 {f.altUnit?.trim()} = <strong>{f.altPerBase}</strong> {f.unit || "pcs"}. A
+                      bill for 2 {f.altUnit?.trim()} will take{" "}
+                      <strong>{(f.altPerBase ?? 0) * 2}</strong> {f.unit || "pcs"} off the shelf.
+                    </>
+                  ) : (
+                    <span className="text-amber-600">
+                      Fill both in — until then this item is sold in {f.unit || "pcs"} only.
+                    </span>
+                  )}
+                </p>
+              </div>
+            )}
+          </div>
+
           {/* Serial tracking. Its own block, spanning the row, because
               turning it on changes what "stock" means for this item and that
               deserves more than a checkbox squeezed between two number

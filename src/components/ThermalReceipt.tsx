@@ -6,6 +6,7 @@ import { serialTextIndex } from "@/lib/serials";
 import { PrintedSerials } from "@/components/PrintedSerials";
 
 import { BankRepo } from "@/repositories";
+import { lineUnitLabel, lineBaseNote, qtyInBase } from "@/lib/units";
 /** An account's name for display. The word "Bank" three times over is
  *  exactly what a split is meant to stop being ambiguous. */
 const bankName = (id: string) => BankRepo.get(id)?.name;
@@ -106,7 +107,13 @@ export function ThermalReceipt({
           <PrintedSerials line={l} index={serialIndex} size={8} />
           <div style={{ display: "flex", justifyContent: "space-between" }}>
             <span>
-              {l.qty} {l.unit} × {fmtMoney(l.price)}
+              {l.qty} {lineUnitLabel(l)} × {fmtMoney(l.price)}
+              {!!lineBaseNote(l) && (
+                <span>
+                  {" "}
+                  ({qtyInBase(l)} {l.unit})
+                </span>
+              )}
               {l.discountPct > 0 && ` −${l.discountPct}%`}
               {gstOn && l.gstRate > 0 && ` +GST${l.gstRate}%`}
             </span>

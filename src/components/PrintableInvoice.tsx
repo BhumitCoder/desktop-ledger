@@ -6,6 +6,7 @@ import { serialTextIndex } from "@/lib/serials";
 import { PrintedSerials } from "@/components/PrintedSerials";
 
 import { BankRepo } from "@/repositories";
+import { lineUnitLabel, lineBaseNote } from "@/lib/units";
 /** An account's name for display. The word "Bank" three times over is
  *  exactly what a split is meant to stop being ambiguous. */
 const bankName = (id: string) => BankRepo.get(id)?.name;
@@ -232,10 +233,16 @@ export function PrintableInvoice({
                 <td style={{ ...cellStyle, textAlign: "center" }}>{i + 1}</td>
                 <td style={cellStyle}>
                   {l.name}
+                  {/* "2" alone is the ambiguity this exists to remove: the
+                      customer is holding two boxes and the shelf lost twenty
+                      pieces, and both belong on the paper they keep. */}
+                  {!!lineBaseNote(l) && (
+                    <div style={{ fontSize: 9, color: "#6b7280" }}>{lineBaseNote(l)}</div>
+                  )}
                   <PrintedSerials line={l} index={serialIndex} />
                 </td>
                 <td style={{ ...cellStyle, textAlign: "right" }}>{l.qty}</td>
-                <td style={cellStyle}>{l.unit}</td>
+                <td style={cellStyle}>{lineUnitLabel(l)}</td>
                 <td style={{ ...cellStyle, textAlign: "right" }}>{fmtMoney(l.price)}</td>
                 {showDisc && <td style={{ ...cellStyle, textAlign: "right" }}>{l.discountPct}%</td>}
                 {gstOn && <td style={{ ...cellStyle, textAlign: "right" }}>{l.gstRate}%</td>}

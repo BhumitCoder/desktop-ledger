@@ -137,3 +137,26 @@ export function describeQty(line: QuantityBearing, scheme: UnitScheme): string {
   if (unitFactor(line.unitUsed, scheme) === 1) return `${qty} ${used}`;
   return `${qty} ${used} (${qtyInBase(line)} ${scheme.base})`;
 }
+
+/**
+ * What a line says on paper — computed from the LINE alone.
+ *
+ * Deliberately not from the item. A printed bill has to say the same thing in
+ * five years' time as it said on the day, and by then the item may have been
+ * renamed, had its conversion changed, or been deleted outright. Everything
+ * needed is already written on the line: what was typed, in what, and what it
+ * came to.
+ *
+ * Returns an empty note for the ordinary line, so nothing is added to a
+ * document that has nothing extra to say.
+ */
+export function lineUnitLabel(line: QuantityBearing & { unit: string }): string {
+  return line.unitUsed || line.unit;
+}
+
+export function lineBaseNote(line: QuantityBearing & { unit: string }): string {
+  const typed = Number(line.qty) || 0;
+  const base = qtyInBase(line);
+  if (!line.unitUsed || line.unitUsed === line.unit || base === typed) return "";
+  return `${typed} ${line.unitUsed} = ${base} ${line.unit}`;
+}

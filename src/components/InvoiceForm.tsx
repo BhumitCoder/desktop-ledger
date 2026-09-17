@@ -68,7 +68,15 @@ import { enterMovesAlongRow, useEscapeToLeave } from "@/hooks/useFormKeys";
 import { usePeriodLock } from "@/hooks/usePeriodLock";
 import { stockShortfalls } from "@/lib/stock";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
-import { qtyInBase } from "@/lib/units";
+import {
+  qtyInBase,
+  unitsOf,
+  unitOptions,
+  toBase,
+  priceFromBase,
+  priceToBase,
+  type UnitScheme,
+} from "@/lib/units";
 
 interface Props {
   mode: "sale" | "purchase";
@@ -92,6 +100,50 @@ function visibleOf<T extends HTMLElement>(...els: (T | null | undefined)[]): T |
  *  person filling it in. */
 const PHONE_NUM =
   "w-full h-11 rounded-lg border bg-background px-3 text-right text-[16px] tabular-nums outline-none focus:border-primary focus:ring-2 focus:ring-ring/20";
+
+/**
+ * Which unit a line was typed in.
+ *
+ * Renders NOTHING for an item with one unit, which is almost all of them — a
+ * choice that can only be answered one way is a thing to get wrong on a busy
+ * counter, and this row is already nine columns wide.
+ *
+ * Beside the quantity rather than in its own column on purpose: "2 box" is one
+ * fact and reads as one, and the table keeps its width for every item that
+ * does not need this.
+ */
+function UnitChoice({
+  line,
+  scheme,
+  onChange,
+  phone = false,
+}: {
+  line: LineItem;
+  scheme: UnitScheme;
+  onChange: (unit: string) => void;
+  phone?: boolean;
+}) {
+  const options = unitOptions(scheme);
+  if (options.length < 2) return null;
+  return (
+    <select
+      value={line.unitUsed || scheme.base}
+      onChange={(e) => onChange(e.target.value)}
+      title={`1 ${scheme.alt} = ${scheme.perBase} ${scheme.base}`}
+      className={
+        phone
+          ? "h-11 shrink-0 rounded-lg border bg-background px-2 text-[16px] outline-none focus:border-primary"
+          : "h-7 shrink-0 rounded border bg-background px-1 text-[11px] outline-none focus:border-primary"
+      }
+    >
+      {options.map((u) => (
+        <option key={u} value={u}>
+          {u}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 /** One labelled box in a phone line-item card. */
 function PhoneField({ label, children }: { label: string; children: React.ReactNode }) {
@@ -603,6 +655,11 @@ export function InvoiceForm({ mode, existing }: Props) {
       gstRate: it.gstRate,
       amount: 0,
       costPrice: it.purchasePrice,
+      // Always written, even for the great majority of items that have only
+      // one unit: every reader takes stock from baseQty, and "absent means
+      // qty" is a rule for old records rather than a licence for new ones.
+      unitUsed: it.unit,
+      baseQty: 1,
     };
     const gstMult = gstOn ? 1 + line.gstRate / 100 : 1;
     line.amount = r2(r2(line.qty * line.price * (1 - line.discountPct / 100)) * gstMult);
@@ -664,10 +721,31 @@ export function InvoiceForm({ mode, existing }: Props) {
   const landedPrice = (foreignPrice: number) =>
     r2(foreignPrice * (inv.exchangeRate ?? 0) + (inv.carryCostPerUnit ?? 0));
 
+  /** The units this line's item is traded in. An item that has since been
+   *  deleted leaves the line with the unit written on it and nothing else,
+   *  which is the right answer: one unit, factor one. */
+  const schemeOf = (itemId: string, fallbackUnit: string): UnitScheme =>
+    unitsOf(items.find((i) => i.id === itemId) ?? { unit: fallbackUnit });
+
   const updateLine = (id: string, patch: Partial<LineItem>) => {
     const lines = inv.lineItems.map((l) => {
       if (l.id !== id) return l;
       const nl = { ...l, ...patch };
+      const scheme = schemeOf(nl.itemId, nl.unit);
+
+      /* Switching the unit keeps the money honest. A price of 50 a piece is
+         500 a box, and leaving 50 on a line that now reads "2 box" is a bill
+         that undercharges by nine tenths without anything on screen looking
+         wrong. Converted through the base price so it survives switching back
+         and forth. */
+      if ("unitUsed" in patch && patch.unitUsed !== l.unitUsed) {
+        nl.price = priceFromBase(priceToBase(l.price, l.unitUsed, scheme), nl.unitUsed, scheme);
+      }
+
+      /* Recorded here, centrally, and not at any call site — this is the
+         figure stock and COGS are taken from, and a path that forgets to
+         write it is a bill that moves the wrong number of pieces. */
+      nl.baseQty = toBase(nl.qty, nl.unitUsed, scheme);
       // Clamp so a mistyped discount (e.g. 500 instead of 50) or a negative
       // GST rate can never flip the line amount negative.
       nl.discountPct = Math.min(100, Math.max(0, nl.discountPct));
@@ -1698,12 +1776,19 @@ export function InvoiceForm({ mode, existing }: Props) {
                       />
                     </td>
                     <td className="py-1.5 px-1">
-                      <NumInput
-                        id={`qty-${l.id}`}
-                        value={l.qty}
-                        onValue={(n) => updateLine(l.id, { qty: n })}
-                        className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
-                      />
+                      <div className="flex items-center gap-1">
+                        <NumInput
+                          id={`qty-${l.id}`}
+                          value={l.qty}
+                          onValue={(n) => updateLine(l.id, { qty: n })}
+                          className="w-full h-7 px-1.5 text-right border rounded bg-background focus:border-primary outline-none"
+                        />
+                        <UnitChoice
+                          line={l}
+                          scheme={schemeOf(l.itemId, l.unit)}
+                          onChange={(u) => updateLine(l.id, { unitUsed: u })}
+                        />
+                      </div>
                     </td>
                     {showUnitCol && (
                       <td className="py-1.5 px-1">
@@ -1893,12 +1978,20 @@ export function InvoiceForm({ mode, existing }: Props) {
 
                 <div className="mt-2.5 grid grid-cols-2 gap-2.5">
                   <PhoneField label="Qty">
-                    <NumInput
-                      id={`qty-m-${l.id}`}
-                      value={l.qty}
-                      onValue={(n) => updateLine(l.id, { qty: n })}
-                      className={PHONE_NUM}
-                    />
+                    <div className="flex items-center gap-1.5">
+                      <NumInput
+                        id={`qty-m-${l.id}`}
+                        value={l.qty}
+                        onValue={(n) => updateLine(l.id, { qty: n })}
+                        className={PHONE_NUM}
+                      />
+                      <UnitChoice
+                        line={l}
+                        scheme={schemeOf(l.itemId, l.unit)}
+                        onChange={(u) => updateLine(l.id, { unitUsed: u })}
+                        phone
+                      />
+                    </div>
                   </PhoneField>
                   {showUnitCol && (
                     <PhoneField label="Unit">
