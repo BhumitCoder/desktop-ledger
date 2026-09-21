@@ -120,6 +120,19 @@ import {
 } from "@/lib/outbox";
 import { popupRect } from "@/lib/popupRect";
 import {
+  stageSpec,
+  ALL_STAGES,
+  canConvert,
+  effectiveStatus,
+  stockEffect,
+  reservedOut,
+  onOrder,
+  availableQty,
+  remainingLines,
+  statusAfterConversion,
+  type WorkDocLike,
+} from "@/lib/documents";
+import {
   unitsOf,
   unitOptions,
   unitFactor,
@@ -6979,6 +6992,174 @@ console.log(`\n═════════════════════�
       describeQty({ qty: 2 }, cableScheme) === "2 pcs",
       "U26: a line in the base unit says it once, not twice",
     );
+  }
+}
+
+/* ═══════ TEST DW: the papers written before the bill ═══════════════════
+   Phase 7 of docs/ERP-PLAN.md. A quotation, an order, a challan; a purchase
+   order and a goods receipt going the other way. Two rules decide everything
+   and both are rules about stock, so both are wrong in units of real goods. */
+{
+  const doc = (stage: WorkDocLike["stage"], over: Partial<WorkDocLike> = {}): WorkDocLike => ({
+    id: "D1",
+    stage,
+    status: "open",
+    lineItems: [{ itemId: "A", qty: 3 }],
+    ...over,
+  });
+
+  /* ── Stock moves once, and only where goods physically move ──────────
+     Three of the five stages must not touch it at all. A quotation that took
+     stock would let one browsing customer empty the shelf for everyone else;
+     an order that took it would make the shelf disagree with the shelf. */
+  {
+    for (const stage of ["quotation", "salesOrder", "purchaseOrder"] as const) {
+      assert(
+        stockEffect(doc(stage)).size === 0,
+        `DW1: a ${stage} moves no stock — got ${JSON.stringify([...stockEffect(doc(stage))])}`,
+      );
+    }
+    assert(stockEffect(doc("deliveryChallan")).get("A") === -3, "DW2: goods leave on a challan");
+    assert(stockEffect(doc("grn")).get("A") === 3, "DW3: and arrive on a goods receipt");
+
+    /* A converted challan STILL counts. Its goods left the shop; the invoice
+       written afterwards must not take them a second time, and a rule that
+       stopped counting it the moment it was billed would do exactly that. */
+    assert(
+      stockEffect(doc("deliveryChallan", { status: "converted" })).get("A") === -3,
+      "DW4: a challan that has since been billed still moved its goods",
+    );
+    /* Cancelled is the one that undoes it. */
+    assert(
+      stockEffect(doc("deliveryChallan", { status: "cancelled" })).size === 0,
+      "DW5: a cancelled challan moved nothing",
+    );
+  }
+
+  /* ── A reservation is not a stock movement ───────────────────────────
+     The goods are on the shelf and already sold. Subtracting them from stock
+     would make the figure a stock-take is checked against a lie. */
+  {
+    const order = doc("salesOrder", { lineItems: [{ itemId: "A", qty: 4 }] });
+    assert(reservedOut([order]).get("A") === 4, "DW6: an open sales order reserves its goods");
+    assert(stockEffect(order).size === 0, "DW7: and takes none off the shelf");
+    assert(availableQty(10, 4) === 6, "DW8: ten on the shelf with four spoken for leaves six");
+    assert(availableQty(10, 0) === 10, "DW9: and with nothing reserved, available IS the shelf");
+    /* Over-reserved is a paperwork problem. Showing a negative here would
+       have a cashier refuse a sale for goods in their own hand. */
+    assert(availableQty(2, 5) === 0, "DW10: available never goes below nothing");
+
+    /* Filled or cancelled, it stops being a promise. */
+    for (const status of ["converted", "cancelled"] as const) {
+      assert(
+        reservedOut([doc("salesOrder", { status, lineItems: [{ itemId: "A", qty: 4 }] })]).size ===
+          0,
+        `DW11: a ${status} order reserves nothing`,
+      );
+    }
+
+    /* Incoming is counted apart. Goods still at the distributor must never
+       be added to what a cashier can sell today. */
+    const po = doc("purchaseOrder", { lineItems: [{ itemId: "A", qty: 7 }] });
+    assert(onOrder([po]).get("A") === 7, "DW12: a purchase order shows what is coming");
+    assert(reservedOut([po]).size === 0, "DW13: without touching what can be sold");
+  }
+
+  /* ── Half a delivery is the normal case ──────────────────────────────── */
+  {
+    const order = doc("salesOrder", {
+      lineItems: [
+        { itemId: "A", qty: 10 },
+        { itemId: "B", qty: 4 },
+      ],
+    });
+    const done = new Map([["A", 6]]);
+    const left = remainingLines(order.lineItems ?? [], done);
+    assert(left.length === 2, "DW14: what is still owing is offered, not the whole order again");
+    assert(left[0].qty === 4 && left[0].itemId === "A", "DW15: four of the ten are still owed");
+    assert(left[1].qty === 4 && left[1].itemId === "B", "DW16: and the untouched line is whole");
+
+    assert(
+      statusAfterConversion(order, done) === "partly",
+      "DW17: an order with goods still owing is not finished",
+    );
+    assert(
+      statusAfterConversion(
+        order,
+        new Map([
+          ["A", 10],
+          ["B", 4],
+        ]),
+      ) === "converted",
+      "DW18: and is, once nothing is owed",
+    );
+    assert(
+      statusAfterConversion(order, new Map()) === "open",
+      "DW19: converting nothing changes nothing",
+    );
+    assert(
+      remainingLines(order.lineItems ?? [], new Map([["A", 10]])).length === 1,
+      "DW20: a line delivered in full drops out of the remainder",
+    );
+  }
+
+  /* ── The quantity that is carried is the one in base units ───────────
+     A line written in boxes must convert as boxes, or half a delivery of them
+     silently becomes a different number of pieces. */
+  {
+    const boxed = [{ itemId: "A", qty: 2, baseQty: 20 }];
+    const half = remainingLines(boxed, new Map([["A", 10]]));
+    assert(half[0]?.baseQty === 10, "DW21: half of twenty pieces is ten");
+    assert(half[0]?.qty === 1, "DW22: which is one of the two boxes, so the unit survives");
+    assert(
+      stockEffect(doc("deliveryChallan", { lineItems: boxed })).get("A") === -20,
+      "DW23: and a challan for two boxes moves twenty pieces",
+    );
+  }
+
+  /* ── What may still become the next thing ────────────────────────────── */
+  {
+    assert(canConvert(doc("quotation")), "DW24: an open document converts");
+    assert(canConvert(doc("salesOrder", { status: "partly" })), "DW25: so does a half-done one");
+    assert(!canConvert(doc("quotation", { status: "converted" })), "DW26: a done one does not");
+    assert(!canConvert(doc("quotation", { status: "cancelled" })), "DW27: nor a cancelled one");
+    /* Expired is a warning, not a refusal — the shop may still honour an old
+       price, and that decision belongs to a person. */
+    assert(
+      canConvert({ stage: "quotation", status: "expired" }),
+      "DW28: an expired quotation may still be honoured",
+    );
+    assert(
+      effectiveStatus({ status: "open", validUntil: "2026-01-01" }, "2026-06-01") === "expired",
+      "DW29: a quotation past its date reads as expired",
+    );
+    assert(
+      effectiveStatus({ status: "open", validUntil: "2026-12-01" }, "2026-06-01") === "open",
+      "DW30: and one still in date does not",
+    );
+    assert(
+      effectiveStatus({ status: "converted", validUntil: "2020-01-01" }, "2026-06-01") ===
+        "converted",
+      "DW31: expiry never overwrites what actually happened to it",
+    );
+  }
+
+  /* ── Every stage is spelled out, and the chains end at a bill ─────────── */
+  {
+    assert(ALL_STAGES.length === 5, "DW32: five papers");
+    for (const stage of ALL_STAGES) {
+      const spec = stageSpec(stage);
+      assert(!!spec.label && !!spec.prefix, `DW33: ${stage} has a name and a number prefix`);
+      assert(
+        spec.stock === "none" || spec.reserves === "none",
+        `DW34: ${stage} either moves goods or promises them, never both`,
+      );
+    }
+    assert(stageSpec("quotation").next === "salesOrder", "DW35: a quotation becomes an order");
+    assert(stageSpec("salesOrder").next === "deliveryChallan", "DW36: an order becomes a delivery");
+    assert(stageSpec("deliveryChallan").next === null, "DW37: and a delivery ends at the bill");
+    assert(stageSpec("purchaseOrder").next === "grn", "DW38: a PO becomes a receipt");
+    assert(stageSpec("grn").ends === "purchase", "DW39: which ends at the purchase bill");
   }
 }
 

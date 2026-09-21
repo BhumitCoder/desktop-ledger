@@ -111,6 +111,13 @@ service cloud.firestore {
       allow create, update: if hasPerm('sales', 'edit');
       allow delete: if hasPerm('sales', 'delete');
     }
+    // Quotations, sales orders and delivery challans. The same permission as
+    // the bill they lead to: anyone who may write a sale may promise one.
+    match /sales-docs/{id} {
+      allow read: if hasPerm('sales', 'view');
+      allow create, update: if hasPerm('sales', 'edit');
+      allow delete: if hasPerm('sales', 'delete');
+    }
 
     // ---- Purchase, Purchase Return, Expenses, Expense Payees ----
     match /purchases/{id} {
@@ -119,6 +126,12 @@ service cloud.firestore {
       allow delete: if hasPerm('purchaseExpenses', 'delete');
     }
     match /purchase-returns/{id} {
+      allow read: if hasPerm('purchaseExpenses', 'view');
+      allow create, update: if hasPerm('purchaseExpenses', 'edit');
+      allow delete: if hasPerm('purchaseExpenses', 'delete');
+    }
+    // Purchase orders and goods receipts, on the purchase side's permission.
+    match /purchase-docs/{id} {
       allow read: if hasPerm('purchaseExpenses', 'view');
       allow create, update: if hasPerm('purchaseExpenses', 'edit');
       allow delete: if hasPerm('purchaseExpenses', 'delete');

@@ -21,6 +21,7 @@ import {
   PurchaseReturnRepo,
   PaymentRepo,
   BankRepo,
+  SalesDocRepo,
 } from "@/repositories";
 import { partyBalances } from "@/lib/ledger";
 import { correctBankPaidAmount } from "@/lib/bankRepair";
@@ -68,6 +69,7 @@ import { enterMovesAlongRow, useEscapeToLeave } from "@/hooks/useFormKeys";
 import { usePeriodLock } from "@/hooks/usePeriodLock";
 import { stockShortfalls } from "@/lib/stock";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
+import { reservedOut, availableQty, type WorkDocLike } from "@/lib/documents";
 import {
   qtyInBase,
   unitsOf,
@@ -142,6 +144,36 @@ function UnitChoice({
         </option>
       ))}
     </select>
+  );
+}
+
+/**
+ * What is promised out of stock but has not left the shelf.
+ *
+ * A sales order is goods the shop has agreed to hand over and has not handed
+ * over yet. Subtracting it from `stock` would make the shelf figure disagree
+ * with the shelf, which is the number a stock-take is checked against — so it
+ * is shown BESIDE the stock, never taken off it. See lib/documents.ts.
+ */
+function useReservedOut(): Map<string, number> {
+  return useRepoMemo(() => reservedOut(SalesDocRepo.all() as unknown as WorkDocLike[]));
+}
+
+/** The stock line in an item picker: what is there, and what is spoken for. */
+function StockNote({ item, reserved }: { item: Item; reserved: number }) {
+  const onShelf = stockOf(item);
+  if (reserved <= 0) {
+    return (
+      <div className="text-[11px] text-muted-foreground">
+        Stock: {onShelf} {item.unit}
+      </div>
+    );
+  }
+  return (
+    <div className="text-[11px] text-muted-foreground">
+      Stock: {onShelf} {item.unit} · <span className="text-amber-600">{reserved} ordered</span> ·{" "}
+      <span className="font-semibold text-foreground">{availableQty(onShelf, reserved)} free</span>
+    </div>
   );
 }
 
@@ -2497,6 +2529,7 @@ function ItemEntryRow({
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [idx, setIdx] = useState(0);
+  const reserved = useReservedOut();
   const inputElRef = useRef<HTMLInputElement | null>(null);
   const [dropdownRect, setDropdownRect] = useState<PopupPlacement | null>(null);
 
@@ -2640,12 +2673,10 @@ function ItemEntryRow({
                 >
                   <div>
                     <div className="font-semibold">{it.name}</div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {/* Counted from the units on hand, not read off the item:
-                          on this branch stock is derived, and a stored number
-                          would disagree with the serials the moment one moved. */}
-                      Stock: {stockOf(it)} {it.unit}
-                    </div>
+                    {/* Counted from the units on hand, not read off the item:
+                        on this branch stock is derived, and a stored number
+                        would disagree with the serials the moment one moved. */}
+                    <StockNote item={it} reserved={reserved.get(it.id) ?? 0} />
                   </div>
                   <div className="text-right">
                     {isSale ? (
@@ -2799,6 +2830,7 @@ function ItemNameCell({
   const [editing, setEditing] = useState(false);
   const [q, setQ] = useState("");
   const [idx, setIdx] = useState(0);
+  const reserved = useReservedOut();
   const inputElRef = useRef<HTMLInputElement | null>(null);
   const [rect, setRect] = useState<PopupPlacement | null>(null);
 
@@ -2957,9 +2989,7 @@ function ItemNameCell({
                 >
                   <div>
                     <div className="font-semibold">{it.name}</div>
-                    <div className="text-[11px] text-muted-foreground">
-                      Stock: {stockOf(it)} {it.unit}
-                    </div>
+                    <StockNote item={it} reserved={reserved.get(it.id) ?? 0} />
                   </div>
                   <div className="text-right">
                     {isSale ? (

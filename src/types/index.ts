@@ -1,3 +1,5 @@
+import type { DocStage, DocStatus } from "@/lib/documents";
+
 export type ID = string;
 
 export interface Party {
@@ -543,5 +545,54 @@ export interface TeamUser {
   /** A module missing from this map means no access at all to it, not
    * "view only" — every level must be explicitly granted. */
   permissions: Partial<Record<ModuleKey, ModulePermission>>;
+  createdAt: string;
+}
+
+/**
+ * A paper written before the bill — a quotation, an order, a challan, a
+ * purchase order, a goods receipt.
+ *
+ * One shape for all five, because they are one shape: a party, some lines, and
+ * a place in a chain. What separates them is what they DO, and that lives in
+ * lib/documents.ts rather than in five near-identical types that would drift.
+ *
+ * Stored in two collections rather than five — `sales-docs` and
+ * `purchase-docs` — because the thing that genuinely differs between them is
+ * who is allowed to see them, and that splits two ways, not five.
+ */
+export interface WorkDoc extends Voidable {
+  id: ID;
+  stage: DocStage;
+  status: DocStatus;
+  number: string;
+  date: string;
+  /** A quotation's price is only good for so long. */
+  validUntil?: string;
+  partyId: ID;
+  partyName: string;
+  partyPhone?: string;
+  gstEnabled?: boolean;
+  lineItems: LineItem[];
+  subtotal: number;
+  discount: number;
+  shippingCharge?: number;
+  taxAmount: number;
+  roundOff?: number;
+  total: number;
+  notes?: string;
+  /** The document this one was made from, so the chain reads backwards. */
+  fromId?: ID;
+  fromNumber?: string;
+  /** What it became. Its presence is what stops a second conversion. */
+  convertedToId?: ID;
+  convertedToNumber?: string;
+  /**
+   * How much of each item has been carried forward so far, in BASE units.
+   *
+   * Per item rather than per line, and cumulative rather than a flag, because
+   * half a delivery is the normal case: six of the ten cartons go and the
+   * rest follow, and what the next conversion offers is the difference.
+   */
+  convertedQty?: Record<ID, number>;
   createdAt: string;
 }

@@ -55,6 +55,7 @@ import {
   PaymentRepo,
   CompanyRepo,
   StockAdjustmentRepo,
+  SalesDocRepo,
   PurchaseReturnRepo,
   CashAdjustmentRepo,
   SerialRepo,
@@ -185,6 +186,38 @@ function seed() {
     // assertions are pinned to.
     stock: 0,
     openingStock: 0,
+  } as never);
+
+  /* A sales order against that item — Phase 7. Seeded here with every other
+     fixture rather than written mid-run: a repository this suite has never
+     read is not warm, and the first write to one part-way through a render
+     pass hangs the page instead of failing it. */
+  SalesDocRepo.add({
+    id: "SO-SEED",
+    createdAt: "2026-09-01T00:00:00Z",
+    stage: "salesOrder",
+    status: "open",
+    number: "SO-0001",
+    date: "2026-09-01",
+    partyId: "P1",
+    partyName: "Ramesh Traders",
+    lineItems: [
+      {
+        id: "L",
+        itemId: "IBOX",
+        name: "Boxed Cable",
+        qty: 3,
+        unit: "pcs",
+        price: 100,
+        discountPct: 0,
+        gstRate: 0,
+        amount: 300,
+      },
+    ],
+    subtotal: 300,
+    discount: 0,
+    taxAmount: 0,
+    total: 300,
   } as never);
 
   ItemRepo.add({
@@ -7659,6 +7692,44 @@ async function runAll(): Promise<Results> {
         " to " +
         ItemRepo.get("IBOX")?.stock,
     );
+  }
+
+  /* ── Goods promised, still on the shelf ───────────────────────────────
+     Phase 7. A sales order is stock the shop has agreed to hand over and has
+     not handed over yet. Subtracting it from the stock figure would make the
+     shelf disagree with the shelf — the number a stock-take is checked
+     against — so it is shown BESIDE the stock, never taken off it.
+
+     The order is a seeded fixture; see seed(). Written there rather than here
+     on purpose: a first write to a repository this suite has never read, made
+     part-way through a render pass, hangs the page instead of failing it. */
+  {
+    /* The only thing that has moved IBOX is the one box sold by the units
+       test above — ten pieces. The seeded order is for three more and has
+       moved none of them, which is the whole claim: if a promise took stock,
+       this would read -13. */
+    assert(
+      (ItemRepo.get("IBOX")?.stock ?? 0) === -10,
+      "orders: the shelf moved by the bill only, never by the order — " +
+        ItemRepo.get("IBOX")?.stock,
+    );
+
+    await renderRoute("/sales/new");
+    const add3 = visibleAddItemInput();
+    assert(!!add3, "orders: the bill form still opens");
+    if (add3) {
+      await act(async () => {
+        setInput(add3, "Boxed Cable");
+      });
+      await settleMs(160);
+    }
+    const row = Array.from(document.querySelectorAll<HTMLElement>("[data-opt]")).find((d) =>
+      (d.textContent ?? "").startsWith("Boxed Cable"),
+    );
+    assert(!!row, "orders: the item is offered");
+    const text = row?.textContent ?? "";
+    assert(text.includes("3 ordered"), "orders: the picker says what is spoken for — " + text);
+    assert(text.includes("0 free"), "orders: and what is left to sell — " + text);
   }
 
   const bulkHost = document.createElement("div");

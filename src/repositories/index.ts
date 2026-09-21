@@ -21,6 +21,7 @@ import type {
   AuditEntry,
   TeamUser,
   ModuleKey,
+  WorkDoc,
 } from "@/types";
 
 export const PartyRepo = new Repository<Party>("parties");
@@ -35,6 +36,11 @@ export const BankRepo = new Repository<BankAccount>("banks");
 export const BankTxnRepo = new Repository<BankTxn>("bankTxns");
 export const PaymentRepo = new Repository<Payment>("payments");
 export const StockAdjustmentRepo = new Repository<StockAdjustment>("stock-adjustments");
+/* Quotations, sales orders and delivery challans; purchase orders and goods
+   receipts. Two collections rather than five: what actually differs between
+   them is who may see them, and that splits two ways. See lib/documents.ts. */
+export const SalesDocRepo = new Repository<WorkDoc>("sales-docs");
+export const PurchaseDocRepo = new Repository<WorkDoc>("purchase-docs");
 /**
  * Individual units of a serialised item. For those items this collection IS
  * the stock figure, so it is hydrated at login and included in backups like
