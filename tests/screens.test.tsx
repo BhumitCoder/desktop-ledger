@@ -449,29 +449,64 @@ async function runAll(): Promise<Results> {
   has(plAfterArrival, fmtMoney(1000), "cold open: P&L fills in once data arrives (no remount)");
   has(plAfterArrival, fmtMoney(360), "cold open: derived gross profit fills in too");
 
-  /* ── The screens the shop bills from, measured as a phone ─────────────
-     Reported as "party, sales, purchase and the invoice forms — nothing
-     proper, not like Vyapar". Nothing was spilling off the side; it was
-     desktop density shrunk onto a phone. Measured at 390px before touching
-     anything: fourteen controls under 40px on Parties alone, four of them
-     26px square, and the gap between 26 and 44 is the difference between
-     pressing edit and pressing delete.
+  /* ── Every screen, measured as a phone ────────────────────────────────
+     Reported after a client call: Party, Sales, Purchase and the two invoice
+     forms were "nothing proper" next to Vyapar. Measured at 390px before
+     touching anything, because the complaint named no specific thing.
 
-     Thresholds, and why each one:
+     Nothing was spilling and no table was being dragged sideways — the layout
+     has been responsive for a while. It was desktop density shrunk onto a
+     phone: fourteen controls under 40px on Parties alone, four of them 26px
+     SQUARE. The gap between 26px and 44px is the difference between pressing
+     edit and pressing delete.
+
+     Every screen is checked, not only the five that were complained about —
+     the fix is a floor in styles.css and a floor is only worth having if
+     something notices when a screen slips under it.
+
+     Thresholds, and why each:
        44px  — what Apple and Google both publish as a thumb target.
        16px  — below it iOS zooms the page on focus and never zooms back.
-       12px  — secondary text staff have to read to pick the right row.
+       12px  — secondary text staff read to pick the right row.
 
-     This runs only when the suite is given a phone viewport; at the default
-     800px there is nothing here to find, so `npm run test:screens` alone does
-     NOT cover it — SCREENS_VIEWPORT=390x844 does. */
+     Two deliberate exemptions:
+       · A printable document. An invoice preview is laid out for A4 and its
+         9-11px type is what the paper gets; forcing it to 12px would change
+         the printed page to fix a screen. It is pinch-zoomed or downloaded.
+       · Anything inside a horizontal scroller, and the offscreen PDF source,
+         which is parked past the edge on purpose and nobody looks at.
+
+     Runs only at a phone viewport: `npm run test:screens` alone does NOT
+     cover this, because at the default 800px there is nothing to find.
+     SCREENS_VIEWPORT=390x844 does. */
   if (window.innerWidth <= 480) {
-    for (const route of ["/parties", "/sales", "/purchase", "/sales/new", "/purchase/new"]) {
+    const PHONE_ROUTES = [
+      "/parties",
+      "/sales",
+      "/purchase",
+      "/sales/new",
+      "/purchase/new",
+      "/parties/P1",
+      "/sales/S1",
+      "/items",
+      "/payments",
+      "/expenses",
+      "/cash",
+      "/bank",
+      "/inventory",
+      "/daybook",
+      "/gst",
+      "/reports",
+      "/settings",
+      "/sale-return",
+      "/purchase-return",
+    ];
+
+    for (const route of PHONE_ROUTES) {
       await renderRoute(route);
-      await settleMs(200);
+      await settleMs(160);
       const scope = host as HTMLElement;
       const W = window.innerWidth;
-      const seen = (el: HTMLElement) => el.offsetParent !== null;
 
       const spills: string[] = [];
       const smallText: string[] = [];
@@ -479,17 +514,27 @@ async function runAll(): Promise<Results> {
 
       scope.querySelectorAll<HTMLElement>("*").forEach((el) => {
         const r = el.getBoundingClientRect();
-        if (r.width === 0 || r.height === 0 || !seen(el)) return;
+        if (r.width === 0 || r.height === 0 || el.offsetParent === null) return;
         const cs = getComputedStyle(el);
 
-        // Its own scrolling region may be wider than the screen — that is what
-        // makes it scroll. Anything else is a spill.
-        if (!/auto|scroll/.test(cs.overflowX) && (r.right > W + 1 || r.left < -1)) {
+        /* A scrolling region may be wider than the screen — that is what makes
+           it scroll — and so may anything inside one. Only something wide with
+           no scroller above it is actually off the edge of the phone. */
+        let scrollable = false;
+        for (let p: HTMLElement | null = el; p && p !== scope; p = p.parentElement) {
+          if (/auto|scroll/.test(getComputedStyle(p).overflowX)) {
+            scrollable = true;
+            break;
+          }
+        }
+        const offscreenSource = !!el.closest("[data-pdf-source]");
+        if (!scrollable && !offscreenSource && (r.right > W + 1 || r.left < -1)) {
           spills.push(el.tagName + "." + String(el.className).slice(0, 34));
         }
 
+        const inDocument = !!el.closest("[data-pdf-source],.print-area,.print-visible");
         const txt = (el.textContent ?? "").trim();
-        if (txt && el.children.length === 0 && parseFloat(cs.fontSize) < 12) {
+        if (txt && !inDocument && el.children.length === 0 && parseFloat(cs.fontSize) < 12) {
           smallText.push(`${cs.fontSize} "${txt.slice(0, 16)}"`);
         }
 
@@ -497,7 +542,7 @@ async function runAll(): Promise<Results> {
           el.tagName === "BUTTON" ||
           el.tagName === "SELECT" ||
           el.getAttribute("role") === "button";
-        if (tappable && (r.height < 44 || r.width < 44)) {
+        if (tappable && !inDocument && (r.height < 44 || r.width < 44)) {
           smallTaps.push(
             `${el.tagName}[${txt.slice(0, 12)}] ${Math.round(r.width)}x${Math.round(r.height)}`,
           );
@@ -505,14 +550,18 @@ async function runAll(): Promise<Results> {
       });
 
       const inputs = Array.from(scope.querySelectorAll<HTMLInputElement>("input")).filter(
-        (el) => seen(el) && el.type !== "checkbox" && el.type !== "radio",
+        (el) =>
+          el.offsetParent !== null &&
+          el.type !== "checkbox" &&
+          el.type !== "radio" &&
+          !el.closest("[data-pdf-source],.print-area,.print-visible"),
       );
       const tiny = inputs.filter((el) => parseFloat(getComputedStyle(el).fontSize) < 16);
       const short = inputs.filter((el) => el.getBoundingClientRect().height < 44);
 
       assert(
         spills.length === 0,
-        `phone ${route}: nothing spills — ${spills.slice(0, 3).join(" | ")}`,
+        `phone ${route}: nothing runs off the side — ${spills.slice(0, 3).join(" | ")}`,
       );
       assert(
         smallTaps.length === 0,
@@ -520,7 +569,7 @@ async function runAll(): Promise<Results> {
       );
       assert(
         smallText.length === 0,
-        `phone ${route}: nothing is smaller than 12px — ${smallText.slice(0, 4).join(" | ")}`,
+        `phone ${route}: nothing on screen is under 12px — ${smallText.slice(0, 4).join(" | ")}`,
       );
       assert(
         tiny.length === 0,

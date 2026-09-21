@@ -346,7 +346,11 @@ function PartyStatementPage() {
     <div className="flex flex-col h-full bg-[#f5f6fa]">
       {/* Header */}
       <div className="no-print bg-white border-b px-5 py-3 flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-2.5">
+        {/* Stacked on a phone. Eight actions at a thumb-sized 44px need
+            352px of width before any gaps, and the party's name has to go
+            somewhere too — side by side they ran off the edge of the screen.
+            Unchanged from `sm:` up, where they fit beside the name. */}
+        <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2.5 min-w-0">
             {/* You arrive here by drilling in from Parties (or from a global
                 search hit), so there has to be a way back that isn't the
@@ -382,12 +386,14 @@ function PartyStatementPage() {
               one group with Edit, instead of its own row competing with the
               balance cards for vertical space. Pure layout move — none of
               the handlers below changed. */}
-          <div className="flex items-center gap-1.5 shrink-0">
+          {/* wrap, and no shrink-0 on the row itself: a control that cannot
+              shrink inside a row that cannot wrap is a control off the edge. */}
+          <div className="flex flex-wrap items-center gap-1.5 sm:flex-nowrap sm:shrink-0">
             {editAllowed && (
               <>
                 <button
                   onClick={() => setPayDialog("in")}
-                  className="h-8 px-2.5 shrink-0 rounded-md border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 flex items-center gap-1.5 text-xs font-semibold transition"
+                  className="h-8 px-4 sm:px-2.5 shrink-0 rounded-md border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 flex items-center justify-center gap-1.5 text-xs font-semibold transition"
                   title="Receive payment from this party"
                 >
                   <ArrowDownCircle className="h-4 w-4" />
@@ -395,7 +401,7 @@ function PartyStatementPage() {
                 </button>
                 <button
                   onClick={() => setPayDialog("out")}
-                  className="h-8 px-2.5 shrink-0 rounded-md border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 flex items-center gap-1.5 text-xs font-semibold transition"
+                  className="h-8 px-4 sm:px-2.5 shrink-0 rounded-md border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 flex items-center justify-center gap-1.5 text-xs font-semibold transition"
                   title="Pay this party"
                 >
                   <ArrowUpCircle className="h-4 w-4" />

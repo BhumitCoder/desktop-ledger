@@ -501,7 +501,14 @@ button,
  * right and should stay written where it is — what changes is how small
  * "secondary" is allowed to get on a small screen. */
 @media (max-width: 639px) {
-  :is(.text-\[10px\], .text-\[10\.5px\], .text-\[11px\], .text-\[11\.5px\]) {
+  :is(
+    .text-\[9px\],
+    .text-\[9\.5px\],
+    .text-\[10px\],
+    .text-\[10\.5px\],
+    .text-\[11px\],
+    .text-\[11\.5px\]
+  ) {
     font-size: 12px;
   }
 }
