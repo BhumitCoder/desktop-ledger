@@ -22,13 +22,21 @@ const buttonVariants = cva(
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
-        // One standard height (32px/h-8) across the whole app — sizes below
-        // only vary padding/text, not height, so mixing them never produces
-        // a visibly taller/shorter button by accident.
-        default: "h-8 px-4 py-2",
-        sm: "h-8 rounded-md px-3 text-xs",
-        lg: "h-8 rounded-md px-8",
-        icon: "h-8 w-8",
+        // One standard height across the whole app — sizes below only vary
+        // padding/text, not height, so mixing them never produces a visibly
+        // taller/shorter button by accident.
+        //
+        // TWO standard heights, strictly: 32px from `sm:` up, and 44px below
+        // it. A 32px button is comfortable under a mouse and a miss under a
+        // thumb — the shop bills from a phone all day, and every Save, Cancel
+        // and Add on it was smaller than the finger pressing it. 44px is the
+        // figure both Apple and Google publish, and it is the same number for
+        // every button here for the same reason the old one was: so nothing
+        // is accidentally a different size.
+        default: "h-11 px-4 py-2 sm:h-8",
+        sm: "h-11 rounded-md px-3 text-sm sm:h-8 sm:text-xs",
+        lg: "h-11 rounded-md px-8 sm:h-8",
+        icon: "h-11 w-11 sm:h-8 sm:w-8",
       },
     },
     defaultVariants: {

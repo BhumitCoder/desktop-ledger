@@ -431,25 +431,77 @@ button,
   scroll-margin-block: 5rem;
 }
 
-/* A bill does not zoom out from under the person writing it.
+/* A phone is operated with a thumb, not a mouse pointer.
  *
- * iOS Safari zooms the whole page the instant a text box smaller than 16px
- * is focused, and it does not zoom back out. On this form — where the next
- * thing you do is always tap another box — that means the page jumps, the
- * layout you were reading slides off to one side, and every subsequent tap
- * lands somewhere other than where it looked. It was photographed at the
- * counter and reported as "nothing proper in mobile".
+ * Measured rather than guessed: at 390px the Parties screen had fourteen
+ * controls smaller than 40px and four of them were 26px square. Apple and
+ * Google both publish 44px as the minimum, and the gap between 26 and 44 is
+ * the difference between pressing edit and pressing delete.
  *
- * 16px is the exact threshold, so this is the whole fix. Scoped to the bill
- * form, and only at phone widths, because on a desk the compact type is
- * doing real work: the item table fits nine columns at 13px and would not
- * at 16.
+ * The shared Button, Field and mode pills carry their own phone sizes. This
+ * covers everything hand-rolled — the icon buttons in a list row, the filter
+ * chips, the pager — so a control added later is the right size without
+ * anyone remembering. Desktop is untouched: the app keeps its compact 32px
+ * from `sm:` up, where a pointer is doing the aiming.
  *
- * Checkboxes and radios have no text to zoom toward and keep their size. */
-@media (max-width: 767px) {
-  [data-bill-form] input:not([type="checkbox"]):not([type="radio"]),
-  [data-bill-form] select,
-  [data-bill-form] textarea {
+ * `data-compact` opts a control out, for the rare one that genuinely must
+ * stay inside something small. Nothing uses it yet; it exists so the answer
+ * to a cramped case is not "delete the rule". */
+@media (max-width: 639px) {
+  button:not([data-compact]),
+  select:not([data-compact]),
+  [role="button"]:not([data-compact]) {
+    min-height: 44px;
+  }
+
+  /* An icon on its own has no text to widen it, and a 44px-tall button 26px
+     wide is still a miss in one direction. */
+  /* An icon on its own has no text to widen it, and a 44px-tall button 26px
+     wide is still a miss in one direction. `:empty`-ish rather than
+     svg:only-child, because several of these carry a badge dot alongside the
+     icon and were still 36px wide with the narrower rule. */
+  button:not([data-compact]):not(:has(> :not(svg):not(span[class*="absolute"]))),
+  [role="button"]:not([data-compact]):not(:has(> :not(svg):not(span[class*="absolute"]))) {
+    min-width: 44px;
+  }
+}
+
+/* Nothing zooms out from under the person typing in it.
+ *
+ * iOS Safari zooms the whole page the instant a text box smaller than 16px is
+ * focused, and it does not zoom back out. Tap a box, the layout slides
+ * sideways, and every tap after that lands somewhere other than where it
+ * looked. 16px is the exact threshold, so this is the whole fix.
+ *
+ * Scoped to phones, because on a desk the compact type is doing real work:
+ * the item table fits nine columns at 13px and would not at 16. Checkboxes
+ * and radios have no text to zoom toward and keep their size.
+ *
+ * The height is the same argument as the buttons above — a 32px box is a
+ * comfortable target under a pointer and a miss under a thumb. */
+@media (max-width: 639px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([data-compact]),
+  select:not([data-compact]),
+  textarea:not([data-compact]) {
     font-size: 16px;
+    min-height: 44px;
+  }
+}
+
+/* A legibility floor on a phone, not a redesign.
+ *
+ * The app's smallest two steps — 10px and 11px — are fine under a monitor at
+ * arm's length and are what secondary text uses throughout: a party's phone
+ * number in the picker, an invoice number, a field hint. On a phone held at
+ * arm's length in a shop they are the lines staff squint at, and those are
+ * exactly the ones they have to read correctly to pick the right row.
+ *
+ * One step up, to 12px, and only below `sm`. Deliberately not a sweep through
+ * a hundred call sites: the intent at each of them ("this is secondary") is
+ * right and should stay written where it is — what changes is how small
+ * "secondary" is allowed to get on a small screen. */
+@media (max-width: 639px) {
+  :is(.text-\[10px\], .text-\[10\.5px\], .text-\[11px\], .text-\[11\.5px\]) {
+    font-size: 12px;
   }
 }

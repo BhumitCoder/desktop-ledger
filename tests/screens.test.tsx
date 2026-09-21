@@ -449,6 +449,87 @@ async function runAll(): Promise<Results> {
   has(plAfterArrival, fmtMoney(1000), "cold open: P&L fills in once data arrives (no remount)");
   has(plAfterArrival, fmtMoney(360), "cold open: derived gross profit fills in too");
 
+  /* ── The screens the shop bills from, measured as a phone ─────────────
+     Reported as "party, sales, purchase and the invoice forms — nothing
+     proper, not like Vyapar". Nothing was spilling off the side; it was
+     desktop density shrunk onto a phone. Measured at 390px before touching
+     anything: fourteen controls under 40px on Parties alone, four of them
+     26px square, and the gap between 26 and 44 is the difference between
+     pressing edit and pressing delete.
+
+     Thresholds, and why each one:
+       44px  — what Apple and Google both publish as a thumb target.
+       16px  — below it iOS zooms the page on focus and never zooms back.
+       12px  — secondary text staff have to read to pick the right row.
+
+     This runs only when the suite is given a phone viewport; at the default
+     800px there is nothing here to find, so `npm run test:screens` alone does
+     NOT cover it — SCREENS_VIEWPORT=390x844 does. */
+  if (window.innerWidth <= 480) {
+    for (const route of ["/parties", "/sales", "/purchase", "/sales/new", "/purchase/new"]) {
+      await renderRoute(route);
+      await settleMs(200);
+      const scope = host as HTMLElement;
+      const W = window.innerWidth;
+      const seen = (el: HTMLElement) => el.offsetParent !== null;
+
+      const spills: string[] = [];
+      const smallText: string[] = [];
+      const smallTaps: string[] = [];
+
+      scope.querySelectorAll<HTMLElement>("*").forEach((el) => {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0 || !seen(el)) return;
+        const cs = getComputedStyle(el);
+
+        // Its own scrolling region may be wider than the screen — that is what
+        // makes it scroll. Anything else is a spill.
+        if (!/auto|scroll/.test(cs.overflowX) && (r.right > W + 1 || r.left < -1)) {
+          spills.push(el.tagName + "." + String(el.className).slice(0, 34));
+        }
+
+        const txt = (el.textContent ?? "").trim();
+        if (txt && el.children.length === 0 && parseFloat(cs.fontSize) < 12) {
+          smallText.push(`${cs.fontSize} "${txt.slice(0, 16)}"`);
+        }
+
+        const tappable =
+          el.tagName === "BUTTON" ||
+          el.tagName === "SELECT" ||
+          el.getAttribute("role") === "button";
+        if (tappable && (r.height < 44 || r.width < 44)) {
+          smallTaps.push(
+            `${el.tagName}[${txt.slice(0, 12)}] ${Math.round(r.width)}x${Math.round(r.height)}`,
+          );
+        }
+      });
+
+      const inputs = Array.from(scope.querySelectorAll<HTMLInputElement>("input")).filter(
+        (el) => seen(el) && el.type !== "checkbox" && el.type !== "radio",
+      );
+      const tiny = inputs.filter((el) => parseFloat(getComputedStyle(el).fontSize) < 16);
+      const short = inputs.filter((el) => el.getBoundingClientRect().height < 44);
+
+      assert(
+        spills.length === 0,
+        `phone ${route}: nothing spills — ${spills.slice(0, 3).join(" | ")}`,
+      );
+      assert(
+        smallTaps.length === 0,
+        `phone ${route}: every control is thumb-sized — ${smallTaps.slice(0, 4).join(" | ")}`,
+      );
+      assert(
+        smallText.length === 0,
+        `phone ${route}: nothing is smaller than 12px — ${smallText.slice(0, 4).join(" | ")}`,
+      );
+      assert(
+        tiny.length === 0,
+        `phone ${route}: no box small enough to make iOS zoom the page — ${tiny.length}`,
+      );
+      assert(short.length === 0, `phone ${route}: no box shorter than a thumb — ${short.length}`);
+    }
+  }
+
   /* ── Nothing on a bill spills off the side of a phone ─────────────────
      Reported as "sale and purchase invoice form not responsive, many bugs".
      Measured rather than guessed: at a phone width, walk the form and report

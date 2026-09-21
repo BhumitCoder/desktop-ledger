@@ -18,7 +18,10 @@ export const Field = forwardRef<HTMLInputElement, Props>(function Field(
         ref={ref}
         id={id}
         className={cn(
-          "h-8 px-2 border rounded bg-background outline-none focus:border-primary focus:ring-1 focus:ring-primary",
+          /* 44px and 16px on a phone, the app's own 32px from `sm:` up. Below 16px iOS
+             zooms the page on focus and does not zoom back out, so every tap after
+             that lands somewhere other than where it looked. */
+          "h-11 px-3 text-[16px] sm:h-8 sm:px-2 sm:text-[13px] border rounded bg-background outline-none focus:border-primary focus:ring-1 focus:ring-primary",
           error && "border-destructive",
           className,
         )}
