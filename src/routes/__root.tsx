@@ -182,18 +182,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
       { name: "apple-mobile-web-app-title", content: APP_NAME },
       { name: "mobile-web-app-capable", content: "yes" },
-      { name: "theme-color", content: "#0f172a" },
+      { name: "theme-color", content: "#ea6d1d" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
       { rel: "manifest", href: "/manifest.webmanifest" },
-      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon", sizes: "48x48" },
-      // iOS does not reliably rasterize SVG for apple-touch-icon (unlike the
-      // regular favicon above) — it wants a real PNG, ideally 180x180. Until
-      // a proper PNG is added, this SVG is at least a functional fallback,
-      // but the home-screen icon may not render as crisply as it should.
-      { rel: "apple-touch-icon", href: "/favicon.svg" },
+      { rel: "icon", href: "/icon-32.png", type: "image/png", sizes: "32x32" },
+      { rel: "icon", href: "/icon-192.png", type: "image/png", sizes: "192x192" },
+      // iOS wants a real PNG here, ideally 180x180 — it does not reliably
+      // rasterize SVG for a home-screen icon. This is that PNG, cut from the
+      // logo's own mark, on a white plate because iOS composites the icon
+      // over whatever it likes and a dark monogram on dark disappears.
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png", sizes: "180x180" },
     ],
   }),
   shellComponent: RootShell,

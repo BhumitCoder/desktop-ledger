@@ -4,7 +4,9 @@
  * page, the browser tab, the backup errors and the home-screen icon label
  * all still saying the old name. Keep public/manifest.webmanifest in step by
  * hand â€” a static JSON file can't import this. */
-export const APP_NAME = "AIM ENTERPRISE";
+export const APP_NAME = "BALAJI FABTECH";
+/** The line under the name, from the logo itself. */
+export const APP_TAGLINE = "Fabrication & Engineering";
 
 /** Bump on every deploy â€” shown on the login page and Settings so we can
  * always tell which version a user is actually running. */

@@ -2,10 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-import { APP_NAME, APP_VERSION } from "@/lib/version";
+import { APP_NAME, APP_TAGLINE, APP_VERSION } from "@/lib/version";
 import { toast } from "sonner";
 import {
-  Sparkles,
   Mail,
   Lock,
   Eye,
@@ -90,12 +89,15 @@ export function LoginPage() {
       {/* Brand panel */}
       <div className="hidden lg:flex w-[45%] bg-gradient-brand text-brand-foreground flex-col justify-between p-10 xl:p-14">
         <div className="flex items-center gap-3">
-          <div className="h-11 w-11 rounded-xl bg-white/15 backdrop-blur flex items-center justify-center ring-1 ring-white/25">
-            <Sparkles className="h-5 w-5" />
+          {/* On the orange panel the logo's own grey wordmark would be hard to
+              read, so this side keeps the mark on a frosted tile and sets the
+              name in the panel's own white. */}
+          <div className="h-11 w-11 rounded-xl bg-white/90 flex items-center justify-center ring-1 ring-white/40 p-1.5">
+            <img src="/balaji-mark.png" alt="" className="h-full w-full object-contain" />
           </div>
           <div className="leading-tight">
             <p className="font-bold tracking-tight text-[20px]">{APP_NAME}</p>
-            <p className="text-[11px] uppercase tracking-[0.2em] opacity-80">Billing · Inventory</p>
+            <p className="text-[11px] uppercase tracking-[0.2em] opacity-80">{APP_TAGLINE}</p>
           </div>
         </div>
 
@@ -138,16 +140,14 @@ export function LoginPage() {
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="w-full max-w-[400px]">
           {/* Mobile brand header */}
-          <div className="lg:hidden flex items-center gap-2.5 mb-8 justify-center">
-            <div className="h-10 w-10 rounded-lg bg-gradient-brand text-brand-foreground flex items-center justify-center">
-              <Sparkles className="h-5 w-5" />
-            </div>
-            <div className="leading-tight">
-              <p className="font-bold tracking-tight text-[18px]">{APP_NAME}</p>
-              <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                Billing · Inventory
-              </p>
-            </div>
+          <div className="lg:hidden flex items-center justify-center mb-8">
+            {/* A white card is exactly what this logo was drawn for, so on the
+                phone it gets to be itself rather than a mark and a caption. */}
+            <img
+              src="/balaji-logo.png"
+              alt={APP_NAME}
+              className="h-14 w-auto max-w-[80%] object-contain"
+            />
           </div>
 
           <h2 className="text-[24px] font-bold tracking-tight">Welcome back</h2>

@@ -58,44 +58,62 @@
   --mobile-nav-height: 52px;
   --mobile-nav-safe: 10px;
 
-  --background: oklch(0.985 0.004 60);
-  --foreground: oklch(0.22 0.02 25);
+  /* ── Balaji Fabtech ────────────────────────────────────────────────
+     Taken off the logo rather than chosen: its orange is #EA6D1D
+     (oklch 0.675 0.176 47) and its grey #51595C (oklch 0.458 0.011 222).
+     The neutrals below carry that grey's faint cool cast instead of the warm
+     one they had, so white surfaces sit under the mark rather than beside it.
+
+     The orange is NOT used as-is for anything carrying white text. At L 0.675
+     white on it is about 2.6:1 — unreadable, and the shop reads numbers off
+     these buttons all day. Interactive orange keeps L 0.55, the lightness
+     this app was built around and tested at; the logo's own brighter orange
+     is kept for large fills where nothing sits on top of it. */
+  --background: oklch(0.985 0.003 230);
+  --foreground: oklch(0.26 0.012 225);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.22 0.02 25);
+  --card-foreground: oklch(0.26 0.012 225);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.22 0.02 25);
+  --popover-foreground: oklch(0.26 0.012 225);
 
-  /* Vyapar-inspired warm red */
-  --primary: oklch(0.55 0.18 25);
+  --primary: oklch(0.55 0.165 45);
   --primary-foreground: oklch(0.99 0 0);
-  --primary-soft: oklch(0.96 0.03 25);
+  --primary-soft: oklch(0.96 0.035 55);
 
-  --secondary: oklch(0.96 0.008 60);
-  --secondary-foreground: oklch(0.25 0.02 25);
-  --muted: oklch(0.965 0.006 60);
-  --muted-foreground: oklch(0.5 0.02 30);
-  --accent: oklch(0.955 0.02 25);
-  --accent-foreground: oklch(0.3 0.05 25);
+  --secondary: oklch(0.96 0.006 230);
+  --secondary-foreground: oklch(0.3 0.012 225);
+  --muted: oklch(0.965 0.005 230);
+  --muted-foreground: oklch(0.52 0.012 225);
+  --accent: oklch(0.955 0.022 50);
+  --accent-foreground: oklch(0.42 0.12 45);
 
-  --destructive: oklch(0.6 0.22 27);
+  /* Kept clearly redder than the brand orange: delete and save must never be
+     a shade of the same thing. */
+  --destructive: oklch(0.56 0.21 22);
   --destructive-foreground: oklch(0.99 0 0);
 
-  --border: oklch(0.9 0.008 40);
-  --input: oklch(0.92 0.008 40);
-  --ring: oklch(0.55 0.18 25);
+  --border: oklch(0.9 0.006 230);
+  --input: oklch(0.92 0.006 230);
+  --ring: oklch(0.55 0.165 45);
 
   --success: oklch(0.55 0.15 155);
   --success-soft: oklch(0.95 0.05 155);
-  --warning: oklch(0.7 0.16 70);
-  --warning-soft: oklch(0.96 0.06 80);
+  /* Pushed yellower than it was, to stay distinct from a brand that is now
+     orange — a warning badge and a primary button must not read as the same
+     colour at a glance. */
+  --warning: oklch(0.75 0.15 88);
+  --warning-soft: oklch(0.96 0.06 92);
   --info: oklch(0.55 0.14 240);
   --info-soft: oklch(0.95 0.03 240);
 
-  /* Brand gradient (topbar / hero) */
-  --brand: oklch(0.5 0.19 20);
+  /* Brand gradient (topbar / hero). This is where the logo's own orange
+     lives: a large fill with nothing written on it, which is the one place
+     the real colour is safe at full brightness. The sweep matches the mark's
+     — brighter at the top-left, deeper at the bottom-right. */
+  --brand: oklch(0.55 0.165 45);
   --brand-foreground: oklch(0.99 0 0);
-  --gradient-brand: linear-gradient(135deg, oklch(0.5 0.19 22), oklch(0.42 0.17 12));
-  --gradient-primary: linear-gradient(135deg, oklch(0.6 0.2 25), oklch(0.48 0.18 15));
+  --gradient-brand: linear-gradient(135deg, oklch(0.675 0.176 47), oklch(0.53 0.17 38));
+  --gradient-primary: linear-gradient(135deg, oklch(0.675 0.176 47), oklch(0.52 0.168 40));
   --gradient-success: linear-gradient(135deg, oklch(0.6 0.16 155), oklch(0.48 0.15 165));
   --gradient-warning: linear-gradient(135deg, oklch(0.75 0.16 70), oklch(0.62 0.16 55));
   --gradient-info: linear-gradient(135deg, oklch(0.6 0.14 245), oklch(0.48 0.16 260));
@@ -106,38 +124,42 @@
 
   /* Sidebar: light cream/white with accent bar for professional look */
   --sidebar: oklch(1 0 0);
-  --sidebar-foreground: oklch(0.28 0.02 25);
-  --sidebar-muted: oklch(0.55 0.02 30);
-  --sidebar-accent: oklch(0.96 0.03 25);
-  --sidebar-accent-foreground: oklch(0.5 0.18 25);
-  --sidebar-border: oklch(0.92 0.008 40);
+  --sidebar-foreground: oklch(0.3 0.012 225);
+  --sidebar-muted: oklch(0.55 0.012 225);
+  --sidebar-accent: oklch(0.96 0.035 55);
+  --sidebar-accent-foreground: oklch(0.5 0.165 45);
+  --sidebar-border: oklch(0.92 0.006 230);
 }
 
 .dark {
-  --background: oklch(0.18 0.02 25);
-  --foreground: oklch(0.95 0.01 60);
-  --card: oklch(0.22 0.02 25);
-  --card-foreground: oklch(0.95 0.01 60);
-  --popover: oklch(0.22 0.02 25);
-  --popover-foreground: oklch(0.95 0.01 60);
-  --primary: oklch(0.68 0.18 25);
-  --primary-foreground: oklch(0.15 0.02 25);
-  --primary-soft: oklch(0.3 0.06 25);
-  --secondary: oklch(0.28 0.02 25);
-  --secondary-foreground: oklch(0.95 0.01 60);
-  --muted: oklch(0.28 0.02 25);
-  --muted-foreground: oklch(0.68 0.02 40);
-  --accent: oklch(0.3 0.04 25);
-  --accent-foreground: oklch(0.95 0.01 60);
-  --border: oklch(0.3 0.02 25);
-  --input: oklch(0.3 0.02 25);
-  --ring: oklch(0.68 0.18 25);
-  --sidebar: oklch(0.2 0.02 25);
-  --sidebar-foreground: oklch(0.92 0.01 60);
-  --sidebar-muted: oklch(0.65 0.02 40);
-  --sidebar-accent: oklch(0.3 0.06 25);
+  /* The same two colours, the other way up: the logo's own charcoal
+     (#2E3538) is what the dark surfaces are built from, so the mark sits on
+     its own grey. On dark the orange can be its real self — the text on it is
+     dark, not white, so the bright value is the readable one. */
+  --background: oklch(0.19 0.012 225);
+  --foreground: oklch(0.95 0.006 230);
+  --card: oklch(0.235 0.012 225);
+  --card-foreground: oklch(0.95 0.006 230);
+  --popover: oklch(0.235 0.012 225);
+  --popover-foreground: oklch(0.95 0.006 230);
+  --primary: oklch(0.72 0.17 50);
+  --primary-foreground: oklch(0.18 0.02 45);
+  --primary-soft: oklch(0.32 0.06 48);
+  --secondary: oklch(0.29 0.012 225);
+  --secondary-foreground: oklch(0.95 0.006 230);
+  --muted: oklch(0.29 0.012 225);
+  --muted-foreground: oklch(0.7 0.01 228);
+  --accent: oklch(0.31 0.04 48);
+  --accent-foreground: oklch(0.95 0.006 230);
+  --border: oklch(0.31 0.012 225);
+  --input: oklch(0.31 0.012 225);
+  --ring: oklch(0.72 0.17 50);
+  --sidebar: oklch(0.215 0.012 225);
+  --sidebar-foreground: oklch(0.92 0.006 230);
+  --sidebar-muted: oklch(0.67 0.01 228);
+  --sidebar-accent: oklch(0.32 0.06 48);
   --sidebar-accent-foreground: oklch(0.99 0 0);
-  --sidebar-border: oklch(0.28 0.02 25);
+  --sidebar-border: oklch(0.29 0.012 225);
 }
 
 @layer base {

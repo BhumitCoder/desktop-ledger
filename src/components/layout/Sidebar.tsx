@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { APP_NAME } from "@/lib/version";
+import { APP_NAME, APP_TAGLINE } from "@/lib/version";
 import {
   LayoutDashboard,
   Users,
@@ -15,7 +15,6 @@ import {
   FileText,
   Settings,
   Boxes,
-  Sparkles,
   ChevronsLeft,
   ChevronsRight,
   CornerDownLeft,
@@ -175,16 +174,18 @@ export function Sidebar() {
           style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
         >
           <div className="h-14 flex items-center gap-2.5 px-3">
-            <div className="h-8 w-8 rounded-md bg-primary-soft text-primary flex items-center justify-center ring-1 ring-primary/10 shrink-0">
-              <Sparkles className="h-4 w-4" />
-            </div>
+            {/* The mark, not the whole logo: this slot is square and is all
+                there is when the sidebar collapses. The name beside it is text
+                so it takes the theme's own foreground — the logo's grey
+                wordmark would disappear on a dark sidebar. */}
+            <img src="/balaji-mark.png" alt="" className="h-8 w-8 shrink-0 object-contain" />
             {!collapsed && (
               <div className="flex flex-col leading-tight overflow-hidden">
                 <span className="font-bold tracking-tight text-[15px] text-sidebar-foreground">
                   {APP_NAME}
                 </span>
                 <span className="text-[10px] uppercase tracking-widest text-sidebar-muted">
-                  Billing · Inventory
+                  {APP_TAGLINE}
                 </span>
               </div>
             )}

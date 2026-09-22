@@ -486,7 +486,7 @@ function Dashboard() {
           <div className="mt-4 flex flex-wrap gap-2">
             <button
               onClick={() => navigate({ to: "/sales/new" })}
-              className="inline-flex items-center gap-1.5 h-8 px-3 bg-blue-600 text-white rounded-md text-xs font-semibold hover:bg-blue-700 transition"
+              className="inline-flex items-center gap-1.5 h-8 px-3 bg-primary text-primary-foreground rounded-md text-xs font-semibold hover:bg-primary/90 transition"
             >
               <Plus className="h-3.5 w-3.5" /> Add Sale
             </button>
