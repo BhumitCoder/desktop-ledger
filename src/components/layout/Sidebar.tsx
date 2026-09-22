@@ -3,6 +3,7 @@ import { APP_NAME, APP_TAGLINE } from "@/lib/version";
 import {
   LayoutDashboard,
   Users,
+  FolderOpen,
   Package,
   ShoppingCart,
   Truck,
@@ -59,6 +60,11 @@ const groups: NavGroup[] = [
       { path: "/items", label: "Items", icon: Package, key: "3" },
       { path: "/inventory", label: "Inventory", icon: Boxes },
     ],
+  },
+  {
+    title: "Documents",
+    module: "documents",
+    items: [{ path: "/documents", label: "Documents", icon: FolderOpen }],
   },
   {
     title: "Sales",

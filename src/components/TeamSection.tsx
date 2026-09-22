@@ -22,6 +22,7 @@ const MODULES: { key: ModuleKey; label: string }[] = [
   { key: "purchaseExpenses", label: "Purchase & Expenses" },
   { key: "cashBank", label: "Cash & Bank" },
   { key: "reports", label: "Reports" },
+  { key: "documents", label: "Documents" },
 ];
 
 const emptyPermissions = (): Record<ModuleKey, ModulePermission> =>

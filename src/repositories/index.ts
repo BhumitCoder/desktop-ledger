@@ -18,6 +18,7 @@ import type {
   CashAdjustment,
   TeamUser,
   ModuleKey,
+  BusinessDoc,
 } from "@/types";
 
 export const PartyRepo = new Repository<Party>("parties");
@@ -32,6 +33,8 @@ export const BankRepo = new Repository<BankAccount>("banks");
 export const BankTxnRepo = new Repository<BankTxn>("bankTxns");
 export const PaymentRepo = new Repository<Payment>("payments");
 export const StockAdjustmentRepo = new Repository<StockAdjustment>("stock-adjustments");
+/* The business's own paperwork. Records only — the files are in Storage. */
+export const BusinessDocRepo = new Repository<BusinessDoc>("business-docs");
 export const CashAdjustmentRepo = new Repository<CashAdjustment>("cash-adjustments");
 
 const defaultCompany: Company = {
@@ -297,6 +300,7 @@ const ALL_REPOS = Object.values(REPO_BY_KEY);
  * their own module here). */
 const MODULE_REPOS: Record<ModuleKey, Repository<{ id: string }>[]> = {
   masterData: [PartyRepo, ItemRepo, StockAdjustmentRepo] as Repository<{ id: string }>[],
+  documents: [BusinessDocRepo] as Repository<{ id: string }>[],
   sales: [SalesRepo, SaleReturnRepo] as Repository<{ id: string }>[],
   purchaseExpenses: [PurchaseRepo, PurchaseReturnRepo, ExpenseRepo, PayeeRepo] as Repository<{
     id: string;

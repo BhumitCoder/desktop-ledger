@@ -12,3 +12,8 @@ export const DATABASE_ID = "test-only-never-a-real-database";
 export const isBrowser = false;
 export const db = {} as never;
 export const auth = { currentUser: null } as never;
+/** Undefined on purpose: the document vault's Storage helpers refuse to do
+ *  anything without a real app, which is exactly what a test run should get.
+ *  A stub that handed back something usable would let a test upload to the
+ *  client's live bucket. */
+export const firebaseApp = undefined;

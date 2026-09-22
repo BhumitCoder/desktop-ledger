@@ -60,5 +60,8 @@ if (isBrowser) {
   );
 }
 
+/** The initialised app, for the SDKs that are loaded lazily — Storage, used
+ *  by the document vault. Undefined during SSR, where there is no app. */
+export const firebaseApp = app;
 export const auth = authInstance as Auth;
 export const db = dbInstance as Firestore;

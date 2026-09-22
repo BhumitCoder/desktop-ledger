@@ -63,6 +63,14 @@ import {
 import { transferLegsFor } from "@/lib/transferLegs";
 import { popupRect } from "@/lib/popupRect";
 import {
+  MAX_DOC_BYTES,
+  prettySize,
+  suggestedName,
+  validateUpload,
+  storagePathFor,
+  docMatches,
+} from "@/lib/businessDocs";
+import {
   deriveLinkState,
   linkSeverity,
   needsScan,
@@ -3157,6 +3165,122 @@ console.log(`\n═════════════════════�
     ) === "offline",
     "WA5: a session taken over means nothing was sent, so the queue may retry it",
   );
+}
+
+/* ═══════ TEST DV: the business's own paperwork ═════════════════════════
+   Asked for by Balaji Fabtech: somewhere to keep every business document —
+   GST certificate, PAN, licences, insurance, signed contracts — name them,
+   and get them back any time.
+
+   The file goes to Storage and the record to Firestore; these are the rules
+   that sit between the two, and each one is a decision about a vault the
+   shop has to be able to trust. */
+{
+  const file = (name: string, size = 1024) => ({ name, size });
+
+  /* ── What may be uploaded ──────────────────────────────────────────── */
+  {
+    assert(validateUpload(file("gst.pdf"), "GST Certificate", []).ok, "DV1: an ordinary upload");
+    assert(
+      !validateUpload(null, "GST Certificate", []).ok,
+      "DV2: a name with no file is not an upload",
+    );
+
+    /* A vault whose entries are called "scan_004" is a folder, not a vault.
+       The name is the whole point of the feature. */
+    for (const blank of ["", "   "]) {
+      const r = validateUpload(file("scan.pdf"), blank, []);
+      assert(
+        !r.ok && r.reason === "no-name",
+        `DV3: a blank name is refused (${JSON.stringify(blank)})`,
+      );
+    }
+
+    /* Two scans of the same certificate under one name is how a vault stops
+       being trustworthy: nobody can tell which is current. Refused with the
+       clashing name said back, so a person can rename or replace. */
+    const dup = validateUpload(file("gst2.pdf"), "gst certificate", ["GST Certificate"]);
+    assert(!dup.ok && dup.reason === "duplicate-name", "DV4: a duplicate name is refused");
+    assert(
+      !dup.ok && dup.message.includes("GST Certificate"),
+      "DV5: and the message names the one already there — " + (dup.ok ? "" : dup.message),
+    );
+
+    /* Case and padding must not create a second "GST Certificate". */
+    assert(
+      !validateUpload(file("a.pdf"), "  GST CERTIFICATE  ", ["gst certificate"]).ok,
+      "DV6: the clash check ignores case and padding",
+    );
+
+    const big = validateUpload(file("scan.pdf", MAX_DOC_BYTES + 1), "Drawing", []);
+    assert(!big.ok && big.reason === "too-big", "DV7: a file over the limit is refused");
+    assert(
+      !big.ok && big.message.includes("MB"),
+      "DV8: in megabytes, not bytes — " + (big.ok ? "" : big.message),
+    );
+    assert(
+      validateUpload(file("scan.pdf", MAX_DOC_BYTES), "Drawing", []).ok,
+      "DV9: and exactly the limit is still allowed",
+    );
+  }
+
+  /* ── Where the bytes go ────────────────────────────────────────────────
+     Keyed by the record's id, never by the name. Two documents may share a
+     file name without either overwriting the other, and renaming a document
+     later moves nothing — which is what makes rename a Firestore-only
+     operation rather than a copy and a delete. */
+  {
+    const a = storagePathFor("id-1", "gst.pdf");
+    const b = storagePathFor("id-2", "gst.pdf");
+    assert(a !== b, "DV10: two documents with the same file name do not collide");
+    assert(a.includes("id-1"), "DV11: the path is keyed by the record");
+    assert(!a.includes("GST"), "DV12: and never by the name the shop chose, which can change");
+
+    /* Storage treats these specially; a path carrying them is a path that
+       cannot be fetched back. */
+    const nasty = storagePathFor("id-3", "a#b?c[d]e*f/g\\h.pdf");
+    assert(
+      !/[#?[\]*\\]/.test(nasty) && nasty.split("/").length === 3,
+      "DV13: characters Storage reserves are stripped out — " + nasty,
+    );
+    assert(
+      storagePathFor("id-4", "").endsWith("/file"),
+      "DV14: and an empty name still has a path",
+    );
+  }
+
+  /* ── The name offered when a file is chosen ───────────────────────────
+     A starting point, not a decision: the extension goes because the shop
+     names the DOCUMENT and the file keeps its own name alongside. */
+  {
+    assert(suggestedName("GST Certificate.pdf") === "GST Certificate", "DV15: the extension goes");
+    assert(
+      suggestedName("IMG_20260921_114233.jpg") === "IMG 20260921 114233",
+      "DV16: a camera's underscores become spaces — " + suggestedName("IMG_20260921_114233.jpg"),
+    );
+    assert(suggestedName("") === "", "DV17: and nothing in gives nothing out");
+  }
+
+  /* ── Finding one again ────────────────────────────────────────────────
+     Every word has to match something, so two words narrow rather than
+     widen — a vault where searching adds results is a vault nobody searches. */
+  {
+    const d = { name: "GST Certificate", fileName: "gst-2026.pdf", note: "Renewed Sept" };
+    assert(docMatches("", d), "DV18: an empty search shows everything");
+    assert(docMatches("gst", d), "DV19: by name");
+    assert(docMatches("2026", d), "DV20: by file name");
+    assert(docMatches("renewed", d), "DV21: by note");
+    assert(docMatches("gst renewed", d), "DV22: and by words from more than one of them");
+    assert(!docMatches("gst pan", d), "DV23: while a word that matches nothing excludes it");
+  }
+
+  /* ── Sizes a person reads ─────────────────────────────────────────────── */
+  {
+    assert(prettySize(512) === "512 B", "DV24: bytes");
+    assert(prettySize(2048) === "2 KB", "DV25: kilobytes");
+    assert(prettySize(5 * 1024 * 1024) === "5 MB", "DV26: megabytes");
+    assert(prettySize(0) === "0 B", "DV27: and nothing is nothing, not NaN");
+  }
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);

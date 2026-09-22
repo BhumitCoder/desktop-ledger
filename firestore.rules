@@ -68,6 +68,13 @@ service cloud.firestore {
     // their otherwise-fully-permitted delete/save fails opaquely on this
     // collection alone. See src/routes/sales.index.tsx's handleDelete for
     // the concrete batch this covers.
+    // The business's own paperwork. Its own module, not masterData's: a
+    // clerk who may add an item has no business reading the bank mandate.
+    match /business-docs/{id} {
+      allow read: if hasPerm('documents', 'view');
+      allow create, update: if hasPerm('documents', 'edit');
+      allow delete: if hasPerm('documents', 'delete');
+    }
     match /items/{id} {
       allow read: if hasPerm('masterData', 'view');
       allow create, update: if hasPerm('masterData', 'edit')

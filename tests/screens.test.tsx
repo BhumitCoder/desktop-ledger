@@ -51,6 +51,7 @@ import {
   PaymentRepo,
   CompanyRepo,
   StockAdjustmentRepo,
+  BusinessDocRepo,
   PurchaseReturnRepo,
   CashAdjustmentRepo,
 } from "@/repositories";
@@ -162,6 +163,18 @@ function seed() {
     type: "both",
     phone: "9876500002",
     openingBalance: 0,
+  } as never);
+
+  // The business's own paperwork — the vault Balaji Fabtech asked for.
+  BusinessDocRepo.add({
+    id: "DOC1",
+    createdAt: "2026-09-01T00:00:00Z",
+    name: "GST Certificate",
+    fileName: "gst-2026.pdf",
+    contentType: "application/pdf",
+    size: 245760,
+    storagePath: "business-docs/DOC1/gst-2026.pdf",
+    note: "Renewed Sept 2026",
   } as never);
 
   ItemRepo.add({
@@ -488,6 +501,7 @@ async function runAll(): Promise<Results> {
       "/purchase/new",
       "/parties/P1",
       "/sales/S1",
+      "/documents",
       "/items",
       "/payments",
       "/expenses",
@@ -5285,6 +5299,55 @@ async function runAll(): Promise<Results> {
           "sale price: and never at the purchase price — saw " + values.join(","),
         );
       }
+    }
+  }
+
+  /* ── The document vault ───────────────────────────────────────────────
+     Balaji Fabtech's own requirement: somewhere to keep every business
+     document, named, and get it back any time.
+
+     What this proves is the half that is checkable without a network — the
+     record. The file lives in Firebase Storage and this harness deliberately
+     cannot reach it (tests/stubs/firebase.ts hands back no app at all, so an
+     upload here would be an upload to the client's live bucket). So: the list
+     reads, it says what each document is, and the way out is offered. */
+  {
+    const page = await renderRoute("/documents");
+    has(page, "GST Certificate", "documents: the vault lists what the shop named it");
+    has(page, "gst-2026.pdf", "documents: alongside the file's own name");
+    has(page, "240 KB", "documents: and its size in something a person reads");
+    has(page, "Renewed Sept 2026", "documents: the note is shown");
+
+    const download = Array.from(document.querySelectorAll("button")).find((b) =>
+      (b.textContent ?? "").includes("Download"),
+    );
+    assert(!!download, "documents: every row offers a way to get the file back");
+
+    /* The upload dialog is the only way in, so it has to open. */
+    const uploadBtn = Array.from(document.querySelectorAll("button")).find(
+      (b) => (b.textContent ?? "").trim() === "Upload",
+    );
+    assert(!!uploadBtn, "documents: and there is a way to put one in");
+    if (uploadBtn) {
+      await act(async () => {
+        uploadBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      await settleMs(160);
+      const body = document.body.textContent ?? "";
+      assert(body.includes("Upload a document"), "documents: the upload dialog opens");
+      assert(
+        !!document.querySelector('input[type="file"]'),
+        "documents: with a real file picker in it",
+      );
+      assert(
+        body.includes("25 MB"),
+        "documents: and says the size limit BEFORE a 40MB scan is chosen",
+      );
+      const esc = new KeyboardEvent("keydown", { key: "Escape", bubbles: true });
+      await act(async () => {
+        document.dispatchEvent(esc);
+      });
+      await settleMs(120);
     }
   }
 

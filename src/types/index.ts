@@ -297,7 +297,13 @@ export interface Company {
  * their own permissions. "reports" has no collection of its own (Reports/
  * Daybook/GST aggregate reads across the other modules, already protected
  * by their own rules) — it only gates the aggregated-view pages themselves. */
-export type ModuleKey = "masterData" | "sales" | "purchaseExpenses" | "cashBank" | "reports";
+export type ModuleKey =
+  | "masterData"
+  | "sales"
+  | "purchaseExpenses"
+  | "cashBank"
+  | "reports"
+  | "documents";
 
 export interface ModulePermission {
   view: boolean;
@@ -321,4 +327,28 @@ export interface TeamUser {
    * "view only" — every level must be explicitly granted. */
   permissions: Partial<Record<ModuleKey, ModulePermission>>;
   createdAt: string;
+}
+
+/**
+ * One piece of the business's own paperwork.
+ *
+ * The record, not the file. The file itself is in Firebase Storage at
+ * `storagePath` — a scanned certificate is megabytes and a Firestore document
+ * tops out at one — and keeping the record here is what lets the list load
+ * and be searched offline without downloading anything.
+ */
+export interface BusinessDoc {
+  id: ID;
+  /** What the shop calls it: "GST Certificate", not "scan_004.pdf". */
+  name: string;
+  /** The file's own name, kept so a download arrives called what it was. */
+  fileName: string;
+  contentType?: string;
+  size: number;
+  /** Where the bytes are. See lib/businessDocs.ts — keyed by id, so renaming
+   *  the document moves nothing and two files may share a name. */
+  storagePath: string;
+  note?: string;
+  createdAt: string;
+  createdBy?: string;
 }

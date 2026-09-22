@@ -19,6 +19,7 @@ import { Route as ItemsRouteImport } from './routes/items'
 import { Route as InventoryRouteImport } from './routes/inventory'
 import { Route as GstRouteImport } from './routes/gst'
 import { Route as ExpensesRouteImport } from './routes/expenses'
+import { Route as DocumentsRouteImport } from './routes/documents'
 import { Route as DaybookRouteImport } from './routes/daybook'
 import { Route as CashRouteImport } from './routes/cash'
 import { Route as BankRouteImport } from './routes/bank'
@@ -90,6 +91,11 @@ const GstRoute = GstRouteImport.update({
 const ExpensesRoute = ExpensesRouteImport.update({
   id: '/expenses',
   path: '/expenses',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DocumentsRoute = DocumentsRouteImport.update({
+  id: '/documents',
+  path: '/documents',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DaybookRoute = DaybookRouteImport.update({
@@ -208,6 +214,7 @@ export interface FileRoutesByFullPath {
   '/bank': typeof BankRoute
   '/cash': typeof CashRoute
   '/daybook': typeof DaybookRoute
+  '/documents': typeof DocumentsRoute
   '/expenses': typeof ExpensesRoute
   '/gst': typeof GstRoute
   '/inventory': typeof InventoryRoute
@@ -242,6 +249,7 @@ export interface FileRoutesByTo {
   '/bank': typeof BankRoute
   '/cash': typeof CashRoute
   '/daybook': typeof DaybookRoute
+  '/documents': typeof DocumentsRoute
   '/expenses': typeof ExpensesRoute
   '/gst': typeof GstRoute
   '/inventory': typeof InventoryRoute
@@ -277,6 +285,7 @@ export interface FileRoutesById {
   '/bank': typeof BankRoute
   '/cash': typeof CashRoute
   '/daybook': typeof DaybookRoute
+  '/documents': typeof DocumentsRoute
   '/expenses': typeof ExpensesRoute
   '/gst': typeof GstRoute
   '/inventory': typeof InventoryRoute
@@ -313,6 +322,7 @@ export interface FileRouteTypes {
     | '/bank'
     | '/cash'
     | '/daybook'
+    | '/documents'
     | '/expenses'
     | '/gst'
     | '/inventory'
@@ -347,6 +357,7 @@ export interface FileRouteTypes {
     | '/bank'
     | '/cash'
     | '/daybook'
+    | '/documents'
     | '/expenses'
     | '/gst'
     | '/inventory'
@@ -381,6 +392,7 @@ export interface FileRouteTypes {
     | '/bank'
     | '/cash'
     | '/daybook'
+    | '/documents'
     | '/expenses'
     | '/gst'
     | '/inventory'
@@ -416,6 +428,7 @@ export interface RootRouteChildren {
   BankRoute: typeof BankRoute
   CashRoute: typeof CashRoute
   DaybookRoute: typeof DaybookRoute
+  DocumentsRoute: typeof DocumentsRoute
   ExpensesRoute: typeof ExpensesRoute
   GstRoute: typeof GstRoute
   InventoryRoute: typeof InventoryRoute
@@ -516,6 +529,13 @@ declare module '@tanstack/react-router' {
       path: '/expenses'
       fullPath: '/expenses'
       preLoaderRoute: typeof ExpensesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/documents': {
+      id: '/documents'
+      path: '/documents'
+      fullPath: '/documents'
+      preLoaderRoute: typeof DocumentsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/daybook': {
@@ -680,6 +700,7 @@ const rootRouteChildren: RootRouteChildren = {
   BankRoute: BankRoute,
   CashRoute: CashRoute,
   DaybookRoute: DaybookRoute,
+  DocumentsRoute: DocumentsRoute,
   ExpensesRoute: ExpensesRoute,
   GstRoute: GstRoute,
   InventoryRoute: InventoryRoute,
