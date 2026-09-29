@@ -19,6 +19,7 @@ import type {
   TeamUser,
   ModuleKey,
   BusinessDoc,
+  Estimate,
 } from "@/types";
 
 export const PartyRepo = new Repository<Party>("parties");
@@ -35,6 +36,9 @@ export const PaymentRepo = new Repository<Payment>("payments");
 export const StockAdjustmentRepo = new Repository<StockAdjustment>("stock-adjustments");
 /* The business's own paperwork. Records only — the files are in Storage. */
 export const BusinessDocRepo = new Repository<BusinessDoc>("business-docs");
+/* Quotations and proforma invoices. One collection, told apart by `kind` —
+   they are the same document at two stages and share every screen. */
+export const EstimateRepo = new Repository<Estimate>("estimates");
 export const CashAdjustmentRepo = new Repository<CashAdjustment>("cash-adjustments");
 
 const defaultCompany: Company = {
@@ -289,6 +293,7 @@ export const REPO_BY_KEY: Record<string, Repository<{ id: string }>> = {
   "bz.payments": PaymentRepo as Repository<{ id: string }>,
   "bz.stock-adjustments": StockAdjustmentRepo as Repository<{ id: string }>,
   "bz.business-docs": BusinessDocRepo as Repository<{ id: string }>,
+  "bz.estimates": EstimateRepo as Repository<{ id: string }>,
   "bz.cash-adjustments": CashAdjustmentRepo as Repository<{ id: string }>,
 };
 
@@ -302,7 +307,7 @@ const ALL_REPOS = Object.values(REPO_BY_KEY);
 const MODULE_REPOS: Record<ModuleKey, Repository<{ id: string }>[]> = {
   masterData: [PartyRepo, ItemRepo, StockAdjustmentRepo] as Repository<{ id: string }>[],
   documents: [BusinessDocRepo] as Repository<{ id: string }>[],
-  sales: [SalesRepo, SaleReturnRepo] as Repository<{ id: string }>[],
+  sales: [SalesRepo, SaleReturnRepo, EstimateRepo] as Repository<{ id: string }>[],
   purchaseExpenses: [PurchaseRepo, PurchaseReturnRepo, ExpenseRepo, PayeeRepo] as Repository<{
     id: string;
   }>[],

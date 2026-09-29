@@ -1,4 +1,5 @@
 import type { GstType } from "@/lib/gstin";
+import type { EstimateKind, EstimateStatus } from "@/lib/estimates";
 
 export type ID = string;
 
@@ -362,6 +363,10 @@ export interface Company {
   currency: string;
   invoicePrefix: string;
   purchasePrefix: string;
+  /** Own series for the pre-sale documents. Rule 46 wants the tax-invoice
+   *  series consecutive, so nothing else may draw a number from it. */
+  quotationPrefix?: string;
+  proformaPrefix?: string;
   enableGst?: boolean;
   /** Round invoice totals to the nearest rupee (default on) */
   enableRoundOff?: boolean;
@@ -444,4 +449,54 @@ export interface BusinessDoc {
   note?: string;
   createdAt: string;
   createdBy?: string;
+}
+
+/**
+ * A quotation or a proforma invoice.
+ *
+ * Deliberately the same shape as an Invoice from the party down, so the same
+ * line editor and the same printed layout serve all three and a conversion is
+ * a copy rather than a translation. What it does NOT have is the half that
+ * makes an Invoice an accounting document: no paid, no paymentMode, no splits.
+ * Those are absent because neither of these settles anything — see
+ * lib/estimates.ts.
+ */
+export interface Estimate {
+  id: ID;
+  kind: EstimateKind;
+  status: EstimateStatus;
+  /** Its own series. Never a number from the tax-invoice series. */
+  number: string;
+  date: string;
+  /** The price is only good until this date. */
+  validUntil?: string;
+
+  partyId: ID;
+  partyName: string;
+  partyPhone?: string;
+  partyGstin?: string;
+  partyAddress?: string;
+  partyState?: string;
+  placeOfSupply?: string;
+
+  gstEnabled?: boolean;
+  reverseCharge?: boolean;
+  lineItems: LineItem[];
+  subtotal: number;
+  discount: number;
+  shippingCharge?: number;
+  taxAmount: number;
+  roundOff?: number;
+  total: number;
+  notes?: string;
+
+  /** What this came from, and what it led to — the chain, read both ways. */
+  fromId?: ID;
+  fromNumber?: string;
+  convertedToId?: ID;
+  convertedToNumber?: string;
+  /** Which kind of document it became: the next estimate, or the tax invoice. */
+  convertedToKind?: EstimateKind | "invoice";
+
+  createdAt: string;
 }

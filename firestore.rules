@@ -94,6 +94,14 @@ service cloud.firestore {
       allow create, update: if hasPerm('sales', 'edit');
       allow delete: if hasPerm('sales', 'delete');
     }
+    // Quotations and proforma invoices. The sales permission, because they
+    // are the sale before it is a sale — and neither posts anything, so
+    // nothing here can move money or stock.
+    match /estimates/{id} {
+      allow read: if hasPerm('sales', 'view');
+      allow create, update: if hasPerm('sales', 'edit');
+      allow delete: if hasPerm('sales', 'delete');
+    }
 
     // ---- Purchase, Purchase Return, Expenses, Expense Payees ----
     match /purchases/{id} {

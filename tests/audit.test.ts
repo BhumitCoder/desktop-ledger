@@ -62,6 +62,17 @@ import {
 } from "@/lib/outbox";
 import { transferLegsFor } from "@/lib/transferLegs";
 import { popupRect } from "@/lib/popupRect";
+import {
+  estimateSpec,
+  ESTIMATE_KINDS,
+  ESTIMATE_MOVES_STOCK,
+  ESTIMATE_POSTS_TO_LEDGER,
+  canConvert as canConvertEstimate,
+  isExpired,
+  seriesOf,
+  carriedFields,
+  type EstimateKind,
+} from "@/lib/estimates";
 import { GST_STATES, readGstin, stateFromGstin, supplyKind, splitTax } from "@/lib/gstin";
 import {
   MAX_DOC_BYTES,
@@ -3487,6 +3498,150 @@ console.log(`\n═════════════════════�
     assert(stateFromGstin("99") === undefined, "GS23: and a code that is not one names nothing");
     assert(stateFromGstin("") === undefined, "GS24: nor does nothing");
     assert(Object.keys(GST_STATES).length >= 36, "GS25: every state and union territory is listed");
+  }
+}
+
+/* ═══════ TEST ES: the two papers before the tax invoice ════════════════
+   The standard sequence, looked up rather than invented: enquiry → quotation
+   → customer agrees → proforma invoice (often against an advance, and the
+   thing a buyer's bank will accept) → goods go out → tax invoice.
+
+   Everything asserted here is about what these documents must NOT do, because
+   that is where the rules actually bite:
+
+     · GST attaches to the tax invoice. Neither of these creates a liability
+       and neither gives the buyer input credit.
+     · Rule 46 wants the tax-invoice series consecutive and unique for the
+       year. Nothing else may draw a number from it.
+     · A proforma is not RELABELLED into a tax invoice. The heading is what
+       makes a document legally what it is.
+
+   Sources: CGST Rule 46; ClearTax and TaxAdda on the status of a proforma. */
+{
+  /* ── Neither posts, and neither moves goods ──────────────────────────
+     Named constants rather than an absence. "The quotation screen happens
+     not to call the stock code" is a fact about today's code; "a quotation
+     moves no stock" is a fact about the business, and only the second is
+     worth being able to break a test over. */
+  {
+    assert(ESTIMATE_MOVES_STOCK === false, "ES1: a quotation or proforma moves no stock");
+    assert(ESTIMATE_POSTS_TO_LEDGER === false, "ES2: and posts nothing to the ledger");
+  }
+
+  /* ── The headings, which are what make them legally what they are ──── */
+  {
+    assert(estimateSpec("quotation").heading === "QUOTATION", "ES3: a quotation says so");
+    assert(
+      estimateSpec("proforma").heading === "PROFORMA INVOICE",
+      "ES4: and a proforma says PROFORMA INVOICE — " + estimateSpec("proforma").heading,
+    );
+    /* Label a proforma "invoice" and it becomes one. So the word must not
+       appear on its own anywhere in that heading. */
+    assert(
+      estimateSpec("proforma").heading !== "INVOICE" &&
+        !/^TAX INVOICE/.test(estimateSpec("proforma").heading),
+      "ES5: and is never headed as a tax invoice",
+    );
+    assert(
+      /not a tax invoice/i.test(estimateSpec("proforma").disclaimer),
+      "ES6: a proforma carries the line that says what it is not",
+    );
+    assert(
+      /input tax credit/i.test(estimateSpec("proforma").disclaimer),
+      "ES7: including that no credit may be claimed against it",
+    );
+    assert(
+      estimateSpec("quotation").disclaimer === "",
+      "ES8: a quotation needs no such line — nobody mistakes one for an invoice",
+    );
+  }
+
+  /* ── Separate series, so the tax invoice's own is never holed ───────── */
+  {
+    const prefixes = { quotation: "QT-", proforma: "PI-" } as Record<EstimateKind, string>;
+    assert(estimateSpec("quotation").prefix !== estimateSpec("proforma").prefix, "ES9: two series");
+    assert(seriesOf("QT-0007", prefixes) === "quotation", "ES10: a QT number is a quotation's");
+    assert(seriesOf("PI-0007", prefixes) === "proforma", "ES11: a PI number is a proforma's");
+    assert(seriesOf("INV-0007", prefixes) === "invoice", "ES12: and INV belongs to the tax series");
+    /* The consequence, stated as its own assertion: neither pre-sale series
+       may be mistaken for the tax one, because a proforma holding an invoice
+       number leaves a gap an auditor has to explain. */
+    for (const k of ESTIMATE_KINDS) {
+      assert(
+        seriesOf(estimateSpec(k).prefix + "0001", prefixes) !== "invoice",
+        `ES13: a ${k} number never reads as a tax invoice number`,
+      );
+    }
+  }
+
+  /* ── The chain, and where it ends ───────────────────────────────────── */
+  {
+    assert(estimateSpec("quotation").next === "proforma", "ES14: a quotation becomes a proforma");
+    assert(
+      estimateSpec("proforma").next === null,
+      "ES15: and a proforma's next step is the tax invoice, which is not one of these",
+    );
+  }
+
+  /* ── What may still be converted ────────────────────────────────────── */
+  {
+    assert(canConvertEstimate({ status: "open" }), "ES16: an open document converts");
+    assert(!canConvertEstimate({ status: "converted" }), "ES17: one already converted does not");
+    assert(!canConvertEstimate({ status: "cancelled" }), "ES18: nor a cancelled one");
+
+    /* Expiry warns, it does not block. A quotation past its date is a price
+       the shop may still choose to honour, with the customer standing there. */
+    assert(isExpired({ validUntil: "2026-01-01" }, "2026-06-01"), "ES19: a past date is expired");
+    assert(!isExpired({ validUntil: "2026-12-01" }, "2026-06-01"), "ES20: a future one is not");
+    assert(!isExpired({}, "2026-06-01"), "ES21: and no date set never expires");
+    assert(
+      canConvertEstimate({ status: "open" }),
+      "ES22: expiry is not a status — an expired quotation still converts",
+    );
+  }
+
+  /* ── What carries forward, and what must not ─────────────────────────
+     Everything describing the deal; nothing describing a payment. A proforma
+     may well have collected an advance, but copying a `paid` figure onto the
+     tax invoice marks it settled for money nobody received against it. */
+  {
+    const doc = {
+      partyId: "P1",
+      partyName: "Mumbai Fabricators",
+      partyGstin: "27AAACC1234D1ZC",
+      placeOfSupply: "27",
+      gstEnabled: true,
+      reverseCharge: true,
+      lineItems: [{ id: "L", itemId: "I1", qty: 2 }],
+      discount: 50,
+      notes: "Ex-works",
+      paid: 5000,
+      paymentMode: "cash",
+      number: "PI-0001",
+      status: "open",
+      id: "E1",
+    } as unknown as Record<string, unknown>;
+
+    const carried = carriedFields(doc);
+    for (const k of [
+      "partyId",
+      "partyName",
+      "partyGstin",
+      "placeOfSupply",
+      "lineItems",
+      "discount",
+      "notes",
+    ]) {
+      assert(carried[k] !== undefined, `ES23: ${k} carries forward`);
+    }
+    assert(carried.gstEnabled === true, "ES24: and whether it was a GST bill");
+    assert(carried.reverseCharge === true, "ES25: and who owes the tax");
+
+    assert(carried.paid === undefined, "ES26: an advance does NOT carry onto the tax invoice");
+    assert(carried.paymentMode === undefined, "ES27: nor how it was taken");
+    assert(carried.number === undefined, "ES28: and never the number — that is a new series");
+    assert(carried.id === undefined, "ES29: nor the identity of the document it came from");
+    assert(carried.status === undefined, "ES30: nor its status");
   }
 }
 
