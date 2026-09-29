@@ -53,6 +53,7 @@ import {
   StockAdjustmentRepo,
   BusinessDocRepo,
   EstimateRepo,
+  nextInvoiceNumber,
   PurchaseReturnRepo,
   CashAdjustmentRepo,
 } from "@/repositories";
@@ -5679,6 +5680,132 @@ async function runAll(): Promise<Results> {
       assert(pPage.includes("IGST"), "estimates: with the right tax for an out-of-state customer");
       assert(pPage.includes("27AAACC1234D1ZC"), "estimates: and the buyer's GSTIN");
     }
+  }
+
+  /* ── The tax-invoice series survives everything built around it ───────
+     A quotation screen that quietly burns an invoice number leaves a hole in
+     a series Rule 46 requires to be consecutive, and nobody finds it until a
+     return is filed. The bill form OPENS holding the next invoice number —
+     it is shown in the header before anything is saved — so this is a real
+     risk rather than a theoretical one.
+
+     Driven through the actual form, because the arithmetic is only half the
+     claim; the other half is what the screen does with it. */
+  {
+    const nextInvoiceBefore = nextInvoiceNumber("INV-", SalesRepo.all());
+    const salesBefore = SalesRepo.all().length;
+    const estimatesBefore = EstimateRepo.all().length;
+
+    await renderRoute("/sales/new?doc=quotation");
+    await settleMs(200);
+
+    /* The form opened as a quotation, not as a bill. */
+    const heading = (host as HTMLElement).textContent ?? "";
+    assert(heading.includes("Quotation"), "final: the form opens as a quotation when asked to");
+
+    const partyBox = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input[placeholder="Type name or search…"]'),
+    ).find((el) => el.offsetParent !== null);
+    assert(!!partyBox, "final: the quotation form has a customer box");
+    if (partyBox) {
+      await act(async () => {
+        setInput(partyBox, "Ramesh Traders");
+      });
+      await settleMs(160);
+      const opt = Array.from(document.querySelectorAll<HTMLElement>("div")).find(
+        (d) =>
+          (d.textContent ?? "").trim() === "Ramesh Traders" &&
+          !d.querySelector("div div") &&
+          !d.querySelector("input"),
+      );
+      if (opt) {
+        await act(async () => {
+          opt.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        });
+        await settleMs(160);
+      }
+    }
+
+    const add = visibleAddItemInput();
+    if (add) {
+      await act(async () => {
+        setInput(add, "USB Cable");
+      });
+      await settleMs(160);
+      const row = Array.from(document.querySelectorAll<HTMLElement>("[data-opt]")).find((d) =>
+        (d.textContent ?? "").startsWith("USB Cable"),
+      );
+      if (row) {
+        await act(async () => {
+          row.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        });
+        await settleMs(200);
+      }
+    }
+
+    /* GST on, deliberately. A new bill starts with it OFF — the counter turns
+       it on per bill — and a quotation follows the same rule, which is right
+       but means the GST arithmetic only gets exercised if the test does what
+       the shop does. */
+    const gstToggle = Array.from(document.querySelectorAll<HTMLElement>("label")).find((l) =>
+      (l.textContent ?? "").includes("GST Bill"),
+    );
+    const gstBox = gstToggle?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    assert(!!gstBox, "final: the quotation form offers the GST toggle");
+    if (gstBox && !gstBox.checked) {
+      await act(async () => {
+        gstBox.click();
+      });
+      await settleMs(200);
+    }
+
+    const saveBtn = Array.from(document.querySelectorAll("button")).find(
+      (b) => (b.textContent ?? "").trim() === "Save",
+    );
+    assert(!!saveBtn, "final: found Save");
+    await act(async () => {
+      saveBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settleMs(450);
+
+    /* ── What must have happened ─────────────────────────────────────── */
+    assert(
+      EstimateRepo.all().length === estimatesBefore + 1,
+      "final: the quotation saved — " + EstimateRepo.all().length,
+    );
+    const saved = EstimateRepo.all().find((e) => e.id !== "EST-Q1" && e.kind === "quotation");
+    assert(!!saved, "final: as a quotation");
+    assert(
+      saved?.number?.startsWith("QT-"),
+      "final: numbered in its own series — " + saved?.number,
+    );
+
+    /* ── And what must NOT have ──────────────────────────────────────── */
+    assert(
+      SalesRepo.all().length === salesBefore,
+      "final: no sale was created — " + SalesRepo.all().length + " vs " + salesBefore,
+    );
+    assert(
+      nextInvoiceNumber("INV-", SalesRepo.all()) === nextInvoiceBefore,
+      `final: the NEXT INVOICE NUMBER is untouched — was ${nextInvoiceBefore}, now ${nextInvoiceNumber("INV-", SalesRepo.all())}`,
+    );
+    assert(
+      !saved?.number?.startsWith("INV-"),
+      "final: and the quotation never took a number from the invoice series",
+    );
+
+    /* ── The arithmetic is the invoice's arithmetic ───────────────────
+       USB Cable sells at 100 at 18% GST. A quotation computes its totals
+       through the same recalc the bill does, so if these drift the quotation
+       is quoting a price the invoice will not honour. */
+    assert(saved?.subtotal === 100, "final: subtotal is the line value — " + saved?.subtotal);
+    assert(saved?.taxAmount === 18, "final: GST at 18% is 18 — " + saved?.taxAmount);
+    assert(saved?.total === 118, "final: and the total is 118 — " + saved?.total);
+    assert(saved?.gstEnabled === true, "final: recorded as a GST quotation");
+    assert(
+      Math.abs((saved?.subtotal ?? 0) + (saved?.taxAmount ?? 0) - (saved?.total ?? 0)) < 0.005,
+      "final: the parts add up to the whole",
+    );
   }
 
   const bulkHost = document.createElement("div");
