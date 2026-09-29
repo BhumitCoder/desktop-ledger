@@ -72,6 +72,8 @@ import {
   isExpired,
   seriesOf,
   carriedFields,
+  advanceAgainst,
+  balanceAfterAdvance,
   type EstimateKind,
 } from "@/lib/estimates";
 import { GST_STATES, readGstin, stateFromGstin, supplyKind, splitTax } from "@/lib/gstin";
@@ -3714,6 +3716,57 @@ console.log(`\n═════════════════════�
 
   EstimateRepo.remove("EN1");
   EstimateRepo.remove("EN2");
+}
+
+/* ═══════ TEST AD: an advance against a proforma ════════════════════════
+   A proforma is often what a shop sends to collect money before the goods
+   move. The money is real; the document is not a bill. So the advance is an
+   ordinary RECEIPT on the customer's account carrying a label saying which
+   proforma prompted it — never an allocation, because there is nothing to
+   allocate to. These assertions are about keeping those two ideas apart. */
+{
+  const pay = (over: Record<string, unknown>) =>
+    ({ type: "in", amount: 1000, ...over }) as {
+      type: "in" | "out";
+      amount: number;
+      againstEstimateId?: string;
+    };
+
+  const book = [
+    pay({ againstEstimateId: "E1", amount: 5000 }),
+    pay({ againstEstimateId: "E1", amount: 2500 }),
+    pay({ againstEstimateId: "E2", amount: 9000 }),
+    // An ordinary receipt against the same customer, tagged with nothing.
+    pay({ amount: 400 }),
+    // Money going the other way must never read as an advance received.
+    pay({ type: "out", againstEstimateId: "E1", amount: 3000 }),
+  ];
+
+  assert(advanceAgainst("E1", book) === 7500, "AD1: advances against one proforma add up");
+  assert(advanceAgainst("E2", book) === 9000, "AD2: and another's are its own");
+  assert(advanceAgainst("E3", book) === 0, "AD3: a proforma with nothing against it has nothing");
+  assert(
+    advanceAgainst("", book) === 0,
+    "AD4: and no document has nothing, rather than everything",
+  );
+
+  /* The two that would quietly overstate what a customer has paid. */
+  assert(
+    advanceAgainst("E1", book) !== 10500,
+    "AD5: an untagged receipt is not counted against a proforma",
+  );
+  assert(advanceAgainst("E1", book) !== 4500, "AD6: nor is money paid OUT netted off what came in");
+
+  /* What is still to come. */
+  assert(balanceAfterAdvance(10000, 7500) === 2500, "AD7: the balance is what is left");
+  assert(balanceAfterAdvance(10000, 0) === 10000, "AD8: with nothing in, all of it is left");
+  /* Over-paid is nothing due, not negative due — the excess is an advance the
+     customer's account already carries, and showing "−500 due" on a document
+     invites somebody to refund it twice. */
+  assert(
+    balanceAfterAdvance(10000, 12000) === 0,
+    "AD9: over-payment leaves nothing due, not less than nothing",
+  );
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);

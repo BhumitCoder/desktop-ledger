@@ -8,10 +8,18 @@ import { useRepoData } from "@/hooks/useRepoData";
 import { downloadElementAsPdf } from "@/lib/pdf";
 import { printWithName, isStandalone } from "@/lib/print";
 import { sendElementViaWhatsApp } from "@/lib/whatsappSend";
-import { estimateSpec, isExpired, type EstimateKind } from "@/lib/estimates";
-import { fmtDate, today } from "@/lib/format";
+import {
+  estimateSpec,
+  isExpired,
+  advanceAgainst,
+  balanceAfterAdvance,
+  type EstimateKind,
+} from "@/lib/estimates";
+import { RecordAdvanceDialog } from "@/components/RecordAdvanceDialog";
+import { PaymentRepo } from "@/repositories";
+import { fmtDate, fmtMoney, today } from "@/lib/format";
 import type { Estimate, Invoice, Company } from "@/types";
-import { Printer, Download, Send, FileText } from "lucide-react";
+import { Printer, Download, Send, FileText, IndianRupee } from "lucide-react";
 import { toast } from "sonner";
 
 /**
@@ -35,6 +43,7 @@ export function EstimateDetail({ kind, id }: { kind: EstimateKind; id: string })
   const [doc, setDoc] = useState<Estimate | null>(null);
   const [co, setCo] = useState<Company | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [advanceOpen, setAdvanceOpen] = useState(false);
 
   useEffect(() => {
     setDoc(EstimateRepo.get(id) ?? null);
@@ -54,6 +63,11 @@ export function EstimateDetail({ kind, id }: { kind: EstimateKind; id: string })
      the cast is that sameness, not a shortcut around it. */
   const asInvoice = doc as unknown as Invoice;
   const expired = isExpired(doc, today());
+  /* Only a proforma takes an advance. A quotation is a price, not yet a deal
+     — money against one is money against nothing agreed. */
+  const takesAdvance = kind === "proforma";
+  const advance = advanceAgainst(doc.id, PaymentRepo.all());
+  const stillDue = balanceAfterAdvance(doc.total, advance);
 
   const doPrint = () => {
     if (isStandalone()) return doDownload();
@@ -118,6 +132,11 @@ export function EstimateDetail({ kind, id }: { kind: EstimateKind; id: string })
             <Button onClick={doSend} disabled={!!busy}>
               <Send className="h-4 w-4" /> {busy === "send" ? "Sending…" : "WhatsApp"}
             </Button>
+            {takesAdvance && (
+              <Button variant="outline" onClick={() => setAdvanceOpen(true)} disabled={!!busy}>
+                <IndianRupee className="h-4 w-4" /> Advance
+              </Button>
+            )}
           </div>
         }
       />
@@ -127,6 +146,24 @@ export function EstimateDetail({ kind, id }: { kind: EstimateKind; id: string })
           <div className="mx-auto mb-3 max-w-[820px] rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800">
             The price on this {spec.label.toLowerCase()} was only good until{" "}
             {fmtDate(doc.validUntil!)}. You can still honour it — this is a note, not a block.
+          </div>
+        )}
+        {takesAdvance && advance > 0 && (
+          <div className="mx-auto mb-3 flex max-w-[820px] flex-wrap items-center justify-between gap-2 rounded-md border bg-card px-3 py-2.5 text-[13px] shadow-card">
+            <span>
+              Advance received{" "}
+              <strong className="tabular-nums text-emerald-700">{fmtMoney(advance)}</strong> of{" "}
+              <span className="tabular-nums">{fmtMoney(doc.total)}</span>
+            </span>
+            <span className="text-muted-foreground">
+              {stillDue > 0 ? (
+                <>
+                  Still to come <strong className="tabular-nums">{fmtMoney(stillDue)}</strong>
+                </>
+              ) : (
+                "Paid in full"
+              )}
+            </span>
           </div>
         )}
         {doc.status === "converted" && (
@@ -148,6 +185,10 @@ export function EstimateDetail({ kind, id }: { kind: EstimateKind; id: string })
           </div>
         </div>
       </div>
+
+      {takesAdvance && (
+        <RecordAdvanceDialog doc={doc} open={advanceOpen} onOpenChange={setAdvanceOpen} />
+      )}
 
       <div className="border-t bg-card px-4 py-2.5 sm:hidden">
         <Button variant="outline" className="w-full" onClick={() => navigate({ to: ".." })}>

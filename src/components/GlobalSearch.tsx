@@ -83,7 +83,10 @@ export function GlobalSearch() {
   const parties = useMemo(
     () =>
       data.parties
-        .filter((p) => matchesQuery(q, p.name, p.phone))
+        /* Company ID and client code are searchable, which is the only
+           reason to store them: somebody in the office says "pull up 4417"
+           and that has to find the party. */
+        .filter((p) => matchesQuery(q, p.name, p.phone, p.companyId, p.clientCode, p.alias))
         .sort(byRelevance(q, (p) => p.name)),
     [data.parties, q],
   );

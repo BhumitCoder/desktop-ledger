@@ -61,6 +61,14 @@ export interface Party {
   salesPerson?: string;
   /** Their reference in the shop's other systems. */
   clientCode?: string;
+  /**
+   * Their reference in the shop's PREVIOUS system.
+   *
+   * Carried because Balaji's own Customer Master has it and their people
+   * quote it to each other. Nothing here reads it — it exists so a party can
+   * be found by the number the office already says out loud.
+   */
+  companyId?: string;
   remarks?: string;
 
   /**
@@ -332,6 +340,17 @@ export interface Payment {
   splits?: PaymentSplit[];
   ref?: string;
   allocations?: PaymentAllocation[];
+  /**
+   * The proforma this advance was taken against.
+   *
+   * A LABEL, not an allocation. The money is a receipt on the customer's
+   * account exactly as it always was — it moves the party balance and the
+   * bank the same way, and a proforma is not a receivable so nothing can be
+   * settled against it. This only records which document prompted the
+   * payment, so the proforma can show what has come in against it.
+   */
+  againstEstimateId?: ID;
+  againstEstimateNumber?: string;
   createdAt: string;
 }
 

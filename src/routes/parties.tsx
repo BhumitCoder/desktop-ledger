@@ -1358,6 +1358,14 @@ export function PartyDialog({
             value={form.clientCode ?? ""}
             onChange={(e) => setForm({ ...form, clientCode: e.target.value })}
           />
+          {/* Their reference in the software they are coming FROM. Nothing
+              here reads it — it is here so a party can be found by the number
+              the office already says out loud. */}
+          <Field
+            label="Company ID"
+            value={form.companyId ?? ""}
+            onChange={(e) => setForm({ ...form, companyId: e.target.value })}
+          />
 
           <PartySection>Trade</PartySection>
           <Field

@@ -165,3 +165,31 @@ export function carriedFields<T extends Record<string, unknown>>(doc: T): Partia
   }
   return out as Partial<T>;
 }
+
+/**
+ * What has been received against one proforma.
+ *
+ * Only money IN, and only money tagged with this document. A proforma is not
+ * a receivable — nothing is "settled" against it — so this is a reading of
+ * the receipts the shop chose to associate with it, not a balance the ledger
+ * knows about. The ledger's own view of that money is unchanged: it is an
+ * advance sitting on the customer's account.
+ */
+export function advanceAgainst(
+  estimateId: string,
+  payments: { type: "in" | "out"; amount: number; againstEstimateId?: string }[],
+): number {
+  if (!estimateId) return 0;
+  const total = payments
+    .filter((p) => p.type === "in" && p.againstEstimateId === estimateId)
+    .reduce((n, p) => n + (Number(p.amount) || 0), 0);
+  return Math.round(total * 100) / 100;
+}
+
+/** What is still to come on a proforma, once advances are taken off. */
+export function balanceAfterAdvance(total: number, advance: number): number {
+  const left = (Number(total) || 0) - (Number(advance) || 0);
+  // Over-paid is not negative "due" — it is nothing due, and an advance the
+  // customer's account already carries.
+  return Math.round(Math.max(0, left) * 100) / 100;
+}
