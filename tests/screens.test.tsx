@@ -1639,21 +1639,49 @@ async function runAll(): Promise<Results> {
       setInput(search!, "");
     });
     await settleMs(60);
-    // The grid's scroll container is the table's own parent — found that way
-    // rather than by class, so a Tailwind rename cannot quietly turn this
-    // into a no-op that still passes.
-    const scroller = document.querySelector('[role="dialog"] table')
-      ?.parentElement as HTMLDivElement | null;
-    assert(!!scroller, "bulk save: found the grid scroller");
+    /* EVERY scroller in the dialog, not one of them.
+       The dialog mounts a desktop table AND a phone card list at once and
+       hides one, and each virtualises off its own scroll position. Scrolling
+       only the visible one leaves the hidden list's rows mounted, so the
+       premise of this test — that neither edited row is rendered when Update
+       is pressed — quietly stops being true at phone width. Found by
+       structure rather than by class, so a Tailwind rename still cannot turn
+       this into a no-op that passes. */
+    const scrollers = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="dialog"] *'),
+    ).filter(
+      (el) =>
+        /auto|scroll/.test(getComputedStyle(el).overflowY) && el.scrollHeight > el.clientHeight + 4,
+    );
+    assert(scrollers.length > 0, "bulk save: found the grid scroller(s)");
     await act(async () => {
-      scroller!.scrollTop = scroller!.scrollHeight;
-      scroller!.dispatchEvent(new Event("scroll", { bubbles: true }));
+      for (const sc of scrollers) {
+        sc.scrollTop = sc.scrollHeight;
+        sc.dispatchEvent(new Event("scroll", { bubbles: true }));
+      }
     });
     await settleMs(120);
+    /* gridRow reads the desktop TABLE, and this whole step — scroll a windowed
+       list until its rows unmount — is about that table. A phone gets a card
+       list which windows on its own scroller, so the premise cannot be set up
+       the same way there and asserting it would be asserting nothing.
+
+       Gated rather than deleted, and the guard asserts the table IS the live
+       layout at desk width, so this can never quietly skip where the shop
+       actually does its bulk edits. The rest of the block — that Update saves
+       both edits — runs at every width. */
+    const desktopGrid =
+      !!document.querySelector<HTMLElement>('[role="dialog"] table')?.offsetParent;
     assert(
-      !gridRow("Bulk Save BU1") && !gridRow("Bulk Save BU2"),
-      "bulk save: the edited rows really are unmounted before saving",
+      window.innerWidth <= 480 || desktopGrid,
+      "bulk save: at desk width the grid is the table this step scrolls",
     );
+    if (desktopGrid) {
+      assert(
+        !gridRow("Bulk Save BU1") && !gridRow("Bulk Save BU2"),
+        "bulk save: the edited rows really are unmounted before saving",
+      );
+    }
 
     const update = findButton(/^Update/);
     assert(
@@ -1946,9 +1974,15 @@ async function runAll(): Promise<Results> {
     });
     await settleMs(80);
 
-    const catCell = document.querySelector(
-      'input[aria-label="category for Category Probe Item"]',
-    ) as HTMLInputElement | null;
+    /* The VISIBLE copy. Two grids are mounted — a desktop table and a phone
+       card list — and focus() on the hidden one is a no-op, so the picker
+       never opens and the test reports a bug that is not there. */
+    const catCell =
+      Array.from(
+        document.querySelectorAll<HTMLInputElement>(
+          'input[aria-label="category for Category Probe Item"]',
+        ),
+      ).find((el) => el.offsetParent !== null) ?? null;
     assert(!!catCell, "category: the grid cell is a picker");
     if (catCell) {
       await act(async () => {
@@ -3637,13 +3671,12 @@ async function runAll(): Promise<Results> {
       visibleCat.length > 0,
       `category click: a Category cell is actually on screen — ${allCat.length} exist, ${visibleCat.length} visible`,
     );
-    const inDesktopTable = visibleCat.filter((el) => !!el.closest("table"));
-    assert(
-      inDesktopTable.length > 0,
-      `category click: and the desktop table is the one being tested — ${visibleCat.length} visible, ${inDesktopTable.length} in a table`,
-    );
-    const catBox = inDesktopTable[0] as HTMLInputElement | undefined;
-    assert(!!catBox, "category click: found a Category cell");
+    /* Whichever layout is on screen. The visibility filter above is what
+       stops the hidden copy being tested — insisting on the desktop table as
+       well made this fail on a phone, where the shop also bills, and the
+       thing under test (a real click can focus the box) matters on both. */
+    const catBox = visibleCat[0] as HTMLInputElement | undefined;
+    assert(!!catBox, "category click: found a Category cell that is on screen");
 
     /* A real click focuses an input through the mousedown DEFAULT ACTION.
        Anything that calls preventDefault on that mousedown leaves the box
@@ -4643,7 +4676,18 @@ async function runAll(): Promise<Results> {
       const scroller = h3.querySelector(".data-table") as HTMLElement | null;
       const table3 = h3.querySelector("table") as HTMLElement | null;
       assert(!!scroller && !!table3, "stacking: the probe table mounted");
-      if (scroller && table3) {
+      /* This is about a TABLE's sticky corners — a header and footer holding
+         their place while rows scroll under them. A phone gets a card list
+         instead and has no such corner to own, so there is nothing here to
+         check at that width. Guarded rather than deleted, and the guard
+         asserts the table IS shown on a desk, so this can never quietly skip
+         where it matters. */
+      const tableShown = !!table3 && table3.offsetParent !== null;
+      assert(
+        window.innerWidth <= 480 || tableShown,
+        "stacking: at desk width the probe renders as a table",
+      );
+      if (scroller && table3 && tableShown) {
         assert(
           scroller.scrollHeight > scroller.clientHeight + 20,
           `stacking: the probe table really overflows — content ${scroller.scrollHeight} vs box ${scroller.clientHeight}`,
@@ -4654,9 +4698,28 @@ async function runAll(): Promise<Results> {
         });
         await settleMs(60);
 
+        /* elementFromPoint answers about the VIEWPORT, so a corner that has
+           scrolled off the right of a narrow screen returns null and reads as
+           a failure when nothing is wrong. On a phone this table is wider
+           than the screen and its right-hand corner genuinely is off it. The
+           guard asserts the corner IS reachable at desk width, so this can
+           never quietly skip where the sticky corners matter. */
+        const reachable = (r: DOMRect) =>
+          r.left + r.width / 2 >= 0 &&
+          r.left + r.width / 2 <= window.innerWidth &&
+          r.top + r.height / 2 >= 0 &&
+          r.top + r.height / 2 <= window.innerHeight;
+
         const foot = table3.querySelector("tfoot td:last-child") as HTMLElement | null;
         assert(!!foot, "stacking: the pinned footer corner exists");
         if (foot) {
+          const fr = foot.getBoundingClientRect();
+          assert(
+            window.innerWidth <= 480 || reachable(fr),
+            "stacking: at desk width the footer corner is on screen to be probed",
+          );
+        }
+        if (foot && reachable(foot.getBoundingClientRect())) {
           const fr = foot.getBoundingClientRect();
           const onTop = document.elementFromPoint(fr.left + fr.width / 2, fr.top + fr.height / 2);
           assert(
@@ -4672,7 +4735,7 @@ async function runAll(): Promise<Results> {
         }
 
         const head = table3.querySelector("thead th:last-child") as HTMLElement | null;
-        if (head) {
+        if (head && reachable(head.getBoundingClientRect())) {
           const hr = head.getBoundingClientRect();
           const onTopHead = document.elementFromPoint(
             hr.left + hr.width / 2,

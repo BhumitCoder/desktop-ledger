@@ -365,7 +365,11 @@ export function BulkUpdateItemsDialog({
             title and need the full width, so only the wider layout, where
             the tabs are inline and reach the corner, gets the clearance. */}
         <DialogHeader className="pl-4 sm:pl-5 pr-4 sm:pr-14 py-3 border-b">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          {/* Right padding on the phone, where the title and the tabs stack:
+              the dialog's close button is absolutely positioned in that
+              corner, and a full-width tab row slides straight under it. On a
+              desk the title and tabs sit side by side and there is room. */}
+          <div className="flex flex-col gap-3 pr-10 sm:flex-row sm:items-center sm:justify-between sm:pr-0">
             <DialogTitle className="text-[15px] sm:text-[17px]">Bulk Update Items</DialogTitle>
             {/* Tabs sit top-right on desktop and stack full-width on a phone,
                 where a 3-up radio row would be too small to hit reliably. */}
