@@ -417,6 +417,45 @@ function SettingsPage() {
                   value={c.purchasePrefix}
                   onChange={(e) => setC({ ...c, purchasePrefix: e.target.value })}
                 />
+                {/* Their own series, and they have to be their OWN.
+                    Rule 46 wants the tax-invoice series consecutive for the
+                    financial year; a quotation or proforma drawing from it
+                    leaves a hole an auditor has to explain. A shop arriving
+                    from other software usually has numbering it wants to
+                    continue, which is why these are editable at all. */}
+                <Field
+                  label="Quotation Prefix"
+                  value={c.quotationPrefix ?? ""}
+                  placeholder="QT-"
+                  onChange={(e) => setC({ ...c, quotationPrefix: e.target.value })}
+                />
+                <Field
+                  label="Proforma Prefix"
+                  value={c.proformaPrefix ?? ""}
+                  placeholder="PI-"
+                  onChange={(e) => setC({ ...c, proformaPrefix: e.target.value })}
+                />
+                {(() => {
+                  /* Said out loud the moment two series would collide. The
+                     symptom otherwise is a gap in the tax-invoice numbering
+                     found months later by somebody filing a return. */
+                  const clash = [
+                    ["Quotation", c.quotationPrefix],
+                    ["Proforma", c.proformaPrefix],
+                  ].filter(
+                    ([, p]) =>
+                      !!(p ?? "").trim() &&
+                      [c.invoicePrefix, c.purchasePrefix]
+                        .map((x) => (x ?? "").trim().toUpperCase())
+                        .includes((p ?? "").trim().toUpperCase()),
+                  );
+                  return clash.length ? (
+                    <p className="sm:col-span-2 text-[12px] text-amber-600">
+                      {clash.map(([k]) => k).join(" and ")} share a prefix with your bill numbering.
+                      Give them their own, or the invoice series ends up with gaps in it.
+                    </p>
+                  ) : null;
+                })()}
                 <div className="sm:col-span-2">
                   <Field
                     label="Address"

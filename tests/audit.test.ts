@@ -61,6 +61,7 @@ import {
   type OutboxItem,
 } from "@/lib/outbox";
 import { transferLegsFor } from "@/lib/transferLegs";
+import { EstimateRepo, nextEstimateNumber } from "@/repositories";
 import { popupRect } from "@/lib/popupRect";
 import {
   estimateSpec,
@@ -3643,6 +3644,76 @@ console.log(`\n═════════════════════�
     assert(carried.id === undefined, "ES29: nor the identity of the document it came from");
     assert(carried.status === undefined, "ES30: nor its status");
   }
+}
+
+/* ═══════ TEST EN: the series advance independently ═════════════════════
+   A shop arriving from other software wants its own numbering, so the
+   prefixes are editable. What must NOT be editable is the rule underneath:
+   each series counts only its own documents. Rule 46 wants the tax-invoice
+   series consecutive for the financial year, and the way that breaks is a
+   quotation quietly taking the next invoice number. */
+{
+  EstimateRepo.add({
+    id: "EN1",
+    kind: "quotation",
+    status: "open",
+    number: "QT-0007",
+    date: "2026-09-01",
+    partyId: "P",
+    partyName: "X",
+    lineItems: [],
+    subtotal: 0,
+    discount: 0,
+    taxAmount: 0,
+    total: 0,
+    createdAt: "2026-09-01T00:00:00Z",
+  } as never);
+
+  assert(
+    nextEstimateNumber("QT-", "quotation") === "QT-0008",
+    "EN1: a quotation follows the last quotation — " + nextEstimateNumber("QT-", "quotation"),
+  );
+  /* The one that matters: the proforma series has never been used, so it
+     starts at 1 — it does NOT continue from the quotation that exists, and it
+     certainly does not look at sales invoices. */
+  assert(
+    nextEstimateNumber("PI-", "proforma") === "PI-0001",
+    "EN2: the proforma series starts on its own, not from the quotation's count — " +
+      nextEstimateNumber("PI-", "proforma"),
+  );
+
+  EstimateRepo.add({
+    id: "EN2",
+    kind: "proforma",
+    status: "open",
+    number: "PI-0003",
+    date: "2026-09-02",
+    partyId: "P",
+    partyName: "X",
+    lineItems: [],
+    subtotal: 0,
+    discount: 0,
+    taxAmount: 0,
+    total: 0,
+    createdAt: "2026-09-02T00:00:00Z",
+  } as never);
+  assert(nextEstimateNumber("PI-", "proforma") === "PI-0004", "EN3: and then follows its own");
+  assert(
+    nextEstimateNumber("QT-", "quotation") === "QT-0008",
+    "EN4: while the quotation series is untouched by it",
+  );
+
+  /* A shop that renames its prefix keeps its count. The number is read off
+     the trailing digits, not off the prefix, so changing QT- to EST- next
+     April does not reissue numbers already sent to customers. */
+  assert(
+    nextEstimateNumber("EST/", "quotation") === "EST/0008",
+    "EN5: renaming a prefix does not restart the count — " +
+      nextEstimateNumber("EST/", "quotation"),
+  );
+
+  EstimateRepo.remove("EN1");
+  EstimateRepo.remove("EN2");
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
