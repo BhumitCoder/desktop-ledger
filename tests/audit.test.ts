@@ -62,6 +62,7 @@ import {
 } from "@/lib/outbox";
 import { transferLegsFor } from "@/lib/transferLegs";
 import { popupRect } from "@/lib/popupRect";
+import { GST_STATES, readGstin, stateFromGstin, supplyKind, splitTax } from "@/lib/gstin";
 import {
   MAX_DOC_BYTES,
   prettySize,
@@ -3364,6 +3365,128 @@ console.log(`\n═════════════════════�
       tabs.includes('"/documents": "Documents"'),
       "RG8: and opens a tab like every other page",
     );
+  }
+}
+
+/* ═══════ TEST GS: who the customer is, and which tax that means ════════
+   Balaji Fabtech bills Surat and Mumbai in the same week. A supply inside the
+   seller's own state carries CGST+SGST; one to another state carries IGST.
+   Same total, two completely different invoices — and until now this app
+   printed CGST+SGST on every bill it has ever produced.
+
+   A note on the sample below. `27AAPFU0939F1ZV` is the GSTIN used as the
+   worked example in GST's own documentation, and it is the ONLY one asserted
+   here as known-good — three others written from memory failed, which is the
+   correct outcome for invented numbers and is why they are not in this file.
+   Everything else is tested as a PROPERTY, which needs no sample at all. */
+{
+  const GOOD = "27AAPFU0939F1ZV";
+
+  /* ── Reading one ───────────────────────────────────────────────────── */
+  {
+    const v = readGstin(GOOD);
+    assert(v.ok, "GS1: the documented example validates");
+    assert(v.ok && v.stateCode === "27", "GS2: its first two characters are the state");
+    assert(v.ok && v.state === "Maharashtra", "GS3: which has a name — " + (v.ok && v.state));
+    assert(v.ok && v.pan === "AAPFU0939F", "GS4: and characters 3-12 are the holder's PAN");
+    assert(readGstin("  27aapfu0939f1zv ").ok, "GS5: spacing and case are not the customer's job");
+  }
+
+  /* ── The checksum earns its place ─────────────────────────────────────
+     A transposed digit is the commonest way a GSTIN is wrong and the hardest
+     to catch by eye. Rather than trusting more samples, this asserts the
+     property the check character exists for: no single-character change to a
+     valid GSTIN may still read as valid. */
+  {
+    const ALPHA = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const survived: string[] = [];
+    for (let i = 0; i < GOOD.length; i += 1) {
+      for (const c of ALPHA) {
+        if (c === GOOD[i]) continue;
+        const mutated = GOOD.slice(0, i) + c + GOOD.slice(i + 1);
+        if (readGstin(mutated).ok) survived.push(mutated);
+      }
+    }
+    assert(
+      survived.length === 0,
+      `GS6: no single mistyped character survives the check — ${survived.length} did, e.g. ${survived[0] ?? ""}`,
+    );
+
+    /* And a transposition, which a checksum weighted 1,2 is specifically
+       there to catch. */
+    const swapped = GOOD.slice(0, 5) + GOOD[6] + GOOD[5] + GOOD.slice(7);
+    assert(swapped !== GOOD, "GS7: the transposition test actually changed something");
+    assert(!readGstin(swapped).ok, "GS8: two swapped characters do not pass either");
+  }
+
+  /* ── And it says WHICH thing is wrong ─────────────────────────────────
+     "Invalid GSTIN" tells the counter nothing. A wrong length is a paste that
+     lost a character; a bad checksum is a typo; an unknown state code is
+     usually the wrong first two digits entirely. */
+  {
+    const cases: [string, string][] = [
+      ["", "empty"],
+      ["27AAPFU0939F1Z", "length"],
+      ["271APFU0939F1ZV", "shape"],
+      ["99AAPFU0939F1ZV", "state"],
+      ["27AAPFU0939F1ZA", "checksum"],
+    ];
+    for (const [input, problem] of cases) {
+      const v = readGstin(input);
+      assert(!v.ok && v.problem === problem, `GS9: "${input}" is reported as ${problem}`);
+      assert(!v.ok && v.message.length > 12, `GS10: and in a sentence, not a code (${problem})`);
+    }
+  }
+
+  /* ── The question that moves money ─────────────────────────────────── */
+  {
+    assert(supplyKind("24", "24") === "intra", "GS11: Gujarat to Gujarat is CGST+SGST");
+    assert(supplyKind("24", "27") === "inter", "GS12: Gujarat to Maharashtra is IGST");
+
+    /* The default that protects every bill written before today. Every party
+       in the shop has no state recorded, and every bill so far has printed
+       CGST+SGST — so an unknown state must keep doing exactly that rather
+       than silently reclassifying a year of invoices. */
+    assert(supplyKind(undefined, "27") === "intra", "GS13: an unknown seller state stays intra");
+    assert(supplyKind("24", undefined) === "intra", "GS14: an unknown buyer state stays intra");
+    assert(supplyKind("", "") === "intra", "GS15: and blanks are not interstate");
+  }
+
+  /* ── The split ────────────────────────────────────────────────────────
+     The TOTAL is the one thing that must never move: this decides which
+     columns it appears in, nothing more. */
+  {
+    const intra = splitTax(180, "intra");
+    assert(intra.cgst === 90 && intra.sgst === 90, "GS16: intra-state halves the tax");
+    assert(intra.igst === 0, "GS17: and carries no IGST");
+
+    const inter = splitTax(180, "inter");
+    assert(inter.igst === 180, "GS18: interstate is one IGST line at the full rate");
+    assert(inter.cgst === 0 && inter.sgst === 0, "GS19: and no CGST or SGST");
+
+    /* An odd paisa has to land somewhere. Half of 0.05 twice is 0.04, and a
+       rupee that evaporates in the tax table is a rupee the return is out
+       by. */
+    const odd = splitTax(0.05, "intra");
+    assert(
+      odd.cgst + odd.sgst === 0.05,
+      `GS20: an odd paisa is kept, not halved away — ${odd.cgst} + ${odd.sgst}`,
+    );
+    for (const amount of [0.01, 1.11, 45.55, 1234.57]) {
+      const s = splitTax(amount, "intra");
+      assert(
+        Math.abs(s.cgst + s.sgst + s.igst - amount) < 0.005,
+        `GS21: the total survives the split (${amount})`,
+      );
+    }
+  }
+
+  /* ── Reading a state off a half-typed GSTIN ─────────────────────────── */
+  {
+    assert(stateFromGstin("24")?.name === "Gujarat", "GS22: two digits are enough to name a state");
+    assert(stateFromGstin("99") === undefined, "GS23: and a code that is not one names nothing");
+    assert(stateFromGstin("") === undefined, "GS24: nor does nothing");
+    assert(Object.keys(GST_STATES).length >= 36, "GS25: every state and union territory is listed");
   }
 }
 

@@ -1,3 +1,5 @@
+import type { GstType } from "@/lib/gstin";
+
 export type ID = string;
 
 export interface Party {
@@ -6,11 +8,70 @@ export interface Party {
   type: "customer" | "supplier" | "both";
   phone?: string;
   email?: string;
+  /** A second number, for the works or the accounts desk. */
+  phone2?: string;
+  /** Who to ask for when you ring. */
+  contactPerson?: string;
+  /** A short name the shop actually uses, when the legal name is a mouthful. */
+  alias?: string;
+  /** Free grouping — "Mumbai dealers", "Site contractors". */
+  group?: string;
+
   gstin?: string;
+  /**
+   * How this customer is registered. It changes what a bill may claim, and a
+   * composition dealer or an unregistered buyer is not the same invoice as a
+   * registered one. See lib/gstin.ts.
+   */
+  gstType?: GstType;
+  /** Registered with effect from — what their certificate says. */
+  gstinWef?: string;
+  pan?: string;
+  /** For a proprietor. Their software carries it, so this one does too. */
+  birthDate?: string;
+
   address?: string;
+  addressLine2?: string;
+  area?: string;
+  city?: string;
+  /** The state's NAME, for printing. */
+  state?: string;
+  /**
+   * The GST state code — two digits, and the thing that actually decides
+   * whether a bill carries CGST+SGST or IGST. Kept alongside the name rather
+   * than derived from it, because a name can be spelled six ways and a code
+   * cannot. Auto-filled from the GSTIN's first two characters.
+   */
+  stateCode?: string;
+  zipCode?: string;
+  country?: string;
   shippingAddress?: string;
+
   openingBalance: number;
   creditLimit?: number;
+  /** How many days of credit, alongside how much. */
+  creditDays?: number;
+  /** Tax collected at source, as a percentage. */
+  tcsPct?: number;
+
+  /** Who introduced them, and what that costs. */
+  broker?: string;
+  brokeragePct?: number;
+  salesPerson?: string;
+  /** Their reference in the shop's other systems. */
+  clientCode?: string;
+  remarks?: string;
+
+  /**
+   * Kept on file but not sellable to — a credit hold, usually.
+   *
+   * Different from `archived`: an archived party is gone from the pickers
+   * because the shop has finished with them; a blocked one is still a live
+   * customer whose next order has to be authorised.
+   */
+  blockedForSale?: boolean;
+  /** Whether this party is sent SMS/WhatsApp alerts. */
+  smsAlerts?: boolean;
   /** Soft-delete flag. An archived party is hidden from new-transaction
    * pickers and the active parties list, but its document is kept so every
    * existing invoice/payment/return, ledger, statement, report and dashboard

@@ -42,6 +42,14 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { usePermissions } from "@/hooks/usePermissions";
+import {
+  GST_STATES,
+  GST_STATE_LIST,
+  GST_TYPE_LABELS,
+  readGstin,
+  stateFromGstin,
+  type GstType,
+} from "@/lib/gstin";
 
 export const Route = createFileRoute("/parties")({ component: PartiesPage });
 
@@ -1017,6 +1025,45 @@ function BulkPartyImportDialog({
   );
 }
 
+/** A ruled heading inside the party form, so a long list of boxes reads as
+ *  groups rather than as one wall. Spans the grid. */
+function PartySection({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="sm:col-span-2 mt-1 border-t pt-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+      {children}
+    </div>
+  );
+}
+
+/**
+ * What the GSTIN typed so far actually says.
+ *
+ * Shown rather than enforced. A wrong GSTIN is a compliance problem on a filed
+ * return, but blocking the save would strand a counter that has the number on
+ * a scrap of paper and the customer waiting — so this says plainly what is
+ * wrong and lets a person decide.
+ */
+function GstinVerdictLine({ gstin, pan }: { gstin?: string; pan?: string }) {
+  const raw = (gstin ?? "").trim();
+  if (!raw) return null;
+  const v = readGstin(raw);
+  if (!v.ok) {
+    return <p className="mt-1 text-[11px] text-amber-600">{v.message}</p>;
+  }
+  const panClash = !!pan?.trim() && pan.trim().toUpperCase() !== v.pan;
+  return (
+    <p className="mt-1 text-[11px] text-muted-foreground">
+      <span className="font-semibold text-emerald-600">Valid</span> · {v.stateCode} {v.state} · PAN{" "}
+      {v.pan}
+      {panClash && (
+        <span className="block text-amber-600">
+          The PAN entered does not match the one inside this GSTIN.
+        </span>
+      )}
+    </p>
+  );
+}
+
 export function PartyDialog({
   open,
   onOpenChange,
@@ -1154,10 +1201,195 @@ export function PartyDialog({
             )}
           </div>
           <Field
+            label="Alias"
+            value={form.alias ?? ""}
+            placeholder="What the shop calls them"
+            onChange={(e) => setForm({ ...form, alias: e.target.value })}
+          />
+
+          <PartySection>Contact</PartySection>
+          <Field
             label="Phone"
             value={form.phone ?? ""}
             onChange={(e) => setForm({ ...form, phone: e.target.value })}
           />
+          <Field
+            label="Phone 2"
+            value={form.phone2 ?? ""}
+            onChange={(e) => setForm({ ...form, phone2: e.target.value })}
+          />
+          <Field
+            label="Contact person"
+            value={form.contactPerson ?? ""}
+            onChange={(e) => setForm({ ...form, contactPerson: e.target.value })}
+          />
+          <Field
+            label="Email"
+            type="email"
+            value={form.email ?? ""}
+            onChange={(e) => setForm({ ...form, email: e.target.value })}
+          />
+
+          <PartySection>Address</PartySection>
+          <Field
+            label="Address line 1"
+            value={form.address ?? ""}
+            onChange={(e) => setForm({ ...form, address: e.target.value })}
+          />
+          <Field
+            label="Address line 2"
+            value={form.addressLine2 ?? ""}
+            onChange={(e) => setForm({ ...form, addressLine2: e.target.value })}
+          />
+          <Field
+            label="Area"
+            value={form.area ?? ""}
+            onChange={(e) => setForm({ ...form, area: e.target.value })}
+          />
+          <Field
+            label="City"
+            value={form.city ?? ""}
+            onChange={(e) => setForm({ ...form, city: e.target.value })}
+          />
+          {/* State is a CHOICE, not free text. It is the field that decides
+              CGST+SGST against IGST, and "Gujrat", "GUJARAT" and "Gujarat "
+              are three different answers to a question that has to have
+              exactly one. Picking a state sets its code; the code is what
+              every tax decision actually reads. */}
+          <label className="flex flex-col gap-1 text-[12px]">
+            <span className="font-medium text-muted-foreground">State</span>
+            <select
+              value={form.stateCode ?? ""}
+              onChange={(e) => {
+                const code = e.target.value;
+                setForm({ ...form, stateCode: code || undefined, state: GST_STATES[code] });
+              }}
+              className="h-11 rounded border bg-background px-3 text-[16px] outline-none focus:border-primary focus:ring-1 focus:ring-primary sm:h-8 sm:px-2 sm:text-[13px]"
+            >
+              <option value="">— not set —</option>
+              {GST_STATE_LIST.map((st) => (
+                <option key={st.code} value={st.code}>
+                  {st.code} · {st.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <Field
+              label="Zip code"
+              value={form.zipCode ?? ""}
+              onChange={(e) => setForm({ ...form, zipCode: e.target.value })}
+            />
+            <Field
+              label="Country"
+              value={form.country ?? "India"}
+              onChange={(e) => setForm({ ...form, country: e.target.value })}
+            />
+          </div>
+
+          <PartySection>GST &amp; PAN</PartySection>
+          <div>
+            <Field
+              label="GSTIN"
+              value={form.gstin ?? ""}
+              placeholder="24AAACC1234D1Z5"
+              autoCapitalize="characters"
+              onChange={(e) => {
+                const raw = e.target.value.toUpperCase();
+                const next: Partial<Party> = { ...form, gstin: raw };
+                /* The first two characters ARE the state, so a typed GSTIN
+                   fills it in — this is the field that decides the tax, and
+                   asking for it twice is asking for the two to disagree.
+                   Only fills what is empty or was filled from a GSTIN before;
+                   a state chosen by hand is never overwritten silently. */
+                const st = stateFromGstin(raw);
+                if (
+                  st &&
+                  (!form.stateCode || form.stateCode === stateFromGstin(form.gstin)?.code)
+                ) {
+                  next.stateCode = st.code;
+                  next.state = st.name;
+                }
+                // And characters 3-12 are the PAN, which saves typing it.
+                const v = readGstin(raw);
+                if (v.ok && !form.pan?.trim()) next.pan = v.pan;
+                setForm(next);
+              }}
+            />
+            <GstinVerdictLine gstin={form.gstin} pan={form.pan} />
+          </div>
+          <label className="flex flex-col gap-1 text-[12px]">
+            <span className="font-medium text-muted-foreground">GST type</span>
+            <select
+              value={form.gstType ?? ""}
+              onChange={(e) =>
+                setForm({ ...form, gstType: (e.target.value || undefined) as GstType | undefined })
+              }
+              className="h-11 rounded border bg-background px-3 text-[16px] outline-none focus:border-primary focus:ring-1 focus:ring-primary sm:h-8 sm:px-2 sm:text-[13px]"
+            >
+              <option value="">— not set —</option>
+              {(Object.keys(GST_TYPE_LABELS) as GstType[]).map((k) => (
+                <option key={k} value={k}>
+                  {GST_TYPE_LABELS[k]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Field
+            label="GSTIN w.e.f."
+            type="date"
+            value={form.gstinWef ?? ""}
+            onChange={(e) => setForm({ ...form, gstinWef: e.target.value || undefined })}
+          />
+          <Field
+            label="PAN"
+            value={form.pan ?? ""}
+            autoCapitalize="characters"
+            onChange={(e) => setForm({ ...form, pan: e.target.value.toUpperCase() })}
+          />
+          <Field
+            label="Birth date"
+            type="date"
+            value={form.birthDate ?? ""}
+            onChange={(e) => setForm({ ...form, birthDate: e.target.value || undefined })}
+          />
+          <Field
+            label="Client code"
+            value={form.clientCode ?? ""}
+            onChange={(e) => setForm({ ...form, clientCode: e.target.value })}
+          />
+
+          <PartySection>Trade</PartySection>
+          <Field
+            label="Group"
+            value={form.group ?? ""}
+            placeholder="Mumbai dealers"
+            onChange={(e) => setForm({ ...form, group: e.target.value })}
+          />
+          <Field
+            label="Sales person"
+            value={form.salesPerson ?? ""}
+            onChange={(e) => setForm({ ...form, salesPerson: e.target.value })}
+          />
+          <Field
+            label="Broker / reference"
+            value={form.broker ?? ""}
+            onChange={(e) => setForm({ ...form, broker: e.target.value })}
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <NumField
+              label="Brokerage %"
+              value={form.brokeragePct ?? 0}
+              onValue={(n) => setForm({ ...form, brokeragePct: n || undefined })}
+            />
+            <NumField
+              label="TCS %"
+              value={form.tcsPct ?? 0}
+              onValue={(n) => setForm({ ...form, tcsPct: n || undefined })}
+            />
+          </div>
+
+          <PartySection>Account</PartySection>
           {/* Direction is a CHOICE, not a minus sign.
               This used to be one signed number labelled "+ they owe you,
               − you owe them". A supplier's opening typed as a positive
@@ -1234,11 +1466,46 @@ export function PartyDialog({
                   : `Receivable ${fmtMoney(Math.abs(form.openingBalance ?? 0))} — money they owe you.`}
             </p>
           </div>
-          <NumField
-            label="Credit Limit"
-            value={form.creditLimit ?? 0}
-            onValue={(n) => setForm({ ...form, creditLimit: n || undefined })}
+          <div className="grid grid-cols-2 gap-3">
+            <NumField
+              label="Credit Limit"
+              value={form.creditLimit ?? 0}
+              onValue={(n) => setForm({ ...form, creditLimit: n || undefined })}
+            />
+            <NumField
+              label="Credit days"
+              value={form.creditDays ?? 0}
+              onValue={(n) => setForm({ ...form, creditDays: n || undefined })}
+            />
+          </div>
+          <Field
+            label="Remarks"
+            value={form.remarks ?? ""}
+            onChange={(e) => setForm({ ...form, remarks: e.target.value })}
           />
+          {/* Blocked is not archived. An archived party is gone from the
+              pickers because the shop has finished with them; a blocked one is
+              a live customer whose next order has to be authorised. */}
+          <div className="sm:col-span-2 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-md border bg-muted/30 px-3 py-2.5">
+            <label className="flex items-center gap-2 text-[13px] font-medium">
+              <input
+                type="checkbox"
+                checked={!form.blockedForSale}
+                onChange={(e) => setForm({ ...form, blockedForSale: !e.target.checked })}
+                className="h-4 w-4 accent-primary"
+              />
+              Open for sale
+            </label>
+            <label className="flex items-center gap-2 text-[13px] font-medium">
+              <input
+                type="checkbox"
+                checked={form.smsAlerts !== false}
+                onChange={(e) => setForm({ ...form, smsAlerts: e.target.checked })}
+                className="h-4 w-4 accent-primary"
+              />
+              Send alerts
+            </label>
+          </div>
           <div className="sm:col-span-2 flex justify-end gap-2 mt-2">
             <Button
               type="button"
