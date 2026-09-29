@@ -64,6 +64,14 @@ import { transferLegsFor } from "@/lib/transferLegs";
 import { EstimateRepo, nextEstimateNumber } from "@/repositories";
 import { popupRect } from "@/lib/popupRect";
 import {
+  ewayRequired,
+  validityDays,
+  partBRequired,
+  canRaiseFor,
+  whoGenerates,
+  EXEMPTION_LABELS,
+} from "@/lib/ewayBill";
+import {
   estimateSpec,
   ESTIMATE_KINDS,
   ESTIMATE_MOVES_STOCK,
@@ -3767,6 +3775,162 @@ console.log(`\n═════════════════════�
     balanceAfterAdvance(10000, 12000) === 0,
     "AD9: over-payment leaves nothing due, not less than nothing",
   );
+}
+
+/* ═══════ TEST EW: may this lorry leave? ════════════════════════════════
+   Balaji Fabtech ships fabricated steel to Mumbai and Surat. A consignment
+   over the threshold may not move without an e-way bill, and the penalty is
+   ₹10,000 or the tax sought to be evaded, whichever is higher, plus the lorry
+   held at the checkpoint.
+
+   Every rule below was looked up, not remembered, and every one of them is a
+   case somebody gets wrong. Sources: CGST Rules 138-138D, via ClearTax's
+   e-way bill guide and the NIC portal. */
+{
+  const ask = (over: Partial<Parameters<typeof ewayRequired>[0]> = {}) =>
+    ewayRequired({ consignmentValue: 10_000, supply: "intra", reason: "supply", ...over });
+
+  /* ── The threshold, and the edge of it ──────────────────────────────── */
+  {
+    assert(!ask({ consignmentValue: 49_999, supply: "inter" }).required, "EW1: under 50,000, no");
+    /* "Exceeding", not "reaching". A consignment of exactly ₹50,000 is under
+       the limit — getting this backwards raises a bill nobody needed, which
+       is the harmless direction, but it is still wrong. */
+    assert(!ask({ consignmentValue: 50_000, supply: "inter" }).required, "EW2: exactly 50,000, no");
+    assert(ask({ consignmentValue: 50_001, supply: "inter" }).required, "EW3: a rupee over, yes");
+
+    /* The message has to be defensible at a checkpoint, so it says the
+       figures rather than just "no". */
+    const no = ask({ consignmentValue: 40_000, supply: "inter" });
+    assert(/40,000/.test(no.because), "EW4: and says what the consignment was worth");
+    assert(/50,000/.test(no.because), "EW5: and what the limit was");
+  }
+
+  /* ── The limit is per VEHICLE, not per invoice ───────────────────────
+     Three invoices in one lorry are added. The function takes a consignment
+     value for exactly this reason, and the "no" says so out loud, because
+     this is the commonest way a shop is caught out honestly. */
+  {
+    const no = ask({ consignmentValue: 20_000, supply: "inter" });
+    assert(
+      /vehicle/i.test(no.because),
+      "EW6: a 'no' warns that other invoices in the same lorry count too — " + no.because,
+    );
+  }
+
+  /* ── States do not all use 50,000 ─────────────────────────────────────
+     Intra-state limits run from ₹50,000 to ₹2,00,000, so the state's own
+     figure is configuration. Interstate is fixed nationally and must NOT be
+     movable by it. */
+  {
+    assert(
+      !ask({ consignmentValue: 90_000, supply: "intra", intrastateThreshold: 1_00_000 }).required,
+      "EW7: ₹90,000 inside a state whose limit is ₹1,00,000 needs none",
+    );
+    assert(
+      ask({ consignmentValue: 90_000, supply: "inter", intrastateThreshold: 1_00_000 }).required,
+      "EW8: but the same load crossing a border does — the state figure is not the national one",
+    );
+    assert(
+      ask({ consignmentValue: 60_000, supply: "intra" }).required,
+      "EW9: and with no state figure set, ₹50,000 is assumed",
+    );
+  }
+
+  /* ── Job work across a border: ANY value ──────────────────────────────
+     The rule a fabricator breaks first. Two brackets sent out for
+     galvanising are worth ₹4,000 and still need one. */
+  {
+    const tiny = ask({ consignmentValue: 4_000, supply: "inter", reason: "job-work" });
+    assert(tiny.required, "EW10: job work between states needs one at any value");
+    assert(
+      /whatever it is worth|any value/i.test(tiny.because),
+      "EW11: and says that the threshold is not the point — " + tiny.because,
+    );
+    assert(
+      ask({ consignmentValue: 4_000, supply: "inter", reason: "job-work-return" }).required,
+      "EW12: and so does the return leg",
+    );
+    /* Inside one state it is an ordinary threshold question again. */
+    assert(
+      !ask({ consignmentValue: 4_000, supply: "intra", reason: "job-work" }).required,
+      "EW13: while job work inside one state follows the state's limit",
+    );
+  }
+
+  /* ── The eleven exemptions beat everything ───────────────────────────── */
+  {
+    const exempt = ask({
+      consignmentValue: 5_00_000,
+      supply: "inter",
+      exemption: "non-motorised",
+    });
+    assert(!exempt.required, "EW14: an exempt movement needs none however valuable");
+    assert(exempt.because.length > 10, "EW15: and says WHICH exemption — " + exempt.because);
+    assert(
+      Object.keys(EXEMPTION_LABELS).length === 11,
+      "EW16: all eleven exemptions are listed, not a convenient few",
+    );
+  }
+
+  /* ── How long it is good for ──────────────────────────────────────────
+     One day per 200 km bracket, counted from the first Part-B entry. The
+     published worked example is 310 km = 2 days. */
+  {
+    assert(validityDays(1) === 1, "EW17: any distance is at least a day");
+    assert(validityDays(200) === 1, "EW18: 200 km is one day");
+    assert(validityDays(201) === 2, "EW19: and a kilometre more is two");
+    assert(validityDays(310) === 2, "EW20: 310 km is two days — the published example");
+    assert(validityDays(400) === 2, "EW21: 400 km is still two");
+    assert(validityDays(401) === 3, "EW22: 401 is three");
+    assert(validityDays(0) === 1, "EW23: and an unknown distance is not zero days");
+
+    /* Over-dimensional cargo — a fabricated structure on a trailer is exactly
+       this — moves at a tenth of the allowance. */
+    assert(validityDays(20, "odc") === 1, "EW24: 20 km of ODC is one day");
+    assert(validityDays(25, "odc") === 2, "EW25: 25 km of ODC is two — not one");
+    assert(
+      validityDays(200, "odc") === 10,
+      "EW26: and 200 km of ODC is ten days, not one — " + validityDays(200, "odc"),
+    );
+  }
+
+  /* ── When the vehicle number may be left off ─────────────────────────── */
+  {
+    assert(!partBRequired(30, "intra"), "EW27: a short hop inside one state may skip Part B");
+    assert(partBRequired(50, "intra"), "EW28: at 50 km it is needed again");
+    assert(
+      partBRequired(10, "inter"),
+      "EW29: and crossing a border always needs it, however short",
+    );
+  }
+
+  /* ── A document too old to raise one against ─────────────────────────── */
+  {
+    assert(canRaiseFor("2026-09-01", "2026-09-20").ok, "EW30: a recent document is fine");
+    const old = canRaiseFor("2026-01-01", "2026-09-20");
+    assert(!old.ok, "EW31: one over 180 days old cannot have an e-way bill raised at all");
+    assert(
+      !old.ok && /180/.test(old.because),
+      "EW32: and says so before the lorry is loaded — " + (old.ok ? "" : old.because),
+    );
+  }
+
+  /* ── Whose job it is ──────────────────────────────────────────────────── */
+  {
+    assert(
+      whoGenerates({ supplierRegistered: true, recipientRegistered: true }) === "supplier",
+      "EW33: the supplier raises it where they are registered",
+    );
+    assert(
+      whoGenerates({ supplierRegistered: false, recipientRegistered: true }) === "recipient",
+      "EW34: otherwise the recipient",
+    );
+    assert(
+      whoGenerates({ supplierRegistered: false, recipientRegistered: false }) === "transporter",
+      "EW35: and failing both, the transporter",
+    );
+  }
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
