@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   Users,
   FolderOpen,
+  FileSignature,
   Package,
   ShoppingCart,
   Truck,
@@ -72,6 +73,8 @@ const groups: NavGroup[] = [
     defaultOpen: false,
     module: "sales",
     items: [
+      { path: "/quotations", label: "Quotations", icon: FileSignature },
+      { path: "/proforma", label: "Proforma Invoices", icon: FileSignature },
       { path: "/sales", label: "Sales", icon: ShoppingCart, key: "4" },
       { path: "/sale-return", label: "Sale Return", icon: CornerDownLeft },
     ],

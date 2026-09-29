@@ -429,6 +429,20 @@ export async function migrateFromLocalStorage(): Promise<number> {
   return migrated;
 }
 
+/**
+ * The next number in a quotation's or proforma's OWN series.
+ *
+ * Reads only documents of the same kind, so the two series advance
+ * independently and neither can ever reach into the tax-invoice series —
+ * which Rule 46 requires to be consecutive and unique for the year.
+ */
+export function nextEstimateNumber(prefix: string, kind: Estimate["kind"]): string {
+  return nextInvoiceNumber(
+    prefix,
+    EstimateRepo.all().filter((e) => e.kind === kind),
+  );
+}
+
 export function nextInvoiceNumber(prefix: string, existing: { number: string }[]): string {
   // Read the trailing digit run instead of stripping the CURRENT prefix —
   // if the prefix is ever changed in Settings, older numbers (saved under

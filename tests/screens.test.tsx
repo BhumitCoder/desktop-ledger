@@ -52,6 +52,7 @@ import {
   CompanyRepo,
   StockAdjustmentRepo,
   BusinessDocRepo,
+  EstimateRepo,
   PurchaseReturnRepo,
   CashAdjustmentRepo,
 } from "@/repositories";
@@ -174,6 +175,40 @@ function seed() {
     stateCode: "27",
     city: "Mumbai",
     openingBalance: 0,
+  } as never);
+
+  /* A quotation waiting to be converted — the first step of the sequence. */
+  EstimateRepo.add({
+    id: "EST-Q1",
+    createdAt: "2026-09-01T00:00:00Z",
+    kind: "quotation",
+    status: "open",
+    number: "QT-0001",
+    date: "2026-09-01",
+    validUntil: "2026-12-31",
+    partyId: "PARTY-MH",
+    partyName: "Mumbai Fabricators",
+    partyGstin: "27AAACC1234D1ZC",
+    partyState: "Maharashtra",
+    placeOfSupply: "27",
+    gstEnabled: true,
+    lineItems: [
+      {
+        id: "L",
+        itemId: "I1",
+        name: "USB Cable",
+        qty: 5,
+        unit: "pcs",
+        price: 100,
+        discountPct: 0,
+        gstRate: 18,
+        amount: 590,
+      },
+    ],
+    subtotal: 500,
+    discount: 0,
+    taxAmount: 90,
+    total: 590,
   } as never);
 
   PartyRepo.add({
@@ -530,6 +565,8 @@ async function runAll(): Promise<Results> {
       "/parties/P1",
       "/sales/S1",
       "/documents",
+      "/quotations",
+      "/proforma",
       "/items",
       "/payments",
       "/expenses",
@@ -5531,6 +5568,82 @@ async function runAll(): Promise<Results> {
       gstRoot.unmount();
     });
     gstHost.remove();
+  }
+
+  /* ── Quotation → proforma → tax invoice ───────────────────────────────
+     The sequence the standard prescribes. What is asserted here is mostly
+     what these documents must NOT do, because that is where the rules bite:
+     neither may move stock, neither may post, and neither may take a number
+     from the tax-invoice series — Rule 46 wants that one consecutive. */
+  {
+    const stockBefore = ItemRepo.get("I1")?.stock ?? 0;
+    const invoicesBefore = SalesRepo.all().length;
+
+    /* A quotation, listed. */
+    const quotes = await renderRoute("/quotations");
+    has(quotes, "QT-0001", "estimates: the quotation is listed under its own number");
+    has(quotes, "Mumbai Fabricators", "estimates: against the customer it was sent to");
+
+    /* Nothing it did touched the book. */
+    assert(
+      (ItemRepo.get("I1")?.stock ?? 0) === stockBefore,
+      "estimates: a quotation moves no stock — " + stockBefore + " to " + ItemRepo.get("I1")?.stock,
+    );
+    assert(SalesRepo.all().length === invoicesBefore, "estimates: and creates no sale");
+
+    /* Convert. A quotation becomes a proforma by COPYING — the customer holds
+       a copy of the quotation and it must stay as it was sent. */
+    const convert = Array.from(document.querySelectorAll("button")).find((b) =>
+      (b.textContent ?? "").includes("Make Proforma"),
+    );
+    assert(!!convert, "estimates: an open quotation offers to become a proforma");
+    if (convert) {
+      await act(async () => {
+        convert.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      await settleMs(250);
+    }
+
+    const made = EstimateRepo.all().find((e) => e.kind === "proforma");
+    assert(!!made, "estimates: a proforma now exists");
+    assert(
+      made?.number?.startsWith("PI-"),
+      "estimates: numbered in the proforma series — " + made?.number,
+    );
+    /* The rule Rule 46 is actually about: nothing but a tax invoice may draw
+       from the tax-invoice series, or that series ends up with a hole. */
+    assert(
+      !made?.number?.startsWith("INV-"),
+      "estimates: and NEVER from the tax-invoice series — " + made?.number,
+    );
+    assert(made?.fromNumber === "QT-0001", "estimates: the chain reads backwards");
+
+    const quote = EstimateRepo.get("EST-Q1");
+    assert(quote?.status === "converted", "estimates: the quotation is marked converted");
+    assert(quote?.number === "QT-0001", "estimates: and keeps the number it was sent under");
+    assert(
+      quote?.convertedToNumber === made?.number,
+      "estimates: with a forward link to what it became",
+    );
+
+    /* Still nothing in the book. Converting is not selling. */
+    assert(
+      (ItemRepo.get("I1")?.stock ?? 0) === stockBefore,
+      "estimates: converting moves no stock either",
+    );
+    assert(
+      SalesRepo.all().length === invoicesBefore,
+      "estimates: and still creates no sale — a tax invoice is raised separately",
+    );
+
+    /* The proforma offers the last step, which opens the bill screen rather
+       than relabelling itself. */
+    const pro = await renderRoute("/proforma");
+    has(pro, "PI-", "estimates: the proforma is listed");
+    const toInvoice = Array.from(document.querySelectorAll("button")).find((b) =>
+      (b.textContent ?? "").includes("Make Invoice"),
+    );
+    assert(!!toInvoice, "estimates: and offers to raise the tax invoice");
   }
 
   const bulkHost = document.createElement("div");

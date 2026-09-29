@@ -13,6 +13,20 @@ interface Props {
   inv: Invoice;
   company: Company;
   mode: "sale" | "purchase";
+  /**
+   * Overrides the heading when this layout is printing something that is not
+   * a tax invoice — a quotation, a proforma.
+   *
+   * The heading is not decoration. TaxAdda is blunt about it: head a proforma
+   * "Sales Invoice" and it becomes a legal document under GST. So the one
+   * thing separating these documents on paper is passed in explicitly rather
+   * than inferred from anything.
+   */
+  heading?: string;
+  /** Printed under the totals — "This is not a tax invoice." */
+  disclaimer?: string;
+  /** "Valid until", where the price has a shelf life. */
+  validUntil?: string;
   /** "print-area" (default) stays hidden until printed — used for the
    * always-mounted copy inside the create/edit form. Detail pages that show
    * this invoice on screen too should pass "print-visible" instead. */
@@ -86,6 +100,9 @@ export function PrintableInvoice({
   mode,
   className = "print-area",
   scale = 1,
+  heading,
+  disclaimer,
+  validUntil,
 }: Props) {
   const gstOn = inv.gstEnabled !== false;
   const showDisc = inv.lineItems.some((l) => (l.discountPct ?? 0) > 0);
@@ -105,7 +122,8 @@ export function PrintableInvoice({
   // spacer covers everything up to (but not including) GST Amt / Amount.
   const totalSpacerSpan = 2 + (showHsn ? 1 : 0) + (showDisc ? 1 : 0) + (gstOn ? 1 : 0);
   const isSale = mode === "sale";
-  const title = gstOn ? "TAX INVOICE" : isSale ? "INVOICE / BILL OF SUPPLY" : "PURCHASE BILL";
+  const title =
+    heading ?? (gstOn ? "TAX INVOICE" : isSale ? "INVOICE / BILL OF SUPPLY" : "PURCHASE BILL");
 
   /* Which tax this bill carries.
      The seller's state is whatever their own GSTIN says — one source, so it
@@ -208,7 +226,9 @@ export function PrintableInvoice({
               <table style={{ width: "auto", fontSize: s(11) }}>
                 <tbody>
                   <tr>
-                    <td style={{ fontWeight: 600, paddingRight: s(6) }}>Invoice #:</td>
+                    <td style={{ fontWeight: 600, paddingRight: s(6) }}>
+                      {heading ? "No." : "Invoice #"}:
+                    </td>
                     <td>{inv.number}</td>
                   </tr>
                   {/* Rule 46 requires a tax invoice to STATE whether tax is
@@ -219,6 +239,12 @@ export function PrintableInvoice({
                     <tr>
                       <td style={{ fontWeight: 600, paddingRight: s(6) }}>Reverse Charge:</td>
                       <td>{inv.reverseCharge ? "Yes" : "No"}</td>
+                    </tr>
+                  )}
+                  {!!validUntil && (
+                    <tr>
+                      <td style={{ fontWeight: 600, paddingRight: s(6) }}>Valid until:</td>
+                      <td>{fmtDate(validUntil)}</td>
                     </tr>
                   )}
                   <tr>
@@ -474,6 +500,19 @@ export function PrintableInvoice({
                 paddingRight: s(12),
               }}
             >
+              {!!disclaimer && (
+                <div
+                  style={{
+                    marginBottom: s(6),
+                    padding: s(5),
+                    border: "1px solid #999",
+                    fontWeight: 700,
+                    fontSize: s(10),
+                  }}
+                >
+                  {disclaimer}
+                </div>
+              )}
               <div style={{ fontWeight: 700, marginBottom: s(4) }}>Terms &amp; Conditions</div>
               <div>1. Goods once sold will not be taken back.</div>
               <div>2. Interest @18% p.a. will be charged on delayed payments.</div>

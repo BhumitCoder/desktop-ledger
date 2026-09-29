@@ -17,6 +17,8 @@ import {
   PurchaseReturnRepo,
   PaymentRepo,
   BankRepo,
+  EstimateRepo,
+  nextEstimateNumber,
 } from "@/repositories";
 import { partyBalances } from "@/lib/ledger";
 import { correctBankPaidAmount } from "@/lib/bankRepair";
@@ -36,6 +38,7 @@ import type {
   PaymentMode,
   BankAccount,
   PaymentSplit,
+  Estimate,
 } from "@/types";
 import { fmtMoney, fmtDate, today } from "@/lib/format";
 import { toast } from "sonner";
@@ -64,9 +67,14 @@ import { enterMovesAlongRow, useEscapeToLeave } from "@/hooks/useFormKeys";
 import { stockShortfalls } from "@/lib/stock";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 import { stateFromGstin } from "@/lib/gstin";
+import { estimateSpec, carriedFields, type EstimateKind } from "@/lib/estimates";
 
 interface Props {
   mode: "sale" | "purchase";
+  /** Which document this screen is writing, when it is not a tax invoice. */
+  initialDocType?: EstimateKind;
+  /** A proforma being turned into a tax invoice — its deal is copied in. */
+  fromEstimateId?: string;
   existing?: Invoice | null;
 }
 
@@ -135,7 +143,7 @@ function placementStyle(p: PopupPlacement, cap?: number): React.CSSProperties {
   };
 }
 
-export function InvoiceForm({ mode, existing }: Props) {
+export function InvoiceForm({ mode, existing, initialDocType, fromEstimateId }: Props) {
   // The app now opens BEFORE the collections have loaded (see hydrateRepos),
   // so every repo read in this form has to be keyed on this version or it
   // freezes whatever was in the cache at mount — which on a cold open is
@@ -154,9 +162,18 @@ export function InvoiceForm({ mode, existing }: Props) {
   // auto-restores) it instead of creating a duplicate.
   const partyFilter = (p: Party) => !p.archived;
 
+  /* A proforma being raised as a tax invoice. Read once, before the form
+     state exists, so the deal arrives already filled in rather than flashing
+     empty and then populating. The NUMBER is not among what is copied: the
+     tax invoice draws its own from its own series. */
+  const seededFrom = fromEstimateId ? EstimateRepo.get(fromEstimateId) : undefined;
+
   const [inv, setInv] = useState<Invoice>(
     () =>
       existing ?? {
+        ...(seededFrom
+          ? (carriedFields(seededFrom as unknown as Record<string, unknown>) as Partial<Invoice>)
+          : null),
         id: "",
         number: nextInvoiceNumber(
           isSale ? company.invoicePrefix : company.purchasePrefix,
@@ -168,13 +185,13 @@ export function InvoiceForm({ mode, existing }: Props) {
         partyPhone: "",
         // New bills start with GST off — the cashier turns it on per-bill
         // when actually needed, instead of every bill defaulting to a tax invoice.
-        gstEnabled: false,
-        lineItems: [],
-        subtotal: 0,
-        discount: 0,
-        shippingCharge: 0,
-        taxAmount: 0,
-        total: 0,
+        gstEnabled: seededFrom?.gstEnabled ?? false,
+        lineItems: seededFrom?.lineItems ?? [],
+        subtotal: seededFrom?.subtotal ?? 0,
+        discount: seededFrom?.discount ?? 0,
+        shippingCharge: seededFrom?.shippingCharge ?? 0,
+        taxAmount: seededFrom?.taxAmount ?? 0,
+        total: seededFrom?.total ?? 0,
         paid: 0,
         /* What an unchosen bill IS. No pill is lit until the counter picks
            one (see modeChosen), and a bill saved without picking is a bill
@@ -318,6 +335,21 @@ export function InvoiceForm({ mode, existing }: Props) {
     setInv((cur) => (cur.number === next ? cur : { ...cur, number: next }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [_repoV]);
+  /**
+   * Which document this screen is writing.
+   *
+   * One screen for all three, because they ARE one form — the same party, the
+   * same lines, the same GST — and a shop that learns the bill screen should
+   * not have to learn two more. What changes is only what happens on Save.
+   *
+   * Only offered on a new SALE. A purchase has no quotation, and an existing
+   * document cannot change what kind it is: that would either hole the tax
+   * series or silently turn a quotation into a liability. Convert makes a new
+   * document, which is the only way it is allowed to happen.
+   */
+  const [docType, setDocType] = useState<"invoice" | EstimateKind>(initialDocType ?? "invoice");
+  const isEstimate = docType !== "invoice";
+  const [validUntil, setValidUntil] = useState("");
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const bankSelectRef = useRef<HTMLInputElement>(null);
@@ -1082,6 +1114,59 @@ export function InvoiceForm({ mode, existing }: Props) {
     }
   };
 
+  /**
+   * Write a quotation or a proforma.
+   *
+   * Nothing here moves stock, allocates a tax-invoice number, records a
+   * payment or posts to the ledger — see lib/estimates.ts for why each of
+   * those is a rule rather than an omission.
+   */
+  const saveEstimate = () => {
+    if (!inv.partyId) {
+      toast.error("Choose a customer first");
+      return;
+    }
+    const spec = estimateSpec(docType as EstimateKind);
+    const prefix =
+      (docType === "quotation" ? company.quotationPrefix : company.proformaPrefix) || spec.prefix;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const id = genId();
+      EstimateRepo.add({
+        id,
+        kind: docType as EstimateKind,
+        status: "open",
+        number: nextEstimateNumber(prefix, docType as EstimateKind),
+        date: inv.date,
+        validUntil: validUntil || undefined,
+        partyId: inv.partyId,
+        partyName: inv.partyName,
+        partyPhone: inv.partyPhone,
+        partyGstin: inv.partyGstin,
+        partyAddress: inv.partyAddress,
+        partyState: inv.partyState,
+        placeOfSupply: inv.placeOfSupply,
+        gstEnabled: inv.gstEnabled,
+        reverseCharge: inv.reverseCharge,
+        lineItems: inv.lineItems,
+        subtotal: inv.subtotal,
+        discount: inv.discount,
+        shippingCharge: inv.shippingCharge,
+        taxAmount: inv.taxAmount,
+        roundOff: inv.roundOff,
+        total: inv.total,
+        notes: inv.notes,
+      } as Estimate);
+      toast.success(`${spec.label} saved`);
+      navigate({ to: docType === "quotation" ? "/quotations" : "/proforma" });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : `Could not save the ${spec.label}`);
+      savingRef.current = false;
+      setSaving(false);
+    }
+  };
+
   const save = (andPrint = false) => {
     if (savingRef.current) return; // double-click / Ctrl+S repeat protection
 
@@ -1136,6 +1221,16 @@ export function InvoiceForm({ mode, existing }: Props) {
         }
       }
     }
+    /* Everything above is about the LINES, and a quotation has lines like any
+       other document. Everything below is about stock, numbering in the tax
+       series, payments and the ledger — none of which a quotation or proforma
+       touches. So the branch is here, after the checks that apply and before
+       the ones that do not. */
+    if (isEstimate) {
+      saveEstimate();
+      return;
+    }
+
     const number = inv.number.trim();
     if (!number) {
       toast.error(`${isSale ? "Invoice" : "Bill"} number is required`);
@@ -1361,6 +1456,35 @@ export function InvoiceForm({ mode, existing }: Props) {
               </label>
             </>
           )}
+          {/* What this screen is writing.
+              Only on a NEW sale: a purchase has no quotation, and an existing
+              document cannot change what kind it is — that would either hole
+              the tax-invoice series or turn a quotation into a liability.
+              Convert raises a new document, which is the only way it happens. */}
+          {isSale && !existing && (
+            <div className="inline-flex shrink-0 overflow-hidden rounded-md border">
+              {(
+                [
+                  ["invoice", "Tax Invoice"],
+                  ["quotation", "Quotation"],
+                  ["proforma", "Proforma"],
+                ] as const
+              ).map(([k, text]) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setDocType(k)}
+                  className={`h-9 px-3 text-[12px] font-semibold transition whitespace-nowrap ${
+                    docType === k
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-background text-muted-foreground hover:bg-accent"
+                  }`}
+                >
+                  {text}
+                </button>
+              ))}
+            </div>
+          )}
           {/* GST toggle — desktop position */}
           <label className="hidden sm:flex items-center gap-2 h-9 px-3 rounded-md border bg-background cursor-pointer select-none">
             <input
@@ -1532,6 +1656,17 @@ export function InvoiceForm({ mode, existing }: Props) {
               value={inv.date}
               onChange={(e) => setInv({ ...inv, date: e.target.value })}
             />
+
+            {/* A quoted price has a shelf life, and saying so is half of what
+                makes a quotation a quotation rather than an open promise. */}
+            {isEstimate && (
+              <Field
+                label="Valid until"
+                type="date"
+                value={validUntil}
+                onChange={(e) => setValidUntil(e.target.value)}
+              />
+            )}
 
             <div className="flex flex-col gap-1 text-[12px]">
               <span className="text-muted-foreground font-medium">

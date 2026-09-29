@@ -11,6 +11,8 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ReportsRouteImport } from './routes/reports'
+import { Route as QuotationsRouteImport } from './routes/quotations'
+import { Route as ProformaRouteImport } from './routes/proforma'
 import { Route as PaymentsRouteImport } from './routes/payments'
 import { Route as PayeesRouteImport } from './routes/payees'
 import { Route as PartiesRouteImport } from './routes/parties'
@@ -51,6 +53,16 @@ const SettingsRoute = SettingsRouteImport.update({
 const ReportsRoute = ReportsRouteImport.update({
   id: '/reports',
   path: '/reports',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const QuotationsRoute = QuotationsRouteImport.update({
+  id: '/quotations',
+  path: '/quotations',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProformaRoute = ProformaRouteImport.update({
+  id: '/proforma',
+  path: '/proforma',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PaymentsRoute = PaymentsRouteImport.update({
@@ -223,6 +235,8 @@ export interface FileRoutesByFullPath {
   '/parties': typeof PartiesRoute
   '/payees': typeof PayeesRoute
   '/payments': typeof PaymentsRoute
+  '/proforma': typeof ProformaRoute
+  '/quotations': typeof QuotationsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
   '/bank/$id': typeof BankIdRoute
@@ -258,6 +272,8 @@ export interface FileRoutesByTo {
   '/parties': typeof PartiesRoute
   '/payees': typeof PayeesRoute
   '/payments': typeof PaymentsRoute
+  '/proforma': typeof ProformaRoute
+  '/quotations': typeof QuotationsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
   '/bank/$id': typeof BankIdRoute
@@ -294,6 +310,8 @@ export interface FileRoutesById {
   '/parties': typeof PartiesRoute
   '/payees': typeof PayeesRoute
   '/payments': typeof PaymentsRoute
+  '/proforma': typeof ProformaRoute
+  '/quotations': typeof QuotationsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
   '/bank_/$id': typeof BankIdRoute
@@ -331,6 +349,8 @@ export interface FileRouteTypes {
     | '/parties'
     | '/payees'
     | '/payments'
+    | '/proforma'
+    | '/quotations'
     | '/reports'
     | '/settings'
     | '/bank/$id'
@@ -366,6 +386,8 @@ export interface FileRouteTypes {
     | '/parties'
     | '/payees'
     | '/payments'
+    | '/proforma'
+    | '/quotations'
     | '/reports'
     | '/settings'
     | '/bank/$id'
@@ -401,6 +423,8 @@ export interface FileRouteTypes {
     | '/parties'
     | '/payees'
     | '/payments'
+    | '/proforma'
+    | '/quotations'
     | '/reports'
     | '/settings'
     | '/bank_/$id'
@@ -437,6 +461,8 @@ export interface RootRouteChildren {
   PartiesRoute: typeof PartiesRoute
   PayeesRoute: typeof PayeesRoute
   PaymentsRoute: typeof PaymentsRoute
+  ProformaRoute: typeof ProformaRoute
+  QuotationsRoute: typeof QuotationsRoute
   ReportsRoute: typeof ReportsRoute
   SettingsRoute: typeof SettingsRoute
   BankIdRoute: typeof BankIdRoute
@@ -473,6 +499,20 @@ declare module '@tanstack/react-router' {
       path: '/reports'
       fullPath: '/reports'
       preLoaderRoute: typeof ReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/quotations': {
+      id: '/quotations'
+      path: '/quotations'
+      fullPath: '/quotations'
+      preLoaderRoute: typeof QuotationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/proforma': {
+      id: '/proforma'
+      path: '/proforma'
+      fullPath: '/proforma'
+      preLoaderRoute: typeof ProformaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/payments': {
@@ -709,6 +749,8 @@ const rootRouteChildren: RootRouteChildren = {
   PartiesRoute: PartiesRoute,
   PayeesRoute: PayeesRoute,
   PaymentsRoute: PaymentsRoute,
+  ProformaRoute: ProformaRoute,
+  QuotationsRoute: QuotationsRoute,
   ReportsRoute: ReportsRoute,
   SettingsRoute: SettingsRoute,
   BankIdRoute: BankIdRoute,
