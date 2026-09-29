@@ -140,12 +140,40 @@ const D2 = inMonth(2),
 function seed() {
   CompanyRepo.save({
     name: "AIM ENTERPRISE",
+    // Registered in Gujarat (24). The seller's state comes from its own
+    // GSTIN, so this one number decides intra against inter for every bill.
+    gstin: "24AAACC1234D1ZI",
     currency: "INR",
     invoicePrefix: "INV-",
     purchasePrefix: "PUR-",
     enableGst: true,
     allowNegativeStock: true,
     expenseCategories: ["Rent"],
+  } as never);
+
+  /* Two customers that differ only in where they are — the whole point of
+     the GST rules. Both GSTINs are real-shaped and pass the checksum. */
+  PartyRepo.add({
+    id: "PARTY-GJ",
+    createdAt: "2026-01-01T00:00:00Z",
+    name: "Surat Steels",
+    type: "customer",
+    gstin: "24AAACC1234D1ZI",
+    state: "Gujarat",
+    stateCode: "24",
+    city: "Surat",
+    openingBalance: 0,
+  } as never);
+  PartyRepo.add({
+    id: "PARTY-MH",
+    createdAt: "2026-01-01T00:00:00Z",
+    name: "Mumbai Fabricators",
+    type: "customer",
+    gstin: "27AAACC1234D1ZC",
+    state: "Maharashtra",
+    stateCode: "27",
+    city: "Mumbai",
+    openingBalance: 0,
   } as never);
 
   PartyRepo.add({
@@ -5349,6 +5377,119 @@ async function runAll(): Promise<Results> {
       });
       await settleMs(120);
     }
+  }
+
+  /* ── The tax a bill actually carries ──────────────────────────────────
+     Balaji Fabtech bills Surat and Mumbai in the same week. Until now every
+     invoice this app printed split its tax CGST + SGST — including the ones
+     to Mumbai, which must carry a single IGST line instead. Same total, two
+     different documents, and only one of them is filable.
+
+     The printable is mounted directly rather than through a route, with
+     invoices built here. Seeding three more sales into the shared book moved
+     every receivable and profit figure the rest of this suite is pinned to —
+     a fixture that rewrites ten other tests to prove one thing is a fixture
+     that will be deleted the first time it is inconvenient. */
+  {
+    const gstHost = document.createElement("div");
+    document.body.appendChild(gstHost);
+    const gstRoot = createRoot(gstHost);
+
+    const company = {
+      name: "AIM ENTERPRISE",
+      // Registered in Gujarat. The seller's state comes from its own GSTIN,
+      // so this one number decides intra against inter for every bill.
+      gstin: "24AAACC1234D1ZI",
+      currency: "INR",
+      invoicePrefix: "INV-",
+      purchasePrefix: "PUR-",
+      enableGst: true,
+    } as never;
+
+    const bill = (over: Record<string, unknown>) =>
+      ({
+        id: "X",
+        number: "INV-X",
+        date: "2026-09-10",
+        partyId: "PX",
+        partyName: "A Customer",
+        gstEnabled: true,
+        lineItems: [
+          {
+            id: "L",
+            itemId: "I1",
+            name: "MS Plate",
+            qty: 10,
+            unit: "pcs",
+            price: 100,
+            discountPct: 0,
+            gstRate: 18,
+            amount: 1180,
+          },
+        ],
+        subtotal: 1000,
+        discount: 0,
+        taxAmount: 180,
+        total: 1180,
+        paid: 0,
+        paymentMode: "credit",
+        ...over,
+      }) as never;
+
+    const render = async (inv: never) => {
+      await act(async () => {
+        gstRoot.render(<PrintableInvoice inv={inv} company={company} mode="sale" />);
+      });
+      await settleMs(60);
+      return gstHost.textContent ?? "";
+    };
+
+    /* Gujarat to Gujarat. 18% of 1,000 is 180, and it belongs half to the
+       centre and half to the state. */
+    const local = await render(
+      bill({
+        partyName: "Surat Steels",
+        partyGstin: "24AAACC1234D1ZI",
+        partyState: "Gujarat",
+        placeOfSupply: "24",
+      }),
+    );
+    assert(local.includes("CGST"), "gst: a Gujarat bill from a Gujarat shop shows CGST");
+    assert(local.includes("SGST"), "gst: and SGST");
+    assert(!local.includes("IGST"), "gst: and no IGST");
+    assert(local.includes("90.00"), "gst: halved — 90 and 90, not 180 in one column");
+
+    /* Gujarat to Maharashtra. Same total, one column, different government. */
+    const far = await render(
+      bill({
+        partyName: "Mumbai Fabricators",
+        partyGstin: "27AAACC1234D1ZC",
+        partyState: "Maharashtra",
+        placeOfSupply: "27",
+      }),
+    );
+    assert(far.includes("IGST"), "gst: a Maharashtra bill from a Gujarat shop shows IGST");
+    assert(!far.includes("CGST"), "gst: and NOT CGST");
+    assert(!far.includes("SGST"), "gst: nor SGST");
+    assert(far.includes("180.00"), "gst: at the full rate in one column");
+
+    /* A tax invoice that does not say where the supply went cannot be checked
+       by anyone reading it. */
+    assert(far.includes("Place of Supply"), "gst: the bill says where the supply went");
+    assert(far.includes("Maharashtra"), "gst: by name");
+    assert(far.includes("27AAACC1234D1ZC"), "gst: and prints the buyer's GSTIN");
+
+    /* The rule that protects a year of history: a bill with no place of
+       supply recorded — every bill written before today — keeps printing
+       exactly what it printed yesterday. */
+    const old = await render(bill({ partyName: "Ramesh Traders" }));
+    assert(old.includes("CGST"), "gst: a bill written before any of this still shows CGST");
+    assert(!old.includes("IGST"), "gst: and is not silently reclassified as interstate");
+
+    await act(async () => {
+      gstRoot.unmount();
+    });
+    gstHost.remove();
   }
 
   const bulkHost = document.createElement("div");

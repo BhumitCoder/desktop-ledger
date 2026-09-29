@@ -142,6 +142,22 @@ export interface Invoice {
   number: string;
   date: string;
   partyId: ID;
+  /**
+   * The buyer's GST identity AS BILLED, not as they are today.
+   *
+   * Snapshotted the moment the party is chosen, for the same reason costPrice
+   * is: a party's state can be corrected next year, and a reprint of last
+   * year's invoice must show the tax it actually carried rather than the tax
+   * it would carry now. `placeOfSupply` is the two-digit state code, and it
+   * is the field that decides CGST+SGST against IGST — see lib/gstin.ts.
+   *
+   * All optional: every invoice written before this existed has none of them,
+   * and falls back to intra-state, which is exactly what it printed.
+   */
+  partyGstin?: string;
+  partyAddress?: string;
+  partyState?: string;
+  placeOfSupply?: string;
   partyName: string;
   partyPhone?: string;
   gstEnabled?: boolean;

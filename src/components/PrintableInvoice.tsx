@@ -4,6 +4,7 @@ import { describePayment } from "@/lib/paymentSplit";
 import { fmtMode } from "@/lib/paymentMode";
 
 import { BankRepo } from "@/repositories";
+import { stateFromGstin, supplyKind, splitTax, GST_STATES } from "@/lib/gstin";
 /** An account's name for display. The word "Bank" three times over is
  *  exactly what a split is meant to stop being ambiguous. */
 const bankName = (id: string) => BankRepo.get(id)?.name;
@@ -101,6 +102,17 @@ export function PrintableInvoice({
   const isSale = mode === "sale";
   const title = gstOn ? "TAX INVOICE" : isSale ? "INVOICE / BILL OF SUPPLY" : "PURCHASE BILL";
 
+  /* Which tax this bill carries.
+     The seller's state is whatever their own GSTIN says — one source, so it
+     cannot drift from the number printed at the top of the page. The buyer's
+     is the place of supply recorded ON THE BILL when it was written, falling
+     back to the GSTIN it was billed to. Both unknown means intra-state, which
+     is what every invoice written before this printed. */
+  const sellerState = stateFromGstin(company.gstin)?.code;
+  const buyerState = inv.placeOfSupply || stateFromGstin(inv.partyGstin)?.code;
+  const kind = supplyKind(sellerState, buyerState);
+  const interstate = kind === "inter";
+
   // Aggregate GST by rate for summary
   const gstBuckets: Record<string, { taxable: number; tax: number }> = {};
   let taxableTotal = 0;
@@ -175,7 +187,17 @@ export function PrintableInvoice({
                 {isSale ? "BILL TO" : "SUPPLIER"}
               </div>
               <div style={{ fontSize: s(14), fontWeight: 700 }}>{inv.partyName || "—"}</div>
+              {inv.partyAddress && <div>{inv.partyAddress}</div>}
               {inv.partyPhone && <div>Phone: {inv.partyPhone}</div>}
+              {gstOn && inv.partyGstin && (
+                <div style={{ fontWeight: 600 }}>GSTIN: {inv.partyGstin}</div>
+              )}
+              {gstOn && (inv.partyState || buyerState) && (
+                <div>
+                  Place of Supply: {buyerState ? `${buyerState} — ` : ""}
+                  {inv.partyState ?? (buyerState ? GST_STATES[buyerState] : "")}
+                </div>
+              )}
             </td>
             <td style={{ ...cellStyle, width: "1%", whiteSpace: "nowrap", verticalAlign: "top" }}>
               <table style={{ width: "auto", fontSize: s(11) }}>
@@ -302,8 +324,14 @@ export function PrintableInvoice({
                       <tr>
                         <th style={th}>GST %</th>
                         <th style={{ ...th, textAlign: "right" }}>Taxable</th>
-                        <th style={{ ...th, textAlign: "right" }}>CGST</th>
-                        <th style={{ ...th, textAlign: "right" }}>SGST</th>
+                        {interstate ? (
+                          <th style={{ ...th, textAlign: "right" }}>IGST</th>
+                        ) : (
+                          <>
+                            <th style={{ ...th, textAlign: "right" }}>CGST</th>
+                            <th style={{ ...th, textAlign: "right" }}>SGST</th>
+                          </>
+                        )}
                         <th style={{ ...th, textAlign: "right" }}>Total Tax</th>
                       </tr>
                     </thead>
@@ -314,12 +342,27 @@ export function PrintableInvoice({
                           <td style={{ ...cellStyle, textAlign: "right" }}>
                             {fmtMoney(v.taxable)}
                           </td>
-                          <td style={{ ...cellStyle, textAlign: "right" }}>
-                            {fmtMoney(v.tax / 2)}
-                          </td>
-                          <td style={{ ...cellStyle, textAlign: "right" }}>
-                            {fmtMoney(v.tax / 2)}
-                          </td>
+                          {/* One place decides the split, and it is the same
+                              one the totals use — halving here independently
+                              is how a bill ends up disagreeing with itself by
+                              a paisa. */}
+                          {(() => {
+                            const sp = splitTax(v.tax, kind);
+                            return interstate ? (
+                              <td style={{ ...cellStyle, textAlign: "right" }}>
+                                {fmtMoney(sp.igst)}
+                              </td>
+                            ) : (
+                              <>
+                                <td style={{ ...cellStyle, textAlign: "right" }}>
+                                  {fmtMoney(sp.cgst)}
+                                </td>
+                                <td style={{ ...cellStyle, textAlign: "right" }}>
+                                  {fmtMoney(sp.sgst)}
+                                </td>
+                              </>
+                            );
+                          })()}
                           <td style={{ ...cellStyle, textAlign: "right" }}>{fmtMoney(v.tax)}</td>
                         </tr>
                       ))}

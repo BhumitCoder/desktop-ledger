@@ -63,6 +63,7 @@ import { genId, newBatch, commitBatch } from "@/repositories/base";
 import { enterMovesAlongRow, useEscapeToLeave } from "@/hooks/useFormKeys";
 import { stockShortfalls } from "@/lib/stock";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
+import { stateFromGstin } from "@/lib/gstin";
 
 interface Props {
   mode: "sale" | "purchase";
@@ -501,7 +502,21 @@ export function InvoiceForm({ mode, existing }: Props) {
   };
 
   const selectParty = (p: Party) => {
-    setInv({ ...inv, partyId: p.id, partyName: p.name, partyPhone: p.phone ?? "" });
+    /* The GST identity is copied onto the bill, not referenced from the party.
+       A party's state gets corrected; a filed invoice must not change its tax
+       when that happens. Same rule as costPrice. */
+    setInv({
+      ...inv,
+      partyId: p.id,
+      partyName: p.name,
+      partyPhone: p.phone ?? "",
+      partyGstin: p.gstin || undefined,
+      partyState: p.state || undefined,
+      placeOfSupply: p.stateCode || stateFromGstin(p.gstin)?.code || undefined,
+      partyAddress:
+        [p.address, p.addressLine2, p.area, p.city, p.zipCode].filter(Boolean).join(", ") ||
+        undefined,
+    });
     setPartyQ(p.name);
     setPhoneQ(p.phone ?? "");
     setPartyOpen(false);
@@ -509,7 +524,16 @@ export function InvoiceForm({ mode, existing }: Props) {
   };
 
   const clearParty = () => {
-    setInv({ ...inv, partyId: "", partyName: "", partyPhone: "" });
+    setInv({
+      ...inv,
+      partyId: "",
+      partyName: "",
+      partyPhone: "",
+      partyGstin: undefined,
+      partyState: undefined,
+      placeOfSupply: undefined,
+      partyAddress: undefined,
+    });
     setPartyQ("");
     setPhoneQ("");
     setTimeout(() => partyRef.current?.focus(), 30);
