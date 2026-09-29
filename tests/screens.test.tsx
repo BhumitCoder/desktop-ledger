@@ -5486,6 +5486,47 @@ async function runAll(): Promise<Results> {
     assert(old.includes("CGST"), "gst: a bill written before any of this still shows CGST");
     assert(!old.includes("IGST"), "gst: and is not silently reclassified as interstate");
 
+    /* ── The particulars Rule 46 requires and this bill did not carry ───
+       Checked against the rule rather than against taste: a tax invoice that
+       omits any of these is not a valid tax invoice, however good it looks.
+       https://taxinformation.cbic.gov.in — CGST Rule 46 */
+    {
+      const coded = await render(
+        bill({
+          partyGstin: "27AAACC1234D1ZC",
+          placeOfSupply: "27",
+          lineItems: [
+            {
+              id: "L",
+              itemId: "I1",
+              name: "MS Plate",
+              hsn: "7208",
+              qty: 10,
+              unit: "pcs",
+              price: 100,
+              discountPct: 0,
+              gstRate: 18,
+              amount: 1180,
+            },
+          ],
+        }),
+      );
+      assert(coded.includes("HSN/SAC"), "rule46: the line table carries an HSN/SAC column");
+      assert(coded.includes("7208"), "rule46: with the code the line was billed under");
+      assert(coded.includes("Reverse Charge"), "rule46: the bill states reverse charge");
+      assert(coded.includes("Authorised Signatory"), "rule46: and carries a signature block");
+
+      /* Either way, not silence. A blank is not an answer a return can be
+         checked against. */
+      assert(/Reverse Charge:\s*No/.test(coded.replace(/\s+/g, " ")), "rule46: No when it is no");
+      const rc = await render(bill({ reverseCharge: true }));
+      assert(/Reverse Charge:\s*Yes/.test(rc.replace(/\s+/g, " ")), "rule46: and Yes when it is");
+
+      /* A shop that has never filled in an HSN code should not get an empty
+         column down every bill it prints. */
+      assert(!old.includes("HSN/SAC"), "rule46: no HSN column when no line has a code");
+    }
+
     await act(async () => {
       gstRoot.unmount();
     });

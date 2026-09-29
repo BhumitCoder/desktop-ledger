@@ -94,11 +94,16 @@ export function PrintableInvoice({
   // blank filler rows and the Item Total row MUST derive their cell counts
   // from the same flags as the header. Hard-coded counts are how the table
   // ended up with a phantom empty column hanging off the right edge.
-  //   # · Item · Qty · Unit · Price · [Disc%] · [GST%] · [GST Amt] · Amount
-  const colCount = 6 + (showDisc ? 1 : 0) + (gstOn ? 2 : 0);
+  //   # · Item · [HSN] · Qty · Unit · Price · [Disc%] · [GST%] · [GST Amt] · Amount
+  /* HSN/SAC is a Rule 46 particular on a tax invoice, so the column appears
+     whenever GST is on AND at least one line actually has a code — an empty
+     column on every bill of a shop that has never filled its HSN codes in is
+     worse than no column. */
+  const showHsn = gstOn && inv.lineItems.some((l) => !!(l.hsn ?? "").trim());
+  const colCount = 6 + (showHsn ? 1 : 0) + (showDisc ? 1 : 0) + (gstOn ? 2 : 0);
   // Item Total: "Item Total" spans # + Item, then Qty is shown, then this
   // spacer covers everything up to (but not including) GST Amt / Amount.
-  const totalSpacerSpan = 2 + (showDisc ? 1 : 0) + (gstOn ? 1 : 0);
+  const totalSpacerSpan = 2 + (showHsn ? 1 : 0) + (showDisc ? 1 : 0) + (gstOn ? 1 : 0);
   const isSale = mode === "sale";
   const title = gstOn ? "TAX INVOICE" : isSale ? "INVOICE / BILL OF SUPPLY" : "PURCHASE BILL";
 
@@ -206,6 +211,16 @@ export function PrintableInvoice({
                     <td style={{ fontWeight: 600, paddingRight: s(6) }}>Invoice #:</td>
                     <td>{inv.number}</td>
                   </tr>
+                  {/* Rule 46 requires a tax invoice to STATE whether tax is
+                      payable on reverse charge. Printed either way, because
+                      silence is not an answer a return can be checked
+                      against. */}
+                  {gstOn && (
+                    <tr>
+                      <td style={{ fontWeight: 600, paddingRight: s(6) }}>Reverse Charge:</td>
+                      <td>{inv.reverseCharge ? "Yes" : "No"}</td>
+                    </tr>
+                  )}
                   <tr>
                     <td style={{ fontWeight: 600 }}>Date:</td>
                     <td>{fmtDate(inv.date)}</td>
@@ -232,6 +247,7 @@ export function PrintableInvoice({
           <tr>
             <th style={{ ...th, width: s(28), textAlign: "center" }}>#</th>
             <th style={th}>Item</th>
+            {showHsn && <th style={{ ...th, width: s(60) }}>HSN/SAC</th>}
             <th style={{ ...th, textAlign: "right", width: s(55) }}>Qty</th>
             <th style={{ ...th, width: s(45) }}>Unit</th>
             <th style={{ ...th, textAlign: "right", width: s(75) }}>Price</th>
@@ -249,6 +265,7 @@ export function PrintableInvoice({
               <tr key={l.id}>
                 <td style={{ ...cellStyle, textAlign: "center" }}>{i + 1}</td>
                 <td style={cellStyle}>{l.name}</td>
+                {showHsn && <td style={cellStyle}>{l.hsn ?? ""}</td>}
                 <td style={{ ...cellStyle, textAlign: "right" }}>{l.qty}</td>
                 <td style={cellStyle}>{l.unit}</td>
                 <td style={{ ...cellStyle, textAlign: "right" }}>{fmtMoney(l.price)}</td>

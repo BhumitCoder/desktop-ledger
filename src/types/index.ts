@@ -112,6 +112,14 @@ export interface LineItem {
   amount: number;
   /** Snapshot of the item's purchase price when the line was created — used for stock-based COGS in P&L */
   costPrice?: number;
+  /**
+   * The HSN or SAC code this line was billed under.
+   *
+   * Rule 46 requires it on a tax invoice. Snapshotted like costPrice: an
+   * item's code gets corrected, and a filed invoice must keep saying what it
+   * said. Falls back to the item's current code where a line predates this.
+   */
+  hsn?: string;
   /** Price in the foreign currency, before conversion — only set on
    * international purchases. `price` (INR) is auto-derived from this via
    * the parent Invoice's exchangeRate/carryCostPerUnit, but stays a normal
@@ -154,6 +162,14 @@ export interface Invoice {
    * All optional: every invoice written before this existed has none of them,
    * and falls back to intra-state, which is exactly what it printed.
    */
+  /**
+   * Whether tax on this supply is payable by the recipient.
+   *
+   * Rule 46 requires a tax invoice to STATE this either way, so the printed
+   * bill says "No" rather than staying silent — silence is not an answer a
+   * return can be checked against.
+   */
+  reverseCharge?: boolean;
   partyGstin?: string;
   partyAddress?: string;
   partyState?: string;

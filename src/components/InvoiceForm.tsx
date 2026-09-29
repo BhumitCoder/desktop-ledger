@@ -620,6 +620,7 @@ export function InvoiceForm({ mode, existing }: Props) {
       gstRate: it.gstRate,
       amount: 0,
       costPrice: it.purchasePrice,
+      hsn: it.hsn || undefined,
     };
     const gstMult = gstOn ? 1 + line.gstRate / 100 : 1;
     line.amount = r2(r2(line.qty * line.price * (1 - line.discountPct / 100)) * gstMult);
@@ -759,6 +760,7 @@ export function InvoiceForm({ mode, existing }: Props) {
       gstRate: it.gstRate,
       price: isSale ? (it.salePrice ?? 0) : (historicalPrice ?? it.purchasePrice),
       costPrice: it.purchasePrice,
+      hsn: it.hsn || undefined,
       // The old item's foreign price must not survive the swap — a later
       // exchange-rate change re-prices every line that still has one, which
       // would overwrite the new item's price with the OLD item's landed cost.
@@ -1369,6 +1371,24 @@ export function InvoiceForm({ mode, existing }: Props) {
             />
             <span className="text-[12px] font-semibold">GST Bill</span>
           </label>
+          {/* Rule 46 makes a tax invoice state whether tax is payable on
+              reverse charge, so the bill has to be able to say yes. Only
+              offered on a GST bill, because on a non-GST one there is no tax
+              to be anybody's to pay. */}
+          {gstOn && (
+            <label
+              className="flex items-center gap-2 h-9 px-3 rounded-md border bg-background cursor-pointer select-none"
+              title="Tax on this supply is payable by the recipient"
+            >
+              <input
+                type="checkbox"
+                checked={!!inv.reverseCharge}
+                onChange={(e) => setInv({ ...inv, reverseCharge: e.target.checked || undefined })}
+                className="accent-primary"
+              />
+              <span className="text-[12px] font-semibold whitespace-nowrap">Reverse charge</span>
+            </label>
+          )}
         </div>
       </div>
 
