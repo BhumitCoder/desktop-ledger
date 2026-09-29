@@ -288,6 +288,7 @@ export const REPO_BY_KEY: Record<string, Repository<{ id: string }>> = {
   "bz.bankTxns": BankTxnRepo as Repository<{ id: string }>,
   "bz.payments": PaymentRepo as Repository<{ id: string }>,
   "bz.stock-adjustments": StockAdjustmentRepo as Repository<{ id: string }>,
+  "bz.business-docs": BusinessDocRepo as Repository<{ id: string }>,
   "bz.cash-adjustments": CashAdjustmentRepo as Repository<{ id: string }>,
 };
 

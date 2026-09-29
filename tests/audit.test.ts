@@ -3283,6 +3283,90 @@ console.log(`\n═════════════════════�
   }
 }
 
+/* ═══════ TEST RG: a new page has to be registered in three places ═══════
+   Both bugs reported on the document vault were the same bug wearing two
+   hats: the page existed, worked, and was in the sidebar — and was missing
+   from a list somewhere else.
+
+     · No tab opened for it. WorkspaceTabs decides from a path→title map, and
+       a path it does not know returns null, so no tab is created and the
+       page appears to be "outside" the app.
+     · Uploads vanished on refresh. The write reached Firestore; nothing ever
+       read it back. The owner's device subscribes to ALL_REPOS, which is
+       derived from REPO_BY_KEY — and a repository missing from there has no
+       listener, so its collection is empty in the cache forever.
+
+   Source-level, deliberately. Both lists are plain object literals that a
+   person edits by hand when adding a page, and the failure in both cases is
+   silence: everything compiles, every test passes, and the page is simply
+   empty or tab-less. A test that reads the lists is the only thing that
+   notices. */
+{
+  const repos = readFileSync(process.cwd() + "/src/repositories/index.ts", "utf8");
+  const tabs = readFileSync(process.cwd() + "/src/components/layout/WorkspaceTabs.tsx", "utf8");
+  const sidebar = readFileSync(process.cwd() + "/src/components/layout/Sidebar.tsx", "utf8");
+
+  /* ── Every collection the app writes is one the owner listens to ─────
+     REPO_BY_KEY is also what a backup walks, so a repository missing from it
+     is missing from the backup as well — the same omission costs the shop
+     its data twice. */
+  {
+    const declared = [...repos.matchAll(/new Repository<[^>]*>\(\s*"([^"]+)"/g)].map((m) => m[1]);
+    const sites = (repos.match(/new Repository\b/g) ?? []).length;
+    assert(
+      declared.length > 0 && declared.length === sites,
+      `RG1: every Repository construction is readable — ${declared.length} of ${sites}`,
+    );
+
+    const keyBlock = repos.slice(
+      repos.indexOf("export const REPO_BY_KEY"),
+      repos.indexOf("const ALL_REPOS"),
+    );
+    assert(keyBlock.length > 100, "RG2: found the REPO_BY_KEY map");
+
+    const missing = declared.filter((name) => !keyBlock.includes(`"bz.${name}"`));
+    assert(
+      missing.length === 0,
+      "RG3: every collection is in REPO_BY_KEY, so the owner subscribes to it and a backup " +
+        "contains it — missing: " +
+        missing.join(", "),
+    );
+  }
+
+  /* ── Every page in the sidebar opens a tab ────────────────────────────
+     The sidebar is where a page is announced to the shop; the tab map is
+     where it is announced to the shell. A page in one and not the other is
+     a page that works and cannot be kept open. */
+  {
+    const navPaths = [...sidebar.matchAll(/path:\s*"(\/[^"]*)"/g)].map((m) => m[1]);
+    assert(navPaths.length > 8, `RG4: read the sidebar's pages — found ${navPaths.length}`);
+
+    const titleBlock = tabs.slice(
+      tabs.indexOf("function titleFromPath"),
+      tabs.indexOf("const ICON_BY_SEGMENT"),
+    );
+    assert(titleBlock.length > 100, "RG5: found the tab title map");
+
+    // "/" is the dashboard and is handled before the map.
+    const untitled = navPaths.filter((p) => p !== "/" && !titleBlock.includes(`"${p}":`));
+    assert(
+      untitled.length === 0,
+      "RG6: every page in the sidebar has a tab title, or it opens no tab at all — " +
+        untitled.join(", "),
+    );
+  }
+
+  /* ── And the document vault specifically, since that is what was
+         reported ─────────────────────────────────────────────────────── */
+  {
+    assert(repos.includes('"bz.business-docs"'), "RG7: the document vault survives a refresh");
+    assert(
+      tabs.includes('"/documents": "Documents"'),
+      "RG8: and opens a tab like every other page",
+    );
+  }
+}
+
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
 if (fails.length) {
   console.log(`\nFailures:`);
