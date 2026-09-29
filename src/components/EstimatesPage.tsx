@@ -16,7 +16,7 @@ import {
   type EstimateKind,
 } from "@/lib/estimates";
 import type { Estimate } from "@/types";
-import { Search, Plus, FileText, ArrowRight, Trash2, Printer } from "lucide-react";
+import { Search, Plus, FileText, ArrowRight, Trash2, Eye } from "lucide-react";
 import { toast } from "sonner";
 
 /**
@@ -182,8 +182,20 @@ export function EstimatesPage({ kind }: { kind: EstimateKind }) {
                   </div>
 
                   <div className="flex shrink-0 flex-wrap items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={() => window.print()}>
-                      <Printer className="h-4 w-4" />
+                    {/* Opens the DOCUMENT. This used to call window.print(),
+                        which printed this list — useless for the one thing a
+                        quotation exists to do, which is reach a customer. */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        navigate({
+                          to: kind === "quotation" ? "/quotations/$id" : "/proforma/$id",
+                          params: { id: e.id },
+                        })
+                      }
+                    >
+                      <Eye className="h-4 w-4" /> Open
                     </Button>
                     {editAllowed && canConvert(e) && (
                       <Button

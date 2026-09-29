@@ -34,10 +34,12 @@ import { Route as SalesNewRouteImport } from './routes/sales.new'
 import { Route as SalesIdRouteImport } from './routes/sales.$id'
 import { Route as SaleReturnNewRouteImport } from './routes/sale-return.new'
 import { Route as SaleReturnIdRouteImport } from './routes/sale-return.$id'
+import { Route as QuotationsIdRouteImport } from './routes/quotations_.$id'
 import { Route as PurchaseNewRouteImport } from './routes/purchase.new'
 import { Route as PurchaseIdRouteImport } from './routes/purchase.$id'
 import { Route as PurchaseReturnNewRouteImport } from './routes/purchase-return.new'
 import { Route as PurchaseReturnIdRouteImport } from './routes/purchase-return.$id'
+import { Route as ProformaIdRouteImport } from './routes/proforma_.$id'
 import { Route as PayeesIdRouteImport } from './routes/payees_.$id'
 import { Route as PartiesIdRouteImport } from './routes/parties_.$id'
 import { Route as ItemsIdRouteImport } from './routes/items_.$id'
@@ -170,6 +172,11 @@ const SaleReturnIdRoute = SaleReturnIdRouteImport.update({
   path: '/sale-return/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const QuotationsIdRoute = QuotationsIdRouteImport.update({
+  id: '/quotations_/$id',
+  path: '/quotations/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PurchaseNewRoute = PurchaseNewRouteImport.update({
   id: '/purchase/new',
   path: '/purchase/new',
@@ -188,6 +195,11 @@ const PurchaseReturnNewRoute = PurchaseReturnNewRouteImport.update({
 const PurchaseReturnIdRoute = PurchaseReturnIdRouteImport.update({
   id: '/purchase-return/$id',
   path: '/purchase-return/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProformaIdRoute = ProformaIdRouteImport.update({
+  id: '/proforma_/$id',
+  path: '/proforma/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PayeesIdRoute = PayeesIdRouteImport.update({
@@ -243,10 +255,12 @@ export interface FileRoutesByFullPath {
   '/items/$id': typeof ItemsIdRoute
   '/parties/$id': typeof PartiesIdRoute
   '/payees/$id': typeof PayeesIdRoute
+  '/proforma/$id': typeof ProformaIdRoute
   '/purchase-return/$id': typeof PurchaseReturnIdRoute
   '/purchase-return/new': typeof PurchaseReturnNewRoute
   '/purchase/$id': typeof PurchaseIdRoute
   '/purchase/new': typeof PurchaseNewRoute
+  '/quotations/$id': typeof QuotationsIdRoute
   '/sale-return/$id': typeof SaleReturnIdRoute
   '/sale-return/new': typeof SaleReturnNewRoute
   '/sales/$id': typeof SalesIdRoute
@@ -280,10 +294,12 @@ export interface FileRoutesByTo {
   '/items/$id': typeof ItemsIdRoute
   '/parties/$id': typeof PartiesIdRoute
   '/payees/$id': typeof PayeesIdRoute
+  '/proforma/$id': typeof ProformaIdRoute
   '/purchase-return/$id': typeof PurchaseReturnIdRoute
   '/purchase-return/new': typeof PurchaseReturnNewRoute
   '/purchase/$id': typeof PurchaseIdRoute
   '/purchase/new': typeof PurchaseNewRoute
+  '/quotations/$id': typeof QuotationsIdRoute
   '/sale-return/$id': typeof SaleReturnIdRoute
   '/sale-return/new': typeof SaleReturnNewRoute
   '/sales/$id': typeof SalesIdRoute
@@ -318,10 +334,12 @@ export interface FileRoutesById {
   '/items_/$id': typeof ItemsIdRoute
   '/parties_/$id': typeof PartiesIdRoute
   '/payees_/$id': typeof PayeesIdRoute
+  '/proforma_/$id': typeof ProformaIdRoute
   '/purchase-return/$id': typeof PurchaseReturnIdRoute
   '/purchase-return/new': typeof PurchaseReturnNewRoute
   '/purchase/$id': typeof PurchaseIdRoute
   '/purchase/new': typeof PurchaseNewRoute
+  '/quotations_/$id': typeof QuotationsIdRoute
   '/sale-return/$id': typeof SaleReturnIdRoute
   '/sale-return/new': typeof SaleReturnNewRoute
   '/sales/$id': typeof SalesIdRoute
@@ -357,10 +375,12 @@ export interface FileRouteTypes {
     | '/items/$id'
     | '/parties/$id'
     | '/payees/$id'
+    | '/proforma/$id'
     | '/purchase-return/$id'
     | '/purchase-return/new'
     | '/purchase/$id'
     | '/purchase/new'
+    | '/quotations/$id'
     | '/sale-return/$id'
     | '/sale-return/new'
     | '/sales/$id'
@@ -394,10 +414,12 @@ export interface FileRouteTypes {
     | '/items/$id'
     | '/parties/$id'
     | '/payees/$id'
+    | '/proforma/$id'
     | '/purchase-return/$id'
     | '/purchase-return/new'
     | '/purchase/$id'
     | '/purchase/new'
+    | '/quotations/$id'
     | '/sale-return/$id'
     | '/sale-return/new'
     | '/sales/$id'
@@ -431,10 +453,12 @@ export interface FileRouteTypes {
     | '/items_/$id'
     | '/parties_/$id'
     | '/payees_/$id'
+    | '/proforma_/$id'
     | '/purchase-return/$id'
     | '/purchase-return/new'
     | '/purchase/$id'
     | '/purchase/new'
+    | '/quotations_/$id'
     | '/sale-return/$id'
     | '/sale-return/new'
     | '/sales/$id'
@@ -469,10 +493,12 @@ export interface RootRouteChildren {
   ItemsIdRoute: typeof ItemsIdRoute
   PartiesIdRoute: typeof PartiesIdRoute
   PayeesIdRoute: typeof PayeesIdRoute
+  ProformaIdRoute: typeof ProformaIdRoute
   PurchaseReturnIdRoute: typeof PurchaseReturnIdRoute
   PurchaseReturnNewRoute: typeof PurchaseReturnNewRoute
   PurchaseIdRoute: typeof PurchaseIdRoute
   PurchaseNewRoute: typeof PurchaseNewRoute
+  QuotationsIdRoute: typeof QuotationsIdRoute
   SaleReturnIdRoute: typeof SaleReturnIdRoute
   SaleReturnNewRoute: typeof SaleReturnNewRoute
   SalesIdRoute: typeof SalesIdRoute
@@ -662,6 +688,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SaleReturnIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/quotations_/$id': {
+      id: '/quotations_/$id'
+      path: '/quotations/$id'
+      fullPath: '/quotations/$id'
+      preLoaderRoute: typeof QuotationsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/purchase/new': {
       id: '/purchase/new'
       path: '/purchase/new'
@@ -688,6 +721,13 @@ declare module '@tanstack/react-router' {
       path: '/purchase-return/$id'
       fullPath: '/purchase-return/$id'
       preLoaderRoute: typeof PurchaseReturnIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/proforma_/$id': {
+      id: '/proforma_/$id'
+      path: '/proforma/$id'
+      fullPath: '/proforma/$id'
+      preLoaderRoute: typeof ProformaIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/payees_/$id': {
@@ -757,10 +797,12 @@ const rootRouteChildren: RootRouteChildren = {
   ItemsIdRoute: ItemsIdRoute,
   PartiesIdRoute: PartiesIdRoute,
   PayeesIdRoute: PayeesIdRoute,
+  ProformaIdRoute: ProformaIdRoute,
   PurchaseReturnIdRoute: PurchaseReturnIdRoute,
   PurchaseReturnNewRoute: PurchaseReturnNewRoute,
   PurchaseIdRoute: PurchaseIdRoute,
   PurchaseNewRoute: PurchaseNewRoute,
+  QuotationsIdRoute: QuotationsIdRoute,
   SaleReturnIdRoute: SaleReturnIdRoute,
   SaleReturnNewRoute: SaleReturnNewRoute,
   SalesIdRoute: SalesIdRoute,

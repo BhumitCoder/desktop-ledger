@@ -5644,6 +5644,41 @@ async function runAll(): Promise<Results> {
       (b.textContent ?? "").includes("Make Invoice"),
     );
     assert(!!toInvoice, "estimates: and offers to raise the tax invoice");
+
+    /* ── The document itself ────────────────────────────────────────────
+       A quotation exists to be SENT. The list first offered a Print button
+       that called window.print(), which prints the list — so this checks the
+       page that actually shows the document. */
+    {
+      const page = await renderRoute("/quotations/EST-Q1");
+      assert(page.includes("QUOTATION"), "estimates: the document is headed QUOTATION");
+      assert(
+        !page.includes("TAX INVOICE"),
+        "estimates: and never as a tax invoice — the heading is what makes it one",
+      );
+      has(page, "QT-0001", "estimates: showing its own number");
+      has(page, "Mumbai Fabricators", "estimates: and the customer");
+      assert(page.includes("Valid until"), "estimates: and how long the price is good for");
+
+      const madeProforma = EstimateRepo.all().find((e) => e.kind === "proforma");
+      const pPage = await renderRoute(`/proforma/${madeProforma?.id}`);
+      assert(pPage.includes("PROFORMA INVOICE"), "estimates: a proforma is headed as one");
+      /* The line that stops a customer, or their accountant, treating it as a
+         document they can claim credit against. */
+      assert(
+        /not a tax invoice/i.test(pPage),
+        "estimates: and says in as many words that it is not a tax invoice",
+      );
+      assert(
+        /input tax credit/i.test(pPage),
+        "estimates: including that no credit may be claimed against it",
+      );
+
+      /* It still has to BE a proper GST document otherwise — a proforma is
+         supposed to look like the invoice it precedes. */
+      assert(pPage.includes("IGST"), "estimates: with the right tax for an out-of-state customer");
+      assert(pPage.includes("27AAACC1234D1ZC"), "estimates: and the buyer's GSTIN");
+    }
   }
 
   const bulkHost = document.createElement("div");
