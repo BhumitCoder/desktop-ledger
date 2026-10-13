@@ -11,6 +11,7 @@ import {
   bankFlows,
   netFlow,
   computeCogs,
+  tradingAccount,
   allocatedAmount,
   advanceAmount,
   paidViaPayments,
@@ -49,6 +50,15 @@ import {
   largestSplitMode,
 } from "@/lib/paymentSplit";
 import { readFileSync } from "node:fs";
+import { correctedOpening } from "@/lib/stock";
+import {
+  fifoCosts,
+  stockValueOf,
+  stockValueAt,
+  unitCostOf,
+  lineKey,
+  type FifoInput,
+} from "@/lib/fifo";
 import { ledgerColumns } from "@/lib/ledger";
 import {
   classifySendFailure,
@@ -3156,6 +3166,782 @@ console.log(`\n═════════════════════�
       true,
     ) === "offline",
     "WA5: a session taken over means nothing was sent, so the queue may retry it",
+  );
+}
+
+/* ═══════ TEST FIFO: stock is valued the way Vyapar values it ═══════
+   What reached the live shop: purchase #5690, 1 × MIX HISAB at ₹1,50,500,
+   and the app's old rule — "an item's cost is its LAST purchase rate, for
+   every unit on the shelf" — turned 120 units bought at ₹400–570 into
+   ₹1.8 crore of stock and put a ₹2.35 lakh loss on the next two sales.
+   Stock is now costed First In, First Out, replayed from the bills. These
+   pin the replay, rule by rule, and then hold it to the one law no costing
+   method may break: every rupee that comes in is sold, written off, sent
+   back, or still on the shelf. */
+{
+  const fItem = (id: string, opening: number, pp: number, stock = opening) =>
+    ({
+      id,
+      name: id,
+      unit: "pcs",
+      gstRate: 0,
+      purchasePrice: pp,
+      salePrice: 0,
+      stock,
+      openingStock: opening,
+      createdAt: "2026-01-01T00:00:00Z",
+    }) as Item;
+  const fLine = (itemId: string, qty: number, price: number, extra: Partial<LineItem> = {}) =>
+    ({
+      id: nid(),
+      itemId,
+      name: itemId,
+      unit: "pcs",
+      qty,
+      price,
+      discountPct: 0,
+      gstRate: 0,
+      amount: qty * price,
+      ...extra,
+    }) as LineItem;
+  const fDoc = (
+    id: string,
+    date: string,
+    lineItems: LineItem[],
+    extra: Record<string, unknown> = {},
+  ) =>
+    ({
+      id,
+      number: id,
+      date,
+      createdAt: `${date}T10:00:00Z`,
+      partyId: "P",
+      partyName: "P",
+      lineItems,
+      subtotal: 0,
+      taxAmount: 0,
+      total: 0,
+      paid: 0,
+      ...extra,
+    }) as unknown as Invoice & Return;
+  const fAdj = (itemId: string, date: string, type: "add" | "reduce", qty: number) =>
+    ({
+      id: nid(),
+      itemId,
+      itemName: itemId,
+      date,
+      type,
+      qty,
+      createdAt: `${date}T10:00:00Z`,
+    }) as StockAdjustment;
+  const book = (b: Partial<FifoInput>) =>
+    fifoCosts({
+      items: [],
+      purchases: [],
+      sales: [],
+      saleReturns: [],
+      purchaseReturns: [],
+      adjustments: [],
+      ...b,
+    });
+  const valueOf = (f: ReturnType<typeof book>, id: string) => f.byItem.get(id)?.value ?? NaN;
+  const qtyOf = (f: ReturnType<typeof book>, id: string) => f.byItem.get(id)?.qty ?? NaN;
+
+  // F1 — oldest first.
+  {
+    const f = book({
+      items: [fItem("A", 10, 100)],
+      purchases: [fDoc("PA", "2026-02-01", [fLine("A", 10, 200, { costPrice: 100 })])],
+      sales: [fDoc("SA", "2026-03-01", [fLine("A", 15, 999)])],
+    });
+    assert(
+      f.saleLineCost.get(lineKey("SA", 0)) === 2000,
+      "F1: a sale takes the oldest units first — 10×100 + 5×200",
+    );
+    assert(
+      qtyOf(f, "A") === 5 && valueOf(f, "A") === 1000,
+      "F1: and what is left is the newest lot, 5×200",
+    );
+  }
+
+  // F2 — the live case. One lump-sum bill is one unit, not a new price for 126.
+  {
+    const f = book({
+      items: [fItem("M", 0, 0)],
+      purchases: [
+        fDoc("5150", "2026-09-07", [fLine("M", 50, 400)]),
+        fDoc("5318", "2026-09-18", [fLine("M", 16, 570)]),
+        fDoc("5338", "2026-09-19", [fLine("M", 10, 570)]),
+        fDoc("5470", "2026-09-26", [fLine("M", 50, 410)]),
+        fDoc("5690", "2026-10-10", [fLine("M", 1, 150500)]),
+      ],
+      sales: [fDoc("0538", "2026-10-12", [fLine("M", 1, 3500, { costPrice: 150500 })])],
+    });
+    assert(
+      f.saleLineCost.get(lineKey("0538", 0)) === 400,
+      "F2: the sale after the lump-sum bill costs ₹400, not ₹1,50,500",
+    );
+    const expected = 49 * 400 + 16 * 570 + 10 * 570 + 50 * 410 + 150500;
+    assert(
+      valueOf(f, "M") === expected,
+      `F2: the shelf is worth what each lot cost (${expected}), not 126 × ₹1,50,500 — got ${valueOf(f, "M")}`,
+    );
+  }
+
+  // F3 — sold before it was in the books, then covered: the sale is CORRECTED.
+  {
+    const f = book({
+      items: [fItem("X", 0, 5000)],
+      sales: [fDoc("S", "2026-09-01", [fLine("X", 1, 1500)])],
+      purchases: [fDoc("P", "2026-09-02", [fLine("X", 1, 418400)])],
+    });
+    assert(
+      f.saleLineCost.get(lineKey("S", 0)) === 418400,
+      "F3: a sale made below zero takes the real rate of the stock that covers it",
+    );
+    assert(qtyOf(f, "X") === 0 && valueOf(f, "X") === 0, "F3: and nothing is left over");
+    assert(
+      f.inCost === 418400,
+      "F3: the ₹4,18,400 that came in is not lost — it is the sale's cost",
+    );
+  }
+  // F3b — a shortfall nothing has covered yet stays at the provisional rate.
+  {
+    const f = book({
+      items: [fItem("Y", 0, 100)],
+      sales: [fDoc("S", "2026-01-05", [fLine("Y", 3, 150)])],
+    });
+    assert(
+      f.saleLineCost.get(lineKey("S", 0)) === 300,
+      "F3b: sold from nothing, costed at the last known rate",
+    );
+    assert(
+      qtyOf(f, "Y") === -3 && valueOf(f, "Y") === -300,
+      "F3b: and the shelf shows the shortfall at that cost",
+    );
+  }
+
+  // F4 — a sale return comes back at what that sale's units cost.
+  {
+    const f = book({
+      items: [fItem("R", 5, 100)],
+      purchases: [fDoc("P", "2026-02-01", [fLine("R", 5, 300, { costPrice: 100 })])],
+      sales: [fDoc("S1", "2026-03-01", [fLine("R", 6, 999)])],
+      saleReturns: [fDoc("CR1", "2026-03-05", [fLine("R", 2, 999)], { originalRef: "S1" })],
+    });
+    assert(f.saleLineCost.get(lineKey("S1", 0)) === 800, "F4: the sale cost 5×100 + 1×300");
+    assert(
+      approx(f.saleReturnLineCost.get(lineKey("CR1", 0)) ?? NaN, 266.67),
+      "F4: two units back at that sale's own unit cost, 800/6 each",
+    );
+    assert(approx(valueOf(f, "R"), 4 * 300 + 266.67), "F4: and they rejoin the shelf at that cost");
+  }
+
+  // F4b — returned the same day it was sold: still at that sale's cost.
+  {
+    const f = book({
+      items: [fItem("T", 2, 100)],
+      purchases: [fDoc("PT", "2026-02-01", [fLine("T", 2, 500, { costPrice: 100 })])],
+      sales: [
+        fDoc("ST", "2026-03-01", [fLine("T", 3, 999)], { createdAt: "2026-03-01T09:00:00Z" }),
+      ],
+      saleReturns: [
+        fDoc("CRT", "2026-03-01", [fLine("T", 3, 999)], {
+          originalRef: "ST",
+          createdAt: "2026-03-01T17:00:00Z",
+        }),
+      ],
+    });
+    assert(
+      f.saleReturnLineCost.get(lineKey("CRT", 0)) === 700,
+      `F4b: a same-day return comes back at its sale's cost (2×100 + 1×500) — got ${f.saleReturnLineCost.get(lineKey("CRT", 0))}`,
+    );
+  }
+
+  // F5 — a purchase return leaves from the lot it came in on.
+  {
+    const f = book({
+      items: [fItem("B", 10, 100)],
+      purchases: [fDoc("PB", "2026-02-01", [fLine("B", 5, 300, { costPrice: 100 })])],
+      purchaseReturns: [fDoc("DN1", "2026-02-03", [fLine("B", 2, 300)], { originalRef: "PB" })],
+    });
+    assert(
+      valueOf(f, "B") === 10 * 100 + 3 * 300,
+      `F5: returning 2 of PB takes them from PB's lot, not from the opening stock — got ${valueOf(f, "B")}`,
+    );
+    assert(f.otherOutCost === 600, "F5: and what went back is accounted for at its own rate");
+  }
+
+  // F6 — found at the average on hand; written off from the oldest.
+  {
+    const f = book({
+      items: [fItem("C", 10, 100)],
+      purchases: [fDoc("PC", "2026-02-01", [fLine("C", 10, 200, { costPrice: 100 })])],
+      adjustments: [fAdj("C", "2026-02-05", "add", 2), fAdj("C", "2026-02-06", "reduce", 5)],
+    });
+    assert(
+      valueOf(f, "C") === 5 * 100 + 10 * 200 + 2 * 150,
+      "F6: found at the 150 average; written off from the oldest",
+    );
+    assert(f.otherOutCost === 500, "F6: and the write-off is accounted for");
+  }
+
+  // F7 — order by the bill's DATE, not by when it was typed in.
+  {
+    const old = fDoc("POLD", "2026-01-10", [fLine("D", 1, 100)], {
+      createdAt: "2026-03-01T10:00:00Z",
+    });
+    const newer = fDoc("PNEW", "2026-02-10", [fLine("D", 1, 300)]);
+    const f = book({
+      items: [fItem("D", 0, 0)],
+      purchases: [newer, old],
+      sales: [fDoc("SD", "2026-02-20", [fLine("D", 1, 999)])],
+    });
+    assert(
+      f.saleLineCost.get(lineKey("SD", 0)) === 100,
+      "F7: a back-dated purchase is still the older lot",
+    );
+  }
+
+  // F8 — a line's own discount is part of what was paid.
+  {
+    const f = book({
+      items: [fItem("E", 0, 0)],
+      purchases: [fDoc("PE", "2026-02-01", [fLine("E", 10, 200, { discountPct: 10 })])],
+    });
+    assert(valueOf(f, "E") === 1800, "F8: 10 at ₹200 less 10% is ₹1,800 of stock");
+  }
+
+  // F9 — an item since deleted is still costed, from the line's own snapshot.
+  {
+    const f = book({
+      sales: [fDoc("SG", "2026-02-01", [fLine("GONE", 2, 999, { costPrice: 75 })])],
+    });
+    assert(
+      f.saleLineCost.get(lineKey("SG", 0)) === 150,
+      "F9: a deleted item's sale falls back to the line's snapshot",
+    );
+  }
+
+  // F10 — opening stock is costed at the price BEFORE the first purchase rewrote it.
+  {
+    const f = book({
+      items: [fItem("O", 4, 999)],
+      purchases: [fDoc("PO", "2026-02-01", [fLine("O", 2, 500, { costPrice: 120 })])],
+    });
+    assert(
+      valueOf(f, "O") === 4 * 120 + 2 * 500,
+      `F10: opening stock at its own rate (120), not the last bill's (999) — got ${valueOf(f, "O")}`,
+    );
+  }
+  // F10b — an item set up with no price: its opening stock takes the first
+  // purchase's rate rather than ₹0 (the one live item this applies to is
+  // CARRING, opening 1, first bought at ₹200).
+  {
+    const f = book({
+      items: [fItem("Z", 1, 200)],
+      purchases: [fDoc("PZ", "2026-02-01", [fLine("Z", 3, 200, { costPrice: 0 })])],
+    });
+    assert(
+      valueOf(f, "Z") === 4 * 200,
+      "F10b: no opening price — opening at the first purchase's rate",
+    );
+  }
+  // F11 — an item never purchased is worth exactly what it was before.
+  {
+    const f = book({ items: [fItem("N", 7, 60)] });
+    assert(
+      valueOf(f, "N") === 420,
+      "F11: never purchased — opening × the item's own price, as before",
+    );
+  }
+
+  // F12 — what the screens show.
+  {
+    const it = fItem("V", 5, 10, 4);
+    const f = book({ items: [it] });
+    assert(stockValueOf(fItem("V", 5, 10, 5), f) === 50, "F12: counts agree — the replay's value");
+    assert(
+      stockValueOf(it, f) === 40,
+      "F12: counts disagree — the stored count, at the replay's average",
+    );
+    assert(
+      stockValueOf(fItem("Q", 3, 7), f) === 21,
+      "F12: an item the replay never saw — stock × its price",
+    );
+    assert(unitCostOf(fItem("V", 5, 10, 5), f) === 10, "F12: unit cost is value over units");
+  }
+
+  // F13 — profit reads FIFO, even for one period of a longer history.
+  {
+    const items = [fItem("G", 10, 100)];
+    const s1 = fDoc("S1", "2026-01-05", [fLine("G", 10, 150, { costPrice: 100 })]);
+    const s2 = fDoc("S2", "2026-02-05", [fLine("G", 5, 400, { costPrice: 999 })]);
+    const f = book({
+      items,
+      purchases: [fDoc("PG", "2026-01-20", [fLine("G", 5, 300)])],
+      sales: [s1, s2],
+    });
+    assert(
+      computeCogs([s2], [], items, f) === 1500,
+      "F13: February's sale costs February's lot (5×300), from the full replay",
+    );
+    assert(
+      computeCogs([s2], [], items) === 4995,
+      "F13: without FIFO the old snapshot reading is unchanged",
+    );
+  }
+
+  // F14 — monkey: 400 random books, held to conservation and to the counts.
+  for (let t = 0; t < 400; t++) {
+    const ids = Array.from({ length: 1 + ri(4) }, () => nid());
+    const items = ids.map((id) => fItem(id, ri(3) ? ri(20) : 0, r2(rnd() * 500)));
+    let clock = 0;
+    const when = () => {
+      const day = 1 + ri(28);
+      clock++;
+      return {
+        date: `2026-03-${String(day).padStart(2, "0")}`,
+        createdAt: `2026-04-01T00:00:${String(clock).padStart(6, "0")}Z`,
+      };
+    };
+    const docs = (n: number, priced: boolean) =>
+      Array.from({ length: n }, () => {
+        const w = when();
+        const lines = Array.from({ length: 1 + ri(3) }, () =>
+          fLine(pick(ids), 1 + ri(8), priced ? r2(rnd() * 900) : 999, {
+            costPrice: r2(rnd() * 500),
+            discountPct: priced && ri(5) === 0 ? ri(20) : 0,
+          }),
+        );
+        return { ...fDoc(nid(), w.date, lines), createdAt: w.createdAt };
+      });
+    const purchases = docs(ri(6), true);
+    const sales = docs(ri(8), false);
+    const saleReturns = docs(ri(3), false).map((r) => ({
+      ...r,
+      originalRef: sales.length && ri(2) ? pick(sales).number : undefined,
+    }));
+    const purchaseReturns = docs(ri(2), true).map((r) => ({
+      ...r,
+      originalRef: purchases.length && ri(2) ? pick(purchases).number : undefined,
+    }));
+    const adjustments = Array.from({ length: ri(4) }, () => {
+      const w = when();
+      return {
+        ...fAdj(pick(ids), w.date, ri(2) ? "add" : "reduce", 1 + ri(5)),
+        createdAt: w.createdAt,
+      };
+    });
+    const input = { items, purchases, sales, saleReturns, purchaseReturns, adjustments };
+    const f = fifoCosts(input);
+
+    const sold = [...f.saleLineCost.values()].reduce((a, b) => a + b, 0);
+    const onShelf = [...f.byItem.values()].reduce((a, v) => a + v.value, 0);
+    const events =
+      purchases.length +
+      sales.length +
+      saleReturns.length +
+      purchaseReturns.length +
+      adjustments.length +
+      1;
+    assert(
+      approx(f.inCost, sold + f.otherOutCost + onShelf, 0.02 * events),
+      `F14: every rupee in is accounted for — in ${f.inCost} vs out ${r2(sold + f.otherOutCost + onShelf)}`,
+    );
+    for (const it of items) {
+      let q = it.openingStock;
+      for (const d of purchases) for (const l of d.lineItems) if (l.itemId === it.id) q += l.qty;
+      for (const d of sales) for (const l of d.lineItems) if (l.itemId === it.id) q -= l.qty;
+      for (const d of saleReturns) for (const l of d.lineItems) if (l.itemId === it.id) q += l.qty;
+      for (const d of purchaseReturns)
+        for (const l of d.lineItems) if (l.itemId === it.id) q -= l.qty;
+      for (const a of adjustments) if (a.itemId === it.id) q += a.type === "add" ? a.qty : -a.qty;
+      assert(
+        approx(qtyOf(f, it.id), q, 0.001),
+        `F14: the replay's count matches the books for ${it.id}`,
+      );
+    }
+    for (const s of sales)
+      s.lineItems.forEach((_, i) => {
+        const c = f.saleLineCost.get(lineKey(s.id, i));
+        assert(
+          c !== undefined && c >= -0.01,
+          "F14: every sale line is costed, and never below zero",
+        );
+      });
+    // The order the arrays arrive in must not matter — only dates do.
+    const shuffled = fifoCosts({
+      ...input,
+      purchases: [...purchases].reverse(),
+      sales: [...sales].reverse(),
+      adjustments: [...adjustments].reverse(),
+    });
+    assert(
+      ids.every((id) => approx(valueOf(shuffled, id), valueOf(f, id), 0.01)),
+      "F14: the same books in a different array order value the same",
+    );
+  }
+
+  /* F15 — wiring, source-level: no screen may go back to stock × last rate. */
+  const screens = [
+    "src/routes/index.tsx",
+    "src/routes/inventory.tsx",
+    "src/routes/items_.$id.tsx",
+    "src/routes/reports.tsx",
+  ];
+  for (const s of screens) {
+    const code = readFileSync(process.cwd() + "/" + s, "utf8");
+    assert(code.includes("stockValueOf("), `F15: ${s} values stock through FIFO`);
+    assert(
+      !/stock\s*(\|\|\s*0\))?\s*\*\s*\(?\s*\w+\.purchasePrice/.test(code),
+      `F15: ${s} no longer multiplies stock by the last purchase rate`,
+    );
+  }
+  const dash = readFileSync(process.cwd() + "/src/routes/index.tsx", "utf8");
+  const rep = readFileSync(process.cwd() + "/src/routes/reports.tsx", "utf8");
+  /* The counter sees "cost" in the sale item picker — it must be the same
+     cost the books use, not the last bill's rate (MIX HISAB: ₹1,50,500). */
+  const form = readFileSync(process.cwd() + "/src/components/InvoiceForm.tsx", "utf8");
+  assert(
+    form.split("cost {fmtMoney(unitCostOf(it, currentFifo()))}").length - 1 === 2 &&
+      !form.includes("cost {fmtMoney(it.purchasePrice)}"),
+    "F15: both sale item pickers show FIFO cost, not the last purchase rate",
+  );
+}
+
+/* ═══════ TEST PL: profit as a trading account, as Vyapar reads it ═══════
+   Cost of goods sold = opening stock + net purchases − closing stock, both
+   stocks valued FIFO. Costing only the units that went out on bills missed
+   every unit that left another way — and this shop's stock adjustments moved
+   ≈ ₹50 lakh net, which a trading account (Vyapar's, Tally's, a CA's) shows
+   and the old figure did not. */
+{
+  const tItem = (id: string, opening: number, pp: number) =>
+    ({
+      id,
+      name: id,
+      unit: "pcs",
+      gstRate: 0,
+      purchasePrice: pp,
+      salePrice: 0,
+      stock: opening,
+      openingStock: opening,
+      createdAt: "2026-01-01T00:00:00Z",
+    }) as Item;
+  const tLine = (itemId: string, qty: number, price: number, costPrice?: number) =>
+    ({
+      id: nid(),
+      itemId,
+      name: itemId,
+      unit: "pcs",
+      qty,
+      price,
+      discountPct: 0,
+      gstRate: 0,
+      amount: qty * price,
+      costPrice,
+    }) as LineItem;
+  // A bill whose total is its lines, as the form saves one (no GST here).
+  const tDoc = (id: string, date: string, lines: LineItem[], extra: Record<string, unknown> = {}) =>
+    ({
+      id,
+      number: id,
+      date,
+      createdAt: `${date}T10:00:00Z`,
+      partyId: "P",
+      partyName: "P",
+      lineItems: lines,
+      subtotal: lines.reduce((s, l) => s + l.qty * l.price, 0),
+      taxAmount: 0,
+      total: lines.reduce((s, l) => s + l.qty * l.price, 0),
+      gstEnabled: false,
+      paid: 0,
+      ...extra,
+    }) as unknown as Invoice & Return;
+  const tAdj = (itemId: string, date: string, type: "add" | "reduce", qty: number) =>
+    ({
+      id: nid(),
+      itemId,
+      itemName: itemId,
+      date,
+      type,
+      qty,
+      createdAt: `${date}T10:00:00Z`,
+    }) as StockAdjustment;
+  const inP = (d: { date: string }, from: string, to: string) =>
+    (!from || d.date >= from) && (!to || d.date <= to);
+  /** The P&L for a period, computed exactly the way the report does it. */
+  const plFor = (b: FifoInput, from: string, to: string, expenses: { amount: number }[] = []) =>
+    tradingAccount({
+      sales: b.sales.filter((d) => inP(d, from, to)),
+      saleReturns: b.saleReturns.filter((d) => inP(d, from, to)),
+      purchases: b.purchases.filter((d) => inP(d, from, to)),
+      purchaseReturns: b.purchaseReturns.filter((d) => inP(d, from, to)),
+      expenses,
+      payments: [],
+      openingStock: stockValueAt(b, { date: from, inclusive: false }),
+      closingStock: to ? stockValueAt(b, { date: to, inclusive: true }) : stockValueAt(b),
+    });
+  const empty = { sales: [], saleReturns: [], purchases: [], purchaseReturns: [], adjustments: [] };
+
+  // PL1 — no adjustments: the trading account and the units sold agree.
+  {
+    const b: FifoInput = {
+      ...empty,
+      items: [tItem("A", 10, 100)],
+      purchases: [tDoc("P1", "2026-05-03", [tLine("A", 5, 200, 100)])],
+      sales: [tDoc("S1", "2026-05-10", [tLine("A", 6, 300)])],
+    };
+    const pl = plFor(b, "2026-05-01", "2026-05-31", [{ amount: 50 }]);
+    assert(pl.openingStock === 1000, "PL1: opening is the opening stock, 10×100");
+    assert(pl.closingStock === 4 * 100 + 5 * 200, "PL1: closing is what is left, FIFO");
+    assert(pl.cogs === 600, `PL1: cost of goods sold 1000 + 1000 − 1400 = 600 — got ${pl.cogs}`);
+    assert(
+      pl.cogs === fifoCosts(b).saleLineCost.get(lineKey("S1", 0)),
+      "PL1: = the 6 units sold, oldest first",
+    );
+    assert(
+      pl.grossProfit === 1200 && pl.netProfit === 1150,
+      "PL1: gross 1800 − 600; net after the 50 expense",
+    );
+  }
+
+  // PL2 — a unit written off is a cost. The old figure never saw it.
+  {
+    const b: FifoInput = {
+      ...empty,
+      items: [tItem("B", 10, 100)],
+      sales: [tDoc("S2", "2026-05-10", [tLine("B", 2, 300)])],
+      adjustments: [tAdj("B", "2026-05-12", "reduce", 3)],
+    };
+    const pl = plFor(b, "2026-05-01", "2026-05-31");
+    assert(pl.cogs === 500, `PL2: 2 sold + 3 written off, all at 100 — got ${pl.cogs}`);
+    assert(pl.grossProfit === 100, "PL2: so 600 of sales leaves 100, not 400");
+    const f = fifoCosts(b);
+    const adj = b.adjustments[0];
+    assert(
+      f.adjustmentCost.get(adj.id) === 300,
+      "PL2: and the write-off is costed where the report can show it",
+    );
+  }
+  // PL2b — stock found at a count is a gain.
+  {
+    const b: FifoInput = {
+      ...empty,
+      items: [tItem("C", 4, 100)],
+      adjustments: [tAdj("C", "2026-05-12", "add", 2)],
+    };
+    const pl = plFor(b, "2026-05-01", "2026-05-31");
+    assert(pl.cogs === -200 && pl.grossProfit === 200, "PL2b: two units found are 200 of gain");
+  }
+
+  // PL3 — one month's closing is the next month's opening, to the paisa.
+  {
+    const b: FifoInput = {
+      ...empty,
+      items: [tItem("D", 8, 50)],
+      purchases: [
+        tDoc("P3a", "2026-04-20", [tLine("D", 10, 70, 50)]),
+        tDoc("P3b", "2026-05-01", [tLine("D", 4, 90, 70)]),
+      ],
+      sales: [
+        tDoc("S3a", "2026-04-25", [tLine("D", 9, 120)]),
+        tDoc("S3b", "2026-05-06", [tLine("D", 7, 130)]),
+      ],
+      adjustments: [tAdj("D", "2026-04-30", "reduce", 1)],
+    };
+    const april = plFor(b, "2026-04-01", "2026-04-30");
+    const may = plFor(b, "2026-05-01", "2026-05-31");
+    assert(
+      april.closingStock === may.openingStock,
+      `PL3: April closes where May opens — ${april.closingStock} vs ${may.openingStock}`,
+    );
+    const whole = plFor(b, "2026-04-01", "2026-05-31");
+    assert(
+      approx(april.grossProfit + may.grossProfit, whole.grossProfit, 0.01),
+      "PL3: and two months add up to the two-month report",
+    );
+  }
+
+  // PL4 — "from the beginning": opening is the opening stock and nothing else.
+  {
+    const b: FifoInput = {
+      ...empty,
+      items: [tItem("E", 3, 40)],
+      purchases: [tDoc("P4", "2026-01-05", [tLine("E", 2, 60, 40)])],
+    };
+    assert(
+      stockValueAt(b, { date: "", inclusive: false }) === 120,
+      "PL4: before anything, only the opening stock",
+    );
+    assert(stockValueAt(b) === 240, "PL4: with nothing cut off, everything");
+  }
+
+  // PL5 — monkey, all time: the trading account and the FIFO replay must
+  // explain each other exactly.
+  //   trading cogs = units sold (net of returns) + written off − found
+  //                  + (returned to supplier at cost − at its price)
+  for (let t = 0; t < 300; t++) {
+    const ids = Array.from({ length: 1 + ri(3) }, () => nid());
+    const items = ids.map((id) => tItem(id, ri(15), r2(1 + rnd() * 300)));
+    let clock = 0;
+    const when = () => {
+      clock++;
+      return {
+        date: `2026-06-${String(1 + ri(28)).padStart(2, "0")}`,
+        createdAt: `2026-07-01T00:00:${String(clock).padStart(6, "0")}Z`,
+      };
+    };
+    const docs = (n: number) =>
+      Array.from({ length: n }, () => {
+        const w = when();
+        const lines = Array.from({ length: 1 + ri(3) }, () =>
+          tLine(pick(ids), 1 + ri(6), r2(1 + rnd() * 400), r2(rnd() * 300)),
+        );
+        return { ...tDoc(nid(), w.date, lines), createdAt: w.createdAt };
+      });
+    const purchases = docs(ri(5));
+    const sales = docs(ri(6));
+    const saleReturns = docs(ri(2)).map((r) => ({
+      ...r,
+      originalRef: sales.length && ri(2) ? pick(sales).number : undefined,
+    }));
+    const purchaseReturns = docs(ri(2)).map((r) => ({
+      ...r,
+      originalRef: purchases.length && ri(2) ? pick(purchases).number : undefined,
+    }));
+    const adjustments = Array.from({ length: ri(4) }, () => {
+      const w = when();
+      return {
+        ...tAdj(pick(ids), w.date, ri(2) ? "add" : "reduce", 1 + ri(4)),
+        createdAt: w.createdAt,
+      };
+    });
+    const b: FifoInput = { items, purchases, sales, saleReturns, purchaseReturns, adjustments };
+    const f = fifoCosts(b);
+    const pl = plFor(b, "", "");
+    const sum = (m: Map<string, number>) => [...m.values()].reduce((a, x) => a + x, 0);
+    const found = adjustments
+      .filter((a) => a.type === "add")
+      .reduce((s, a) => s + (f.adjustmentCost.get(a.id) ?? 0), 0);
+    const writtenOff = adjustments
+      .filter((a) => a.type !== "add")
+      .reduce((s, a) => s + (f.adjustmentCost.get(a.id) ?? 0), 0);
+    // What went back to suppliers left at cost (inside otherOutCost, along
+    // with write-offs and their later corrections) and came off purchases at
+    // its own price.
+    const returnedAtCost = f.otherOutCost - writtenOff;
+    const expected =
+      sum(f.saleLineCost) -
+      sum(f.saleReturnLineCost) +
+      writtenOff -
+      found +
+      returnedAtCost -
+      pl.purchaseReturns;
+    const n =
+      purchases.length +
+      sales.length +
+      saleReturns.length +
+      purchaseReturns.length +
+      adjustments.length +
+      1;
+    assert(
+      approx(pl.cogs, expected, 0.03 * n),
+      `PL5: the trading account is explained by the replay — cogs ${pl.cogs} vs ${r2(expected)}`,
+    );
+  }
+
+  /* PL6 — wiring: the dashboard and the report compute profit ONE way. */
+  const dash = readFileSync(process.cwd() + "/src/routes/index.tsx", "utf8");
+  const rep = readFileSync(process.cwd() + "/src/routes/reports.tsx", "utf8");
+  assert(
+    /tradingAccount\(\{[\s\S]*?openingStock: stockValueOn\(start, false\),\s*closingStock: stockValueOn\(end, true\)/.test(
+      dash,
+    ),
+    "PL6: the dashboard's Net Profit is the trading account",
+  );
+  assert(
+    /tradingAccount\(\{[\s\S]*?openingStock: stockValueOn\(dateFrom, false\),\s*closingStock: stockValueOn\(dateTo, true\)/.test(
+      rep,
+    ),
+    "PL6: the P&L report is the trading account",
+  );
+  assert(
+    !/computeCogs\(/.test(dash) && !/computeCogs\(/.test(rep),
+    "PL6: neither screen costs only the units sold any more",
+  );
+}
+
+/* ═══════ TEST OC: a setup typo is not a loss ═══════
+   The live case: opening stock 2,500 typed for 1, then corrected with a
+   2,499 "reduce" the next day. As an adjustment that correction is a
+   ₹49,98,000 loss in a trading account; as an opening-stock correction it
+   is nothing at all — which is what it was. */
+{
+  assert(correctedOpening(2500, -2499) === 1, "OC1: 2,500 corrected by −2,499 is 1");
+  assert(correctedOpening(0, 5) === 5, "OC2: an opening can be corrected up");
+  assert(correctedOpening(3, -3) === 0, "OC3: and down to nothing");
+  assert(
+    correctedOpening(3, -4) === null,
+    "OC4: but not below zero — that item has moved since setup, so it is a count",
+  );
+  assert(correctedOpening(1.1, 0.2) === 1.3, "OC5: without floating-point dust");
+
+  const item = (opening: number) =>
+    ({
+      id: "TYPO",
+      name: "TYPO",
+      unit: "pcs",
+      gstRate: 0,
+      purchasePrice: 2000,
+      salePrice: 0,
+      stock: 1,
+      openingStock: opening,
+      createdAt: "2026-08-21T00:00:00Z",
+    }) as Item;
+  const augustCogs = (b: FifoInput) =>
+    tradingAccount({
+      sales: [],
+      saleReturns: [],
+      purchases: [],
+      purchaseReturns: [],
+      expenses: [],
+      payments: [],
+      openingStock: stockValueAt(b, { date: "2026-08-01", inclusive: false }),
+      closingStock: stockValueAt(b, { date: "2026-08-31", inclusive: true }),
+    }).cogs;
+  const asAdjustment: FifoInput = {
+    items: [item(2500)],
+    purchases: [],
+    sales: [],
+    saleReturns: [],
+    purchaseReturns: [],
+    adjustments: [
+      {
+        id: "ADJ",
+        itemId: "TYPO",
+        itemName: "TYPO",
+        date: "2026-08-22",
+        type: "reduce",
+        qty: 2499,
+        createdAt: "2026-08-22T13:35:32Z",
+      } as StockAdjustment,
+    ],
+  };
+  const asOpening: FifoInput = { ...asAdjustment, items: [item(1)], adjustments: [] };
+  assert(
+    augustCogs(asAdjustment) === 4998000,
+    "OC6: recorded as an adjustment, the typo fix is ₹49,98,000 of cost — the live August figure",
+  );
+  assert(augustCogs(asOpening) === 0, "OC7: recorded as an opening correction, it costs nothing");
+
+  const dialog = readFileSync(process.cwd() + "/src/components/BulkUpdateItemsDialog.tsx", "utf8");
+  assert(
+    dialog.includes("if (stockEdits > 0 && !stockKind)") &&
+      dialog.includes('stockKind === "count"') &&
+      dialog.includes("correctedOpening("),
+    "OC8: bulk update asks what a stock change is, and only a count writes an adjustment",
   );
 }
 

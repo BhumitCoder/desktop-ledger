@@ -25,3 +25,17 @@ export function stockShortfalls(lines: LineItem[], reverseLines: LineItem[] = []
   }
   return out;
 }
+
+/**
+ * An item's opening stock after correcting it by `delta`, or null where that
+ * would take it below zero.
+ *
+ * Below zero is the line between a setup mistake and a real difference: an
+ * opening can only be corrected down to nothing. Needing to go further means
+ * the item has been bought or sold since it was set up, so the shelf truly
+ * differs from the books — a physical count, which belongs in profit & loss.
+ */
+export function correctedOpening(opening: number, delta: number): number | null {
+  const next = Math.round(((Number(opening) || 0) + (Number(delta) || 0)) * 100) / 100;
+  return next < 0 ? null : next;
+}

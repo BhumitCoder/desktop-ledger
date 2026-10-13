@@ -13,6 +13,8 @@ import {
   CashAdjustmentRepo,
 } from "@/repositories";
 import { useRepoData } from "@/hooks/useRepoData";
+import { useFifo, stockValueOn } from "@/hooks/useFifo";
+import { stockValueOf } from "@/lib/fifo";
 import type {
   Invoice,
   Return,
@@ -24,15 +26,7 @@ import type {
   CashAdjustment,
 } from "@/types";
 import { fmtMoney, ymd } from "@/lib/format";
-import {
-  netPartyPositions,
-  cashFlows,
-  netFlow,
-  computeCogs,
-  bankFlows,
-  valueExTax,
-  totalSettlementDiscount,
-} from "@/lib/ledger";
+import { netPartyPositions, cashFlows, netFlow, tradingAccount, bankFlows } from "@/lib/ledger";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   AreaChart,
@@ -211,7 +205,10 @@ function Dashboard() {
   const receivableParties = customerBalances.length;
   const payableParties = supplierBalances.length;
 
-  const stockValue = data.items.reduce((a, i) => a + (i.stock || 0) * (i.purchasePrice || 0), 0);
+  // FIFO, as Vyapar values stock — not stock × the last purchase bill's rate,
+  // which let one lump-sum bill re-value a whole item (see fifo.ts).
+  const fifo = useFifo();
+  const stockValue = data.items.reduce((a, i) => a + stockValueOf(i, fifo), 0);
   const cashInHand = useMemo(
     () =>
       netFlow(
@@ -227,33 +224,22 @@ function Dashboard() {
     [data],
   );
 
-  // Profit like the P&L report: net revenue − cost of goods sold − expenses.
-  // Deliberately NOT totalSale/totalSaleReturn: those are the headline
-  // invoice values (what the KPI cards show, GST included, which is what a
-  // shopkeeper means by "today's sales"), but GST collected is owed onward
-  // and is not earnings — and COGS is tax-exclusive. Mixing them overstated
-  // profit by exactly the period's output GST.
-  const periodCogs = useMemo(
-    () =>
-      computeCogs(
-        data.sales.filter((s) => inRange(s.date, start, end)),
-        data.saleReturns.filter((r) => inRange(r.date, start, end)),
-        data.items,
-      ),
-    [data, start, end],
-  );
-  // Matches the P&L report exactly, including amounts waived at settlement
-  // (see totalSettlementDiscount) — those reduce profit even though no cash
-  // ever moved for them.
+  /* Profit exactly as the P&L report computes it — the same trading account
+     (opening stock + net purchases − closing stock, both valued FIFO), so the
+     dashboard and the report can never show two different numbers. GST is
+     out of both sides: collected tax is owed onward, paid tax is credit. */
   const periodPayments = data.payments.filter((p) => inRange(p.date, start, end));
-  const netProfit = r2(
-    valueExTax(periodSales) -
-      valueExTax(periodSaleReturns) -
-      periodCogs -
-      totalExpense -
-      totalSettlementDiscount(periodPayments.filter((p) => p.type === "in")) +
-      totalSettlementDiscount(periodPayments.filter((p) => p.type === "out")),
-  );
+  // Cheap to compute: the two stock values are cached per change to the books.
+  const netProfit = tradingAccount({
+    sales: periodSales,
+    saleReturns: periodSaleReturns,
+    purchases: periodPurchases,
+    purchaseReturns: data.purchaseReturns.filter((r) => inRange(r.date, start, end)),
+    expenses: periodExpenses,
+    payments: periodPayments,
+    openingStock: stockValueOn(start, false),
+    closingStock: stockValueOn(end, true),
+  }).netProfit;
 
   const lowStock = data.items.filter(
     (i) => (i.minStock != null && i.stock <= i.minStock) || i.stock < 0,

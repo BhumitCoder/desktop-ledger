@@ -49,7 +49,9 @@ export interface LineItem {
   discountPct: number;
   gstRate: number;
   amount: number;
-  /** Snapshot of the item's purchase price when the line was created — used for stock-based COGS in P&L */
+  /** Snapshot of the item's purchase price when the line was created. Cost of
+   * goods sold is FIFO (lib/fifo.ts); this is only its fallback, and the
+   * source of an item's opening-stock rate (the snapshot on its first purchase). */
   costPrice?: number;
   /** Price in the foreign currency, before conversion — only set on
    * international purchases. `price` (INR) is auto-derived from this via

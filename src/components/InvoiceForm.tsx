@@ -62,6 +62,8 @@ import { QuickAddPartyDialog, type QuickAddPartyDetails } from "@/components/Qui
 import { genId, newBatch, commitBatch } from "@/repositories/base";
 import { enterMovesAlongRow, useEscapeToLeave } from "@/hooks/useFormKeys";
 import { stockShortfalls } from "@/lib/stock";
+import { currentFifo } from "@/hooks/useFifo";
+import { unitCostOf } from "@/lib/fifo";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 
 interface Props {
@@ -522,11 +524,33 @@ export function InvoiceForm({ mode, existing }: Props) {
   // per selected party: the render path asks for this per line row on every
   // keystroke, and a fresh scan of every invoice each time made typing lag
   // once the shop had a few thousand bills.
+  /* Whose prices to show: the party this bill will be SAVED under, by the
+     same rule the save uses — picked from the list, else an exact phone
+     match, else an exact name match (see the lookup in save()). It used to
+     wait for a pick from the dropdown, so a customer typed out in full and
+     tabbed past got no history at all, though the bill then saved under that
+     very customer — which is how it "sometimes came and sometimes didn't". */
+  const historyParty = useMemo(() => {
+    if (inv.partyId) return { id: inv.partyId, name: inv.partyName };
+    const phone = phoneQ.trim();
+    const name = (inv.partyName || partyQ.trim()).toLowerCase();
+    const p =
+      (phone ? allParties.find((x) => (x.phone ?? "").trim() === phone) : undefined) ??
+      (name ? allParties.find((x) => x.name.toLowerCase() === name) : undefined);
+    return p ? { id: p.id, name: p.name } : null;
+  }, [inv.partyId, inv.partyName, partyQ, phoneQ, allParties]);
+  const historyPartyId = historyParty?.id ?? "";
+  const editingId = existing?.id ?? "";
+
   const partyHistoryIndex = useRepoMemo(() => {
     const map = new Map<string, { date: string; created: string; qty: number; price: number }[]>();
-    if (!inv.partyId) return map;
+    if (!historyPartyId) return map;
     for (const doc of repo.all()) {
-      if (doc.partyId !== inv.partyId) continue;
+      if (doc.partyId !== historyPartyId) continue;
+      /* Never the bill being edited. Its own saved lines are not a PREVIOUS
+         price — and they show the price it is being corrected FROM, at the
+         top of the list, as if it were the last sale. */
+      if (editingId && doc.id === editingId) continue;
       for (const l of doc.lineItems) {
         let rows = map.get(l.itemId);
         if (!rows) map.set(l.itemId, (rows = []));
@@ -536,7 +560,7 @@ export function InvoiceForm({ mode, existing }: Props) {
     for (const rows of map.values())
       rows.sort((a, b) => b.date.localeCompare(a.date) || b.created.localeCompare(a.created));
     return map;
-  }, [inv.partyId, repo]);
+  }, [historyPartyId, editingId, repo]);
 
   const partyItemHistory = (itemId: string): { date: string; qty: number; price: number }[] =>
     (partyHistoryIndex.get(itemId) ?? [])
@@ -555,6 +579,7 @@ export function InvoiceForm({ mode, existing }: Props) {
   const lastAnyPrice = (itemId: string): number | undefined => {
     let best: { date: string; created: string; price: number } | undefined;
     for (const doc of repo.all()) {
+      if (editingId && doc.id === editingId) continue;
       for (const l of doc.lineItems) {
         if (l.itemId !== itemId || !(l.price > 0)) continue;
         const created = doc.createdAt || "";
@@ -963,9 +988,13 @@ export function InvoiceForm({ mode, existing }: Props) {
            pre-fills their usual rate (see historicalPrice above). Nothing is
            lost by leaving the catalogue alone.
 
-           A PURCHASE still updates the cost, and that is a different thing:
-           the latest cost is a fact about what the shop paid, not an offer
-           to anybody, and profit is measured against it. */
+           A PURCHASE still updates the item's purchase price, and that is a
+           different thing: it is the rate the next purchase line pre-fills
+           with, and what the item list shows as "Purchase Price". It no
+           longer values anything. Stock value and cost of goods sold are
+           FIFO, replayed from the bills (see lib/fifo.ts) — so a lump sum
+           typed as 1 unit at ₹1,50,500 is that one unit, not a new price for
+           every unit already on the shelf. */
         if (!isSale && it.purchasePrice !== l.price) extra.purchasePrice = l.price;
       }
       ItemRepo.adjustFieldBatched(batch, it.id, "stock", stockDelta * l.qty, extra);
@@ -1622,12 +1651,12 @@ export function InvoiceForm({ mode, existing }: Props) {
                       </td>
                     )}
                     <td className="py-1.5 px-1 relative">
-                      {inv.partyId ? (
+                      {historyParty ? (
                         <PriceHistoryCell
                           value={l.price}
                           onValue={(n) => updateLine(l.id, { price: n })}
                           history={partyItemHistory(l.itemId)}
-                          partyName={inv.partyName}
+                          partyName={historyParty.name}
                           isSale={isSale}
                         />
                       ) : (
@@ -1791,12 +1820,12 @@ export function InvoiceForm({ mode, existing }: Props) {
                     </PhoneField>
                   )}
                   <PhoneField label="Price">
-                    {inv.partyId ? (
+                    {historyParty ? (
                       <PriceHistoryCell
                         value={l.price}
                         onValue={(n) => updateLine(l.id, { price: n })}
                         history={partyItemHistory(l.itemId)}
-                        partyName={inv.partyName}
+                        partyName={historyParty.name}
                         isSale={isSale}
                         inputClassName={PHONE_NUM}
                       />
@@ -2427,7 +2456,10 @@ function ItemEntryRow({
                     {isSale ? (
                       <>
                         <div className="text-[11px] text-muted-foreground tabular-nums">
-                          cost {fmtMoney(it.purchasePrice)}
+                          {/* What a unit on the shelf cost, FIFO — the figure
+                              profit is measured against. Not the last bill's
+                              rate: that showed MIX HISAB as "cost ₹1,50,500". */}
+                          cost {fmtMoney(unitCostOf(it, currentFifo()))}
                         </div>
                         <div className="font-semibold tabular-nums">
                           {it.salePrice ? (
@@ -2741,7 +2773,10 @@ function ItemNameCell({
                     {isSale ? (
                       <>
                         <div className="text-[11px] text-muted-foreground tabular-nums">
-                          cost {fmtMoney(it.purchasePrice)}
+                          {/* What a unit on the shelf cost, FIFO — the figure
+                              profit is measured against. Not the last bill's
+                              rate: that showed MIX HISAB as "cost ₹1,50,500". */}
+                          cost {fmtMoney(unitCostOf(it, currentFifo()))}
                         </div>
                         <div className="font-semibold tabular-nums">
                           {it.salePrice ? (
@@ -2837,6 +2872,10 @@ function PriceHistoryCell({
         value={value}
         onValue={onValue}
         onFocus={() => setOpen(true)}
+        /* Focus alone only fires once. After a price is picked from the list
+           the box keeps focus, so tapping it again did nothing — the list
+           "would not come". A tap always opens it. */
+        onClick={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         className={
           inputClassName ??

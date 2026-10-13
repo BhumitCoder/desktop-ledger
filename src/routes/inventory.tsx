@@ -14,6 +14,8 @@ import {
   StockAdjustmentRepo,
 } from "@/repositories";
 import { useRepoData } from "@/hooks/useRepoData";
+import { useFifo } from "@/hooks/useFifo";
+import { stockValueOf } from "@/lib/fifo";
 import { useStickyState } from "@/hooks/useStickySearch";
 import type { Item } from "@/types";
 import { fmtMoney } from "@/lib/format";
@@ -26,6 +28,8 @@ function InventoryPage() {
   const searchRef = useRef<HTMLInputElement>(null);
   useAutoFocusOnDesktop(searchRef);
   const [rows, setRows] = useState<Item[]>([]);
+  // Valued FIFO — what the units on the shelf actually cost (see fifo.ts).
+  const fifo = useFifo();
   const [q, setQ] = useStickyState("inventory.search", "");
   const refresh = () => setRows(ItemRepo.all());
   useEffect(() => {
@@ -120,8 +124,8 @@ function InventoryPage() {
       label: "Stock Value",
       align: "right",
       width: "120px",
-      render: (r) => fmtMoney(r.stock * r.purchasePrice),
-      sortValue: (r) => r.stock * r.purchasePrice,
+      render: (r) => fmtMoney(stockValueOf(r, fifo)),
+      sortValue: (r) => stockValueOf(r, fifo),
     },
   ];
 
@@ -134,7 +138,7 @@ function InventoryPage() {
   });
 
   // Footer totals cover the filtered rows the table actually shows
-  const totalValue = filtered.reduce((s, r) => s + r.stock * r.purchasePrice, 0);
+  const totalValue = filtered.reduce((s, r) => s + stockValueOf(r, fifo), 0);
   const lowCount = filtered.filter(
     (r) => (r.minStock != null && r.stock <= r.minStock) || r.stock < 0,
   ).length;
@@ -196,9 +200,7 @@ function InventoryPage() {
                     <span>+{purchaseQty.get(r.id) ?? 0} in</span>
                     <span>-{salesQty.get(r.id) ?? 0} out</span>
                     <span>Min {r.minStock ?? "—"}</span>
-                    <span className="ml-auto tabular-nums">
-                      {fmtMoney(r.stock * r.purchasePrice)}
-                    </span>
+                    <span className="ml-auto tabular-nums">{fmtMoney(stockValueOf(r, fifo))}</span>
                   </div>
                 </div>
               );

@@ -858,6 +858,128 @@ async function runAll(): Promise<Results> {
   // 1000 − 100 − 540 COGS − 5000 expenses (GST-exclusive, so unchanged here)
   has(home, `₹ ${fmt(-4640)}`, "dashboard: Net Profit = −4640");
 
+  /* ── The last-prices popup: whose prices, and when ──────────────────
+     Reported from the counter: "sometimes it comes, sometimes it doesn't,
+     and when it comes it is sometimes wrong". Three causes, each pinned:
+
+       1. It waited for the party to be PICKED from the dropdown. A customer
+          typed out in full showed nothing — though the bill then saved
+          under that very customer.
+       2. Editing a bill listed that bill as its own "last price".
+       3. Once closed, tapping the same box again did not bring it back. */
+  {
+    const visibleInputs = () =>
+      Array.from(host.querySelectorAll<HTMLInputElement>("input")).filter(
+        (el) => el.offsetParent !== null,
+      );
+    // Portals append, and earlier blocks never unmount theirs — the newest
+    // matching panel is the one this block opened.
+    const lastPanel = () =>
+      Array.from(document.body.querySelectorAll<HTMLElement>("div"))
+        .filter(
+          (d) =>
+            getComputedStyle(d).position === "fixed" &&
+            d.className.includes("z-50") &&
+            (d.textContent ?? "").includes("Prices —"),
+        )
+        .pop();
+    const tapInto = async (el: HTMLInputElement) => {
+      await act(async () => {
+        el.focus();
+        el.dispatchEvent(new FocusEvent("focus", { bubbles: true }));
+        el.click();
+      });
+      await settleMs(160);
+    };
+    const leave = async () => {
+      await act(async () => {
+        (document.activeElement as HTMLElement | null)?.blur();
+      });
+      await settleMs(220);
+    };
+
+    // 2 — the bill being edited is not its own history. S1 is the only bill
+    // Ramesh Traders has for USB Cable, so there is nothing before it.
+    await renderRoute("/sales/edit/S1");
+    await settleMs(120);
+    const editPrice = visibleInputs().find((el) => el.value === "100");
+    assert(!!editPrice, "price history: the edited bill's price box is on screen");
+    if (editPrice) {
+      await tapInto(editPrice);
+      const panel = lastPanel();
+      assert(!!panel, "price history: opens on a bill being edited");
+      assert(
+        (panel?.textContent ?? "").includes("No previous transaction found"),
+        "price history: a bill is not its own previous price — " +
+          (panel?.textContent ?? "").slice(0, 140),
+      );
+      await leave();
+    }
+
+    // 1 — a customer typed in full, never picked from the list.
+    await renderRoute("/sales/new");
+    await settleMs(120);
+    const party = visibleInputs().find((el) => el.placeholder === "Type name or search…");
+    const addItem = visibleInputs().find((el) => el.placeholder === "Type item name to add…");
+    assert(!!party && !!addItem, "price history: the new bill has party and item boxes");
+    if (party && addItem) {
+      await act(async () => {
+        party.focus();
+        setInput(party, "Ramesh Traders");
+      });
+      await settleMs(60);
+      // Straight on to the item — the way a counter moves, no pick.
+      await act(async () => {
+        addItem.focus();
+        setInput(addItem, "USB Cable");
+      });
+      await settleMs(220);
+      const option = Array.from(document.body.querySelectorAll<HTMLElement>("[data-opt]"))
+        .filter((d) => (d.textContent ?? "").startsWith("USB Cable"))
+        .pop();
+      assert(!!option, "price history: the item is offered");
+      if (option) {
+        await act(async () => {
+          option.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        });
+        await settleMs(220);
+      }
+      const price = visibleInputs().find((el) => el.value === "100");
+      assert(!!price, "price history: the line is on the new bill at its selling price");
+      if (price) {
+        await tapInto(price);
+        const panel = lastPanel();
+        assert(
+          !!panel,
+          "price history: a customer TYPED in full, not picked, still gets their prices",
+        );
+        const text = panel?.textContent ?? "";
+        assert(text.includes("Ramesh Traders"), "price history: headed with that customer");
+        assert(
+          text.includes(fmtMoney(100)) && !text.includes("No previous transaction"),
+          "price history: and lists their last bill for this item — " + text.slice(0, 140),
+        );
+
+        // 3 — pick a price: the list closes, the box keeps focus…
+        const row = panel?.querySelector<HTMLButtonElement>("button");
+        if (row) {
+          await act(async () => {
+            row.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+          });
+          await settleMs(80);
+        }
+        assert(!lastPanel(), "price history: picking a price closes the list");
+        // …and a tap on the same box brings it back.
+        await act(async () => {
+          price.click();
+        });
+        await settleMs(160);
+        assert(!!lastPanel(), "price history: tapping the box again brings the list back");
+        await leave();
+      }
+    }
+  }
+
   // Back belongs on DETAIL pages — the ones you drill into and have to get
   // out of. Main pages are reached from the sidebar/tab bar, so there is
   // nothing to go back to and a lone chevron beside the title just looks
@@ -1580,8 +1702,33 @@ async function runAll(): Promise<Results> {
       (update?.textContent ?? "").includes("(2)"),
       `bulk save: both edits are counted — button says ${JSON.stringify(update?.textContent)}`,
     );
+
+    /* A stock change must say what it IS before it is saved — a setup typo
+       and a shortage on the shelf are different things to profit & loss. */
     await act(async () => {
       update!.click();
+    });
+    await settleMs(250);
+    assert(
+      ItemRepo.get("BU1")?.stock === 17 &&
+        ItemRepo.get("BU2")?.stock === 39 &&
+        !StockAdjustmentRepo.all().some((a) => a.itemId === "BU1" || a.itemId === "BU2"),
+      "bulk save: nothing is saved until the stock change says what it is",
+    );
+    const countKind = Array.from(
+      document.querySelectorAll(
+        '[role="radiogroup"][aria-label="What the stock change is"] [role="radio"]',
+      ),
+    ).find((b) => (b.textContent ?? "").startsWith("Physical stock count")) as
+      | HTMLButtonElement
+      | undefined;
+    assert(!!countKind, "bulk save: it is asked — opening stock correction, or a physical count");
+    await act(async () => {
+      countKind!.click();
+    });
+    await settleMs(40);
+    await act(async () => {
+      findButton(/^Update/)!.click();
     });
     await settleMs(250);
 
@@ -1625,6 +1772,94 @@ async function runAll(): Promise<Results> {
       itemPage.includes("Bulk update"),
       "bulk save: the item's history shows where the change came from",
     );
+  }
+
+  /* ── Bulk update: an opening-stock typo is corrected, not lost ────────
+     The live case. An item set up with 2,500 for 1 was put right here, and
+     the correction landed in profit & loss as a ₹49,98,000 "loss". As an
+     opening-stock correction the opening moves with the stock, nothing is
+     recorded as an adjustment, and the books still agree with themselves. */
+  {
+    ItemRepo.add({
+      id: "BU7",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "Bulk Opening BU7",
+      unit: "pcs",
+      gstRate: 0,
+      purchasePrice: 2000,
+      salePrice: 0,
+      stock: 2500,
+      openingStock: 2500,
+    } as never);
+    const h = document.createElement("div");
+    document.body.appendChild(h);
+    const r = createRoot(h);
+    await act(async () => {
+      r.render(<BulkUpdateItemsDialog open onOpenChange={() => {}} onSaved={() => {}} />);
+    });
+    await settleMs(80);
+    const stockTab = Array.from(document.querySelectorAll('[role="radio"]')).find((b) =>
+      (b.textContent ?? "").trim().startsWith("Stock"),
+    ) as HTMLButtonElement | undefined;
+    await act(async () => {
+      stockTab!.click();
+    });
+    await settleMs(60);
+    const search = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input[placeholder="Search items…"]'),
+    ).pop();
+    await act(async () => {
+      setInput(search!, "Bulk Opening BU7");
+    });
+    await settleMs(60);
+    const cells = gridRow("Bulk Opening BU7");
+    assert(!!cells, "bulk opening: the item is in the grid");
+    if (cells) {
+      await act(async () => {
+        setInput(cells[1], "1");
+      });
+      await settleMs(40);
+    }
+    const openingKind = Array.from(
+      document.querySelectorAll(
+        '[role="radiogroup"][aria-label="What the stock change is"] [role="radio"]',
+      ),
+    )
+      .filter((b) => (b.textContent ?? "").startsWith("Correcting opening stock"))
+      .pop() as HTMLButtonElement | undefined;
+    assert(!!openingKind, "bulk opening: 'Correcting opening stock' is offered");
+    await act(async () => {
+      openingKind!.click();
+    });
+    await settleMs(40);
+    await act(async () => {
+      findButton(/^Update/)!.click();
+    });
+    await settleMs(250);
+
+    const it = ItemRepo.get("BU7");
+    assert(
+      it?.stock === 1 && it?.openingStock === 1,
+      `bulk opening: stock AND opening are both 1 — stock ${it?.stock}, opening ${it?.openingStock}`,
+    );
+    assert(
+      !StockAdjustmentRepo.all().some((a) => a.itemId === "BU7"),
+      "bulk opening: no adjustment is recorded — nothing happened on the shelf",
+    );
+    const drift = planStockRepair({
+      items: ItemRepo.all(),
+      sales: SalesRepo.all(),
+      purchases: PurchaseRepo.all(),
+      saleReturns: SaleReturnRepo.all(),
+      purchaseReturns: [],
+      stockAdjustments: StockAdjustmentRepo.all(),
+    }).filter((d) => d.id === "BU7");
+    assert(
+      drift.length === 0,
+      `bulk opening: and the books still agree — ${JSON.stringify(drift)}`,
+    );
+    r.unmount();
+    h.remove();
   }
 
   /* ── Bulk rename cannot manufacture two identical items ───────────────
@@ -1711,6 +1946,18 @@ async function runAll(): Promise<Results> {
       });
       await settleMs(60);
     }
+    // A stock change says what it is (see "bulk save") — this one is a count.
+    const countKind = Array.from(
+      document.querySelectorAll(
+        '[role="radiogroup"][aria-label="What the stock change is"] [role="radio"]',
+      ),
+    )
+      .filter((b) => (b.textContent ?? "").startsWith("Physical stock count"))
+      .pop() as HTMLButtonElement | undefined;
+    await act(async () => {
+      countKind?.click();
+    });
+    await settleMs(40);
     await act(async () => {
       findButton(/^Update/)!.click();
     });

@@ -15,6 +15,8 @@ import { usePagination } from "@/hooks/usePagination";
 import { ItemDialog, StockAdjustDialog } from "./items";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
+import { currentFifo } from "@/hooks/useFifo";
+import { lineKey, stockValueOf } from "@/lib/fifo";
 import type { Item, Invoice, Return } from "@/types";
 import {
   ArrowLeft,
@@ -66,17 +68,24 @@ function ItemDetailPage() {
     let boughtQty = 0;
     let profit = 0;
     if (!item) return { rows: entries, soldQty, boughtQty, profit };
-    const costOf = (l: { costPrice?: number }) => l.costPrice ?? item.purchasePrice ?? 0;
+    // What the line's units cost under FIFO (see fifo.ts); the old snapshot
+    // only for a line the replay has no figure for.
+    const fifo = currentFifo();
+    const snapshotCost = (l: { qty: number; costPrice?: number }) =>
+      l.qty * (l.costPrice ?? item.purchasePrice ?? 0);
 
     const collect = (
       docs: (Invoice | Return)[],
       type: string,
       docKind: HistoryRow["docKind"],
       inward: boolean,
-      onQty?: (l: { qty: number; price: number; discountPct: number; costPrice?: number }) => void,
+      onQty?: (
+        l: { qty: number; price: number; discountPct: number; costPrice?: number },
+        key: string,
+      ) => void,
     ) => {
       for (const d of docs) {
-        for (const l of d.lineItems) {
+        for (const [i, l] of d.lineItems.entries()) {
           if (l.itemId !== id) continue;
           entries.push({
             date: d.date,
@@ -90,21 +99,23 @@ function ItemDetailPage() {
             docId: d.id,
             docKind,
           });
-          onQty?.(l);
+          onQty?.(l, lineKey(d.id, i));
         }
       }
     };
 
-    collect(SalesRepo.all(), "Sale", "sale", false, (l) => {
+    collect(SalesRepo.all(), "Sale", "sale", false, (l, key) => {
       soldQty = r2(soldQty + l.qty);
-      profit = r2(profit + l.qty * l.price * (1 - l.discountPct / 100) - l.qty * costOf(l));
+      const cost = fifo.saleLineCost.get(key) ?? snapshotCost(l);
+      profit = r2(profit + l.qty * l.price * (1 - l.discountPct / 100) - cost);
     });
     collect(PurchaseRepo.all(), "Purchase", "purchase", true, (l) => {
       boughtQty = r2(boughtQty + l.qty);
     });
-    collect(SaleReturnRepo.all(), "Sale Return", "sale-return", true, (l) => {
+    collect(SaleReturnRepo.all(), "Sale Return", "sale-return", true, (l, key) => {
       soldQty = r2(soldQty - l.qty);
-      profit = r2(profit - (l.qty * l.price * (1 - l.discountPct / 100) - l.qty * costOf(l)));
+      const cost = fifo.saleReturnLineCost.get(key) ?? snapshotCost(l);
+      profit = r2(profit - (l.qty * l.price * (1 - l.discountPct / 100) - cost));
     });
     collect(PurchaseReturnRepo.all(), "Purchase Return", "purchase-return", false, (l) => {
       boughtQty = r2(boughtQty - l.qty);
@@ -205,7 +216,7 @@ function ItemDetailPage() {
           value={`${item.stock} ${item.unit}`}
           color={item.stock < 0 ? "text-rose-600" : "text-gray-800"}
         />
-        <Stat label="Stock Value" value={fmtMoney(r2(item.stock * item.purchasePrice))} />
+        <Stat label="Stock Value" value={fmtMoney(stockValueOf(item, currentFifo()))} />
         <Stat label="Purchase Price" value={fmtMoney(item.purchasePrice)} />
         <Stat label="Sale Price" value={fmtMoney(item.salePrice)} />
         <Stat label="Total Sold" value={`${soldQty} ${item.unit}`} />
@@ -229,10 +240,7 @@ function ItemDetailPage() {
             value={`${item.stock} ${item.unit}`}
             color={item.stock < 0 ? "text-rose-600" : "text-gray-800"}
           />
-          <MobileStatCard
-            label="Stock Value"
-            value={fmtMoney(r2(item.stock * item.purchasePrice))}
-          />
+          <MobileStatCard label="Stock Value" value={fmtMoney(stockValueOf(item, currentFifo()))} />
           <MobileStatCard label="Purchase Price" value={fmtMoney(item.purchasePrice)} />
           <MobileStatCard label="Sale Price" value={fmtMoney(item.salePrice)} />
           <MobileStatCard label="Total Sold" value={`${soldQty} ${item.unit}`} />

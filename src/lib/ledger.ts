@@ -10,6 +10,7 @@ import type {
 } from "@/types";
 
 import { splitsOf, bankParts } from "@/lib/paymentSplit";
+import { lineKey, type FifoResult } from "@/lib/fifo";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -1145,15 +1146,120 @@ export function valueExTax(
   );
 }
 
-/** Cost of goods sold from per-line cost snapshots, falling back to the
- * item's current purchase price for lines saved before costPrice existed. */
-export function computeCogs(sales: Invoice[], saleReturns: Return[], items: Item[]): number {
+/**
+ * Profit and loss as a trading account — the standard format, and how
+ * Vyapar's accounting view, Tally and every CA read it:
+ *
+ *   Cost of goods sold = Opening stock + Net purchases − Closing stock
+ *   Gross profit       = Net sales − Cost of goods sold
+ *   Net profit         = Gross profit − Expenses − Discount allowed
+ *                        + Discount received
+ *
+ * Everything excludes GST: tax collected is owed onward, tax paid is credit.
+ *
+ * Unlike costing only the units sold, this sees EVERY way stock left — a
+ * write-off, a shortage found at a count, goods returned at a price other
+ * than cost — because all of them leave the closing stock lower than the
+ * opening plus what was bought. Opening and closing stock are valued FIFO
+ * (see fifo.ts), so one period's closing is exactly the next one's opening.
+ *
+ * The documents passed in must already be filtered to the period.
+ */
+export interface TradingAccount {
+  sales: number;
+  saleReturns: number;
+  netSales: number;
+  openingStock: number;
+  purchases: number;
+  purchaseReturns: number;
+  netPurchases: number;
+  closingStock: number;
+  cogs: number;
+  grossProfit: number;
+  expenses: number;
+  discountAllowed: number;
+  discountReceived: number;
+  netProfit: number;
+}
+
+export function tradingAccount(p: {
+  sales: Invoice[];
+  saleReturns: Return[];
+  purchases: Invoice[];
+  purchaseReturns: Return[];
+  expenses: { amount: number }[];
+  payments: Payment[];
+  openingStock: number;
+  closingStock: number;
+}): TradingAccount {
+  const sales = valueExTax(p.sales);
+  const saleReturns = valueExTax(p.saleReturns);
+  const netSales = r2(sales - saleReturns);
+  const purchases = valueExTax(p.purchases);
+  const purchaseReturns = valueExTax(p.purchaseReturns);
+  const netPurchases = r2(purchases - purchaseReturns);
+  const openingStock = r2(p.openingStock);
+  const closingStock = r2(p.closingStock);
+  const cogs = r2(openingStock + netPurchases - closingStock);
+  const grossProfit = r2(netSales - cogs);
+  const expenses = r2(p.expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0));
+  const discountAllowed = totalSettlementDiscount(p.payments.filter((x) => x.type === "in"));
+  const discountReceived = totalSettlementDiscount(p.payments.filter((x) => x.type === "out"));
+  return {
+    sales,
+    saleReturns,
+    netSales,
+    openingStock,
+    purchases,
+    purchaseReturns,
+    netPurchases,
+    closingStock,
+    cogs,
+    grossProfit,
+    expenses,
+    discountAllowed,
+    discountReceived,
+    netProfit: r2(grossProfit - expenses - discountAllowed + discountReceived),
+  };
+}
+
+/**
+ * Cost of goods sold.
+ *
+ * With `fifo`, each line costs what FIFO says its units cost (see fifo.ts) —
+ * the way every screen that shows profit now reads it. The figures are
+ * keyed by document and line, so the replay must have seen the FULL history
+ * even when only one period's bills are passed here.
+ *
+ * Without it, the old reading: the cost snapshotted on the line, falling
+ * back to the item's purchase price for lines saved before snapshots existed.
+ * Kept for a line FIFO has no figure for, never as the method.
+ */
+export function computeCogs(
+  sales: Invoice[],
+  saleReturns: Return[],
+  items: Item[],
+  fifo?: FifoResult,
+): number {
   const cost = new Map(items.map((i) => [i.id, i.purchasePrice] as const));
-  const lineCost = (l: { itemId: string; qty: number; costPrice?: number }) =>
+  const snapshot = (l: { itemId: string; qty: number; costPrice?: number }) =>
     (l.costPrice ?? cost.get(l.itemId) ?? 0) * l.qty;
-  const sold = sales.reduce((s, inv) => s + inv.lineItems.reduce((a, l) => a + lineCost(l), 0), 0);
+  const sold = sales.reduce(
+    (s, inv) =>
+      s +
+      inv.lineItems.reduce(
+        (a, l, i) => a + (fifo?.saleLineCost.get(lineKey(inv.id, i)) ?? snapshot(l)),
+        0,
+      ),
+    0,
+  );
   const returned = saleReturns.reduce(
-    (s, ret) => s + ret.lineItems.reduce((a, l) => a + lineCost(l), 0),
+    (s, ret) =>
+      s +
+      ret.lineItems.reduce(
+        (a, l, i) => a + (fifo?.saleReturnLineCost.get(lineKey(ret.id, i)) ?? snapshot(l)),
+        0,
+      ),
     0,
   );
   return r2(sold - returned);

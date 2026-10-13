@@ -11,6 +11,7 @@ import { useRepoMemo } from "@/hooks/useRepoData";
 import { useWindowedRows } from "@/hooks/useWindowedRows";
 import { matchesQuery, byRelevance } from "@/lib/search";
 import { today } from "@/lib/format";
+import { correctedOpening } from "@/lib/stock";
 import type { Item } from "@/types";
 
 type Mode = "pricing" | "stock" | "info";
@@ -33,6 +34,36 @@ const MODE_FIELDS: Record<Mode, (keyof Item)[]> = {
 type Draft = Record<string, Partial<Item>>;
 
 /**
+ * What a change to stock IS — asked every time, never assumed.
+ *
+ * The split every serious system makes. ERPNext's Stock Reconciliation has
+ * two purposes, "Opening Stock" (posted to Temporary Opening, outside profit)
+ * and "Stock Reconciliation" (the difference is a stock adjustment, inside
+ * it); Tally keeps the opening balance on the stock item and books counted
+ * differences through a Physical Stock voucher; Vyapar has the item's opening
+ * quantity and, separately, Adjust Item.
+ *
+ * This screen used to record every change as an adjustment. A live shop typed
+ * 2,500 for 1 as an item's opening stock, fixed it here the next day, and the
+ * fix became a ₹49,98,000 "loss" in its profit and loss — a setup typo read
+ * as stock gone missing.
+ */
+type StockKind = "opening" | "count";
+
+const STOCK_KINDS: { key: StockKind; label: string; hint: string }[] = [
+  {
+    key: "opening",
+    label: "Correcting opening stock",
+    hint: "A mistake made when the item was set up — 2500 typed for 1. The opening stock is corrected with it. Profit & loss is not affected.",
+  },
+  {
+    key: "count",
+    label: "Physical stock count",
+    hint: "What is on the shelf really differs — damaged, missing, or found. Recorded as a shortage or excess, and it counts in profit & loss.",
+  },
+];
+
+/**
  * Spreadsheet-style bulk editor for the whole catalogue — Pricing, Stock and
  * Item Information on three tabs, every row editable in place, one Update
  * that commits the lot.
@@ -46,8 +77,10 @@ type Draft = Record<string, Partial<Item>>;
  *    every bill, return and adjustment also moves, so it goes through an
  *    atomic increment of the DIFFERENCE, exactly like the single-item stock
  *    dialog — otherwise saving this screen would silently undo any sale made
- *    while it was open. Each stock change also writes a StockAdjustment, so
- *    the movement has the same audit trail as any other correction.
+ *    while it was open. What the change IS is asked (see StockKind): a
+ *    physical count writes a StockAdjustment, with the same audit trail as
+ *    any other correction; an opening-stock correction moves the opening
+ *    with it and writes none.
  *  - Everything else merges as a patch rather than a whole-document write,
  *    so a concurrent stock change on the same item can't be clobbered.
  */
@@ -81,9 +114,11 @@ export function BulkUpdateItemsDialog({
   const [changedOnly, setChangedOnly] = useState(false);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const [stockKind, setStockKind] = useState<StockKind | null>(null);
 
   useEffect(() => {
     if (open) {
+      setStockKind(null);
       setDraft({});
       setQ("");
       setChangedOnly(false);
@@ -118,6 +153,19 @@ export function BulkUpdateItemsDialog({
       return next;
     });
   };
+
+  /** How far an edit moves an item's stock. */
+  const stockDeltaOf = (it: Item) =>
+    isDirty(it, "stock")
+      ? Math.round((Number(valueOf(it, "stock") ?? 0) - Number(it.stock ?? 0)) * 100) / 100
+      : 0;
+
+  /** Items whose stock this sitting changes — the ones the question is about. */
+  const stockEdits = useMemo(
+    () => items.filter((it) => draft[it.id] && stockDeltaOf(it) !== 0).length,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [items, draft],
+  );
 
   /** Per-tab count of items with at least one changed field on that tab. */
   const counts = useMemo(() => {
@@ -205,6 +253,30 @@ export function BulkUpdateItemsDialog({
       toast.error(`Repeat items cannot be added — ${bad}`);
       return;
     }
+    if (stockEdits > 0 && !stockKind) {
+      setMode("stock");
+      toast.error(
+        "Choose what the stock change is — correcting opening stock, or a physical stock count",
+      );
+      return;
+    }
+    if (stockEdits > 0 && stockKind === "opening") {
+      /* An opening cannot go below zero. Getting there means the item has
+         been bought or sold since it was set up, so the shelf really is
+         different from the books — which is a count, not a setup typo. */
+      const below = items.find(
+        (it) =>
+          draft[it.id] &&
+          stockDeltaOf(it) !== 0 &&
+          correctedOpening(Number(it.openingStock ?? 0), stockDeltaOf(it)) === null,
+      );
+      if (below) {
+        toast.error(
+          `"${below.name}": its opening stock would go below zero. It has been bought or sold since it was set up — record this as a physical stock count instead.`,
+        );
+        return;
+      }
+    }
     savingRef.current = true;
     setSaving(true);
     try {
@@ -215,6 +287,7 @@ export function BulkUpdateItemsDialog({
       const CHUNK = 200;
       let itemCount = 0;
       let stockCount = 0;
+      let openingCount = 0;
       let allCommitted = true;
 
       for (let i = 0; i < edited.length; i += CHUNK) {
@@ -231,17 +304,25 @@ export function BulkUpdateItemsDialog({
             }
           }
 
-          const stockDelta = isDirty(it, "stock")
-            ? Math.round((Number(valueOf(it, "stock") ?? 0) - Number(it.stock ?? 0)) * 100) / 100
-            : 0;
+          const stockDelta = stockDeltaOf(it);
           if (!touched && stockDelta === 0) continue;
+
+          /* A setup mistake: the opening was wrong, so the opening moves —
+             with the stock, by exactly the same amount — and no adjustment is
+             recorded, because nothing happened on the shelf. Written the same
+             way the single-item form corrects an opening stock. */
+          if (stockDelta !== 0 && stockKind === "opening") {
+            const opening = Number(ItemRepo.get(it.id)?.openingStock ?? it.openingStock ?? 0);
+            patch.openingStock = correctedOpening(opening, stockDelta) ?? 0;
+          }
 
           // increment(0) is a no-op, so this same call covers "patch only",
           // "stock only" and "both" without ever writing stock absolutely.
           ItemRepo.adjustFieldBatched(batch, it.id, "stock", stockDelta, patch);
           itemCount++;
 
-          if (stockDelta !== 0) {
+          if (stockDelta !== 0 && stockKind === "opening") openingCount++;
+          if (stockDelta !== 0 && stockKind === "count") {
             StockAdjustmentRepo.addBatched(batch, {
               itemId: it.id,
               // The EDITED name, not the stored one — renaming an item and
@@ -274,6 +355,9 @@ export function BulkUpdateItemsDialog({
 
       toast.success(
         `Updated ${itemCount} item${itemCount === 1 ? "" : "s"}` +
+          (openingCount
+            ? ` · opening stock corrected for ${openingCount} — profit & loss not affected`
+            : "") +
           (stockCount
             ? ` · ${stockCount} stock adjustment${stockCount === 1 ? "" : "s"} recorded`
             : ""),
@@ -528,6 +612,38 @@ export function BulkUpdateItemsDialog({
             <div className="py-16 text-center text-muted-foreground">No items match</div>
           )}
         </div>
+
+        {stockEdits > 0 && (
+          <div className="border-t px-4 sm:px-5 py-3 bg-amber-50/70">
+            <p className="text-[13px] font-semibold text-foreground mb-2">
+              {stockEdits} stock change{stockEdits === 1 ? "" : "s"} — what{" "}
+              {stockEdits === 1 ? "is it" : "are they"}?
+            </p>
+            <div
+              role="radiogroup"
+              aria-label="What the stock change is"
+              className="grid gap-2 sm:grid-cols-2"
+            >
+              {STOCK_KINDS.map((k) => (
+                <button
+                  key={k.key}
+                  type="button"
+                  role="radio"
+                  aria-checked={stockKind === k.key}
+                  onClick={() => setStockKind(k.key)}
+                  className={`min-h-11 rounded-md border px-3 py-2 text-left transition ${
+                    stockKind === k.key
+                      ? "border-primary bg-primary/10 ring-1 ring-primary/40"
+                      : "border-input bg-background hover:bg-accent"
+                  }`}
+                >
+                  <span className="block text-[13px] font-semibold">{k.label}</span>
+                  <span className="block text-[12px] text-muted-foreground">{k.hint}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="border-t px-4 sm:px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-3 bg-muted/40">
           <p className="text-xs text-muted-foreground flex-1">

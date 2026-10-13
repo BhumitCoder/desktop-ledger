@@ -9,6 +9,7 @@ import {
   SaleReturnRepo,
   PurchaseReturnRepo,
   PaymentRepo,
+  StockAdjustmentRepo,
   CompanyRepo,
   BankRepo,
 } from "@/repositories";
@@ -18,13 +19,10 @@ import { describePayment } from "@/lib/paymentSplit";
 import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
+import { useFifo, stockValueOn } from "@/hooks/useFifo";
+import { stockValueOf } from "@/lib/fifo";
 import type { Invoice } from "@/types";
-import {
-  computeCogs,
-  buildPartyStatement,
-  valueExTax,
-  totalSettlementDiscount,
-} from "@/lib/ledger";
+import { tradingAccount, buildPartyStatement } from "@/lib/ledger";
 import { downloadCsv } from "@/lib/csv";
 import { downloadXlsx } from "@/lib/xlsx";
 import { downloadElementAsPdf } from "@/lib/pdf";
@@ -400,6 +398,9 @@ function ReportView({
   );
   const parties = useRepoMemo(() => PartyRepo.all());
   const items = useRepoMemo(() => ItemRepo.all());
+  // Replayed over the WHOLE history, whatever the date range: a sale in this
+  // period may have taken units bought long before it (see fifo.ts).
+  const fifo = useFifo();
   const [partySearch, setPartySearch] = useState("");
 
   // Every party's full statement, built ONCE per (report, date-range) — not on
@@ -423,23 +424,31 @@ function ReportView({
   }, [which, dateFrom, dateTo, parties]);
 
   if (which === "pl") {
-    // Excluding GST — the tax collected on a sale is a liability owed to the
-    // government, not revenue, and COGS below is already tax-exclusive.
-    const revenue = valueExTax(sales);
-    const saleReturnTotal = valueExTax(saleReturns);
-    const netRevenue = r2(revenue - saleReturnTotal);
-    // Stock-based COGS: cost of items actually sold (net of returned goods),
-    // not total purchases — unsold stock does not reduce profit.
-    const cogs = computeCogs(sales, saleReturns, items);
-    const netPurchases = r2(valueExTax(purchases) - valueExTax(purchaseReturns));
-    const grossProfit = r2(netRevenue - cogs);
-    const exp = expenses.reduce((a, s) => a + s.amount, 0);
-    // Amounts waived when settling a bill are a real cost — the sale was
-    // booked at full value, so without this the waived part would quietly
-    // inflate profit. A discount a SUPPLIER gave us works the other way.
-    const discountAllowed = totalSettlementDiscount(payments.filter((p) => p.type === "in"));
-    const discountReceived = totalSettlementDiscount(payments.filter((p) => p.type === "out"));
-    const netProfit = r2(grossProfit - exp - discountAllowed + discountReceived);
+    /* A trading account, as Vyapar's accounting view and every CA read it:
+       cost of goods sold = opening stock + net purchases − closing stock,
+       with both stocks valued FIFO (see tradingAccount and fifo.ts). That
+       way every unit that left — sold, written off, found short at a count —
+       is in the profit, not only the ones that went out on a bill. */
+    const pl = tradingAccount({
+      sales,
+      saleReturns,
+      purchases,
+      purchaseReturns,
+      expenses,
+      payments,
+      openingStock: stockValueOn(dateFrom, false),
+      closingStock: stockValueOn(dateTo, true),
+    });
+    // Said out loud, because it is the part of the cost a shop least expects:
+    // stock adjusted out or in during the period, at what it cost.
+    let adjustedOut = 0;
+    let adjustedIn = 0;
+    for (const a of StockAdjustmentRepo.all()) {
+      if (!inRange(a.date, dateFrom, dateTo)) continue;
+      const v = fifo.adjustmentCost.get(a.id) ?? 0;
+      if (a.type === "add") adjustedIn += v;
+      else adjustedOut += v;
+    }
 
     return (
       <div className="max-w-2xl">
@@ -448,21 +457,28 @@ function ReportView({
           <div className="px-5 py-3 bg-gray-50 border-b">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Revenue</p>
           </div>
-          <PLRow label="Sales Revenue (excl. GST)" value={revenue} />
-          <PLRow label="Sale Returns (−)" value={-saleReturnTotal} indent />
-          <PLRow label="Net Revenue" value={netRevenue} bold />
+          <PLRow label="Sales Revenue (excl. GST)" value={pl.sales} />
+          <PLRow label="Sale Returns (−)" value={-pl.saleReturns} indent />
+          <PLRow label="Net Revenue" value={pl.netSales} bold />
           <div className="px-5 py-3 bg-gray-50 border-b border-t">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
               Cost of Goods Sold
             </p>
           </div>
-          <PLRow label="Cost of Goods Sold (item cost of sold qty)" value={-cogs} bold />
-          <div className="px-5 py-2 flex justify-between items-center border-b border-gray-100 text-[11px] text-gray-400">
-            <span className="pl-4">
-              Purchases during period, excl. GST (net of returns) — for reference, not in profit
-            </span>
-            <span className="tabular-nums">{fmtMoney(netPurchases)}</span>
-          </div>
+          <PLRow label="Opening Stock (FIFO)" value={-pl.openingStock} indent />
+          <PLRow label="Purchases (excl. GST)" value={-pl.purchases} indent />
+          <PLRow label="Purchase Returns (+)" value={pl.purchaseReturns} indent />
+          <PLRow label="Closing Stock (FIFO)" value={pl.closingStock} indent />
+          <PLRow label="Cost of Goods Sold" value={-pl.cogs} bold />
+          {(adjustedOut > 0.005 || adjustedIn > 0.005) && (
+            <div className="px-5 py-2 flex justify-between items-center border-b border-gray-100 text-[11px] text-gray-500">
+              <span className="pl-4">
+                Includes stock adjustments in this period — reduced {fmtMoney(adjustedOut)}, added{" "}
+                {fmtMoney(adjustedIn)}
+              </span>
+              <span className="tabular-nums">{fmtMoney(r2(adjustedOut - adjustedIn))}</span>
+            </div>
+          )}
           <div className="px-5 py-3 bg-gray-50 border-b border-t">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
               Gross Profit
@@ -470,27 +486,27 @@ function ReportView({
           </div>
           <PLRow
             label="Gross Profit"
-            value={grossProfit}
+            value={pl.grossProfit}
             bold
             large
-            className={grossProfit >= 0 ? "text-emerald-600" : "text-rose-600"}
+            className={pl.grossProfit >= 0 ? "text-emerald-600" : "text-rose-600"}
           />
           <div className="px-5 py-3 bg-gray-50 border-b border-t">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Expenses</p>
           </div>
-          <PLRow label="Operating Expenses" value={-exp} />
-          {discountAllowed > 0 && (
-            <PLRow label="Discount Allowed (settlements)" value={-discountAllowed} />
+          <PLRow label="Operating Expenses" value={-pl.expenses} />
+          {pl.discountAllowed > 0 && (
+            <PLRow label="Discount Allowed (settlements)" value={-pl.discountAllowed} />
           )}
-          {discountReceived > 0 && (
-            <PLRow label="Discount Received (settlements)" value={discountReceived} />
+          {pl.discountReceived > 0 && (
+            <PLRow label="Discount Received (settlements)" value={pl.discountReceived} />
           )}
           <div className="px-5 py-4 bg-primary/5 border-t-2 border-primary flex justify-between items-center">
             <span className="text-base font-bold text-gray-800">Net Profit</span>
             <span
-              className={`text-[20px] font-extrabold tabular-nums ${netProfit >= 0 ? "text-emerald-600" : "text-rose-600"}`}
+              className={`text-[20px] font-extrabold tabular-nums ${pl.netProfit >= 0 ? "text-emerald-600" : "text-rose-600"}`}
             >
-              {fmtMoney(netProfit)}
+              {fmtMoney(pl.netProfit)}
             </span>
           </div>
         </div>
@@ -920,7 +936,7 @@ function ReportView({
   }
 
   if (which === "stock") {
-    const totalValue = items.reduce((a, i) => a + i.stock * i.purchasePrice, 0);
+    const totalValue = items.reduce((a, i) => a + stockValueOf(i, fifo), 0);
     const lowStock = items.filter(
       (i) => (i.minStock != null && i.stock <= i.minStock) || i.stock < 0,
     ).length;
@@ -953,7 +969,7 @@ function ReportView({
             i.minStock ? String(i.minStock) : "—",
             fmtMoney(i.purchasePrice),
             fmtMoney(i.salePrice),
-            fmtMoney(i.stock * i.purchasePrice),
+            fmtMoney(stockValueOf(i, fifo)),
           ])}
       />
     );
