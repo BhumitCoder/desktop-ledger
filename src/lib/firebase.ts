@@ -17,8 +17,15 @@ const firebaseConfig = {
   measurementId: "G-3WSQ6FXD71",
 };
 
-/** Named Firestore database (not the "(default)" one) */
-export const DATABASE_ID = "kinteshmobileacce";
+/**
+ * Named Firestore database (not the "(default)" one) — Balaji Fabtech's OWN.
+ *
+ * This branch was cut from the Kintesh shop's and kept its database, so the
+ * Balaji demo read and wrote that live shop's books. It must never point
+ * there again: two businesses in one set of books is not recoverable by
+ * looking at the records afterwards. Same name in firebaseAdmin.ts.
+ */
+export const DATABASE_ID = "balajidemo";
 
 export const isBrowser = typeof window !== "undefined";
 
