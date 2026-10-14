@@ -8,8 +8,9 @@ import {
   useNavigate,
   HeadContent,
   Scripts,
+  type ErrorComponentProps,
 } from "@tanstack/react-router";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { Sparkles, Loader2, AlertCircle, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
@@ -102,8 +103,15 @@ function NotFoundComponent() {
   );
 }
 
-function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
+function ErrorComponent({ error: thrown, reset }: ErrorComponentProps) {
   const router = useRouter();
+  /* What was thrown need not be an Error — the router types it `unknown`,
+     and a thrown string has no `.message` to show. Made into one once per
+     throw, so the effect below still runs once per error, not per render. */
+  const error = useMemo(
+    () => (thrown instanceof Error ? thrown : new Error(String(thrown))),
+    [thrown],
+  );
   // A stale-chunk error after a deploy is a browser-cache problem, not a real
   // app failure — auto-reload once to pull the fresh HTML + new chunks so the
   // user never even sees this screen. (Guarded so a truly broken deploy can't

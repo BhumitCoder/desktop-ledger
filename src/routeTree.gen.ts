@@ -9,117 +9,47 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as ReportsRouteImport } from './routes/reports'
-import { Route as QuotationsRouteImport } from './routes/quotations'
-import { Route as ProformaRouteImport } from './routes/proforma'
-import { Route as PaymentsRouteImport } from './routes/payments'
-import { Route as PayeesRouteImport } from './routes/payees'
-import { Route as PartiesRouteImport } from './routes/parties'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as ItemsRouteImport } from './routes/items'
-import { Route as InventoryRouteImport } from './routes/inventory'
-import { Route as GstRouteImport } from './routes/gst'
-import { Route as ExpensesRouteImport } from './routes/expenses'
-import { Route as DocumentsRouteImport } from './routes/documents'
-import { Route as DaybookRouteImport } from './routes/daybook'
-import { Route as CashRouteImport } from './routes/cash'
-import { Route as BankRouteImport } from './routes/bank'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as SalesIndexRouteImport } from './routes/sales.index'
-import { Route as SaleReturnIndexRouteImport } from './routes/sale-return.index'
-import { Route as PurchaseIndexRouteImport } from './routes/purchase.index'
-import { Route as PurchaseReturnIndexRouteImport } from './routes/purchase-return.index'
-import { Route as SalesNewRouteImport } from './routes/sales.new'
-import { Route as SalesIdRouteImport } from './routes/sales.$id'
-import { Route as SaleReturnNewRouteImport } from './routes/sale-return.new'
-import { Route as SaleReturnIdRouteImport } from './routes/sale-return.$id'
-import { Route as QuotationsIdRouteImport } from './routes/quotations_.$id'
-import { Route as PurchaseNewRouteImport } from './routes/purchase.new'
-import { Route as PurchaseIdRouteImport } from './routes/purchase.$id'
-import { Route as PurchaseReturnNewRouteImport } from './routes/purchase-return.new'
-import { Route as PurchaseReturnIdRouteImport } from './routes/purchase-return.$id'
-import { Route as ProformaIdRouteImport } from './routes/proforma_.$id'
-import { Route as PayeesIdRouteImport } from './routes/payees_.$id'
-import { Route as PartiesIdRouteImport } from './routes/parties_.$id'
-import { Route as ItemsIdRouteImport } from './routes/items_.$id'
+import { Route as BankRouteImport } from './routes/bank'
+import { Route as CashRouteImport } from './routes/cash'
+import { Route as DaybookRouteImport } from './routes/daybook'
+import { Route as DocumentsRouteImport } from './routes/documents'
+import { Route as ExpensesRouteImport } from './routes/expenses'
+import { Route as GstRouteImport } from './routes/gst'
+import { Route as InventoryRouteImport } from './routes/inventory'
+import { Route as ItemsRouteImport } from './routes/items'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as PartiesRouteImport } from './routes/parties'
+import { Route as PayeesRouteImport } from './routes/payees'
+import { Route as PaymentsRouteImport } from './routes/payments'
+import { Route as ProformaRouteImport } from './routes/proforma'
+import { Route as QuotationsRouteImport } from './routes/quotations'
+import { Route as ReportsRouteImport } from './routes/reports'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as BankIdRouteImport } from './routes/bank_.$id'
-import { Route as SalesEditIdRouteImport } from './routes/sales.edit.$id'
+import { Route as ItemsIdRouteImport } from './routes/items_.$id'
+import { Route as PartiesIdRouteImport } from './routes/parties_.$id'
+import { Route as PayeesIdRouteImport } from './routes/payees_.$id'
+import { Route as ProformaIdRouteImport } from './routes/proforma_.$id'
+import { Route as PurchaseReturnIndexRouteImport } from './routes/purchase-return.index'
+import { Route as PurchaseReturnIdRouteImport } from './routes/purchase-return.$id'
+import { Route as PurchaseReturnNewRouteImport } from './routes/purchase-return.new'
+import { Route as PurchaseIndexRouteImport } from './routes/purchase.index'
+import { Route as PurchaseIdRouteImport } from './routes/purchase.$id'
+import { Route as PurchaseNewRouteImport } from './routes/purchase.new'
+import { Route as QuotationsIdRouteImport } from './routes/quotations_.$id'
+import { Route as SaleReturnIndexRouteImport } from './routes/sale-return.index'
+import { Route as SaleReturnIdRouteImport } from './routes/sale-return.$id'
+import { Route as SaleReturnNewRouteImport } from './routes/sale-return.new'
+import { Route as SalesIndexRouteImport } from './routes/sales.index'
+import { Route as SalesIdRouteImport } from './routes/sales.$id'
+import { Route as SalesNewRouteImport } from './routes/sales.new'
 import { Route as PurchaseEditIdRouteImport } from './routes/purchase.edit.$id'
+import { Route as SalesEditIdRouteImport } from './routes/sales.edit.$id'
 
-const SettingsRoute = SettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ReportsRoute = ReportsRouteImport.update({
-  id: '/reports',
-  path: '/reports',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const QuotationsRoute = QuotationsRouteImport.update({
-  id: '/quotations',
-  path: '/quotations',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ProformaRoute = ProformaRouteImport.update({
-  id: '/proforma',
-  path: '/proforma',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PaymentsRoute = PaymentsRouteImport.update({
-  id: '/payments',
-  path: '/payments',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PayeesRoute = PayeesRouteImport.update({
-  id: '/payees',
-  path: '/payees',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PartiesRoute = PartiesRouteImport.update({
-  id: '/parties',
-  path: '/parties',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ItemsRoute = ItemsRouteImport.update({
-  id: '/items',
-  path: '/items',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const InventoryRoute = InventoryRouteImport.update({
-  id: '/inventory',
-  path: '/inventory',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const GstRoute = GstRouteImport.update({
-  id: '/gst',
-  path: '/gst',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ExpensesRoute = ExpensesRouteImport.update({
-  id: '/expenses',
-  path: '/expenses',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DocumentsRoute = DocumentsRouteImport.update({
-  id: '/documents',
-  path: '/documents',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DaybookRoute = DaybookRouteImport.update({
-  id: '/daybook',
-  path: '/daybook',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CashRoute = CashRouteImport.update({
-  id: '/cash',
-  path: '/cash',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BankRoute = BankRouteImport.update({
@@ -127,94 +57,79 @@ const BankRoute = BankRouteImport.update({
   path: '/bank',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const CashRoute = CashRouteImport.update({
+  id: '/cash',
+  path: '/cash',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SalesIndexRoute = SalesIndexRouteImport.update({
-  id: '/sales/',
-  path: '/sales/',
+const DaybookRoute = DaybookRouteImport.update({
+  id: '/daybook',
+  path: '/daybook',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SaleReturnIndexRoute = SaleReturnIndexRouteImport.update({
-  id: '/sale-return/',
-  path: '/sale-return/',
+const DocumentsRoute = DocumentsRouteImport.update({
+  id: '/documents',
+  path: '/documents',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PurchaseIndexRoute = PurchaseIndexRouteImport.update({
-  id: '/purchase/',
-  path: '/purchase/',
+const ExpensesRoute = ExpensesRouteImport.update({
+  id: '/expenses',
+  path: '/expenses',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PurchaseReturnIndexRoute = PurchaseReturnIndexRouteImport.update({
-  id: '/purchase-return/',
-  path: '/purchase-return/',
+const GstRoute = GstRouteImport.update({
+  id: '/gst',
+  path: '/gst',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SalesNewRoute = SalesNewRouteImport.update({
-  id: '/sales/new',
-  path: '/sales/new',
+const InventoryRoute = InventoryRouteImport.update({
+  id: '/inventory',
+  path: '/inventory',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SalesIdRoute = SalesIdRouteImport.update({
-  id: '/sales/$id',
-  path: '/sales/$id',
+const ItemsRoute = ItemsRouteImport.update({
+  id: '/items',
+  path: '/items',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SaleReturnNewRoute = SaleReturnNewRouteImport.update({
-  id: '/sale-return/new',
-  path: '/sale-return/new',
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SaleReturnIdRoute = SaleReturnIdRouteImport.update({
-  id: '/sale-return/$id',
-  path: '/sale-return/$id',
+const PartiesRoute = PartiesRouteImport.update({
+  id: '/parties',
+  path: '/parties',
   getParentRoute: () => rootRouteImport,
 } as any)
-const QuotationsIdRoute = QuotationsIdRouteImport.update({
-  id: '/quotations_/$id',
-  path: '/quotations/$id',
+const PayeesRoute = PayeesRouteImport.update({
+  id: '/payees',
+  path: '/payees',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PurchaseNewRoute = PurchaseNewRouteImport.update({
-  id: '/purchase/new',
-  path: '/purchase/new',
+const PaymentsRoute = PaymentsRouteImport.update({
+  id: '/payments',
+  path: '/payments',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PurchaseIdRoute = PurchaseIdRouteImport.update({
-  id: '/purchase/$id',
-  path: '/purchase/$id',
+const ProformaRoute = ProformaRouteImport.update({
+  id: '/proforma',
+  path: '/proforma',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PurchaseReturnNewRoute = PurchaseReturnNewRouteImport.update({
-  id: '/purchase-return/new',
-  path: '/purchase-return/new',
+const QuotationsRoute = QuotationsRouteImport.update({
+  id: '/quotations',
+  path: '/quotations',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PurchaseReturnIdRoute = PurchaseReturnIdRouteImport.update({
-  id: '/purchase-return/$id',
-  path: '/purchase-return/$id',
+const ReportsRoute = ReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ProformaIdRoute = ProformaIdRouteImport.update({
-  id: '/proforma_/$id',
-  path: '/proforma/$id',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PayeesIdRoute = PayeesIdRouteImport.update({
-  id: '/payees_/$id',
-  path: '/payees/$id',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PartiesIdRoute = PartiesIdRouteImport.update({
-  id: '/parties_/$id',
-  path: '/parties/$id',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ItemsIdRoute = ItemsIdRouteImport.update({
-  id: '/items_/$id',
-  path: '/items/$id',
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BankIdRoute = BankIdRouteImport.update({
@@ -222,14 +137,99 @@ const BankIdRoute = BankIdRouteImport.update({
   path: '/bank/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SalesEditIdRoute = SalesEditIdRouteImport.update({
-  id: '/sales/edit/$id',
-  path: '/sales/edit/$id',
+const ItemsIdRoute = ItemsIdRouteImport.update({
+  id: '/items_/$id',
+  path: '/items/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PartiesIdRoute = PartiesIdRouteImport.update({
+  id: '/parties_/$id',
+  path: '/parties/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PayeesIdRoute = PayeesIdRouteImport.update({
+  id: '/payees_/$id',
+  path: '/payees/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProformaIdRoute = ProformaIdRouteImport.update({
+  id: '/proforma_/$id',
+  path: '/proforma/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PurchaseReturnIndexRoute = PurchaseReturnIndexRouteImport.update({
+  id: '/purchase-return/',
+  path: '/purchase-return/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PurchaseReturnIdRoute = PurchaseReturnIdRouteImport.update({
+  id: '/purchase-return/$id',
+  path: '/purchase-return/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PurchaseReturnNewRoute = PurchaseReturnNewRouteImport.update({
+  id: '/purchase-return/new',
+  path: '/purchase-return/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PurchaseIndexRoute = PurchaseIndexRouteImport.update({
+  id: '/purchase/',
+  path: '/purchase/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PurchaseIdRoute = PurchaseIdRouteImport.update({
+  id: '/purchase/$id',
+  path: '/purchase/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PurchaseNewRoute = PurchaseNewRouteImport.update({
+  id: '/purchase/new',
+  path: '/purchase/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const QuotationsIdRoute = QuotationsIdRouteImport.update({
+  id: '/quotations_/$id',
+  path: '/quotations/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SaleReturnIndexRoute = SaleReturnIndexRouteImport.update({
+  id: '/sale-return/',
+  path: '/sale-return/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SaleReturnIdRoute = SaleReturnIdRouteImport.update({
+  id: '/sale-return/$id',
+  path: '/sale-return/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SaleReturnNewRoute = SaleReturnNewRouteImport.update({
+  id: '/sale-return/new',
+  path: '/sale-return/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SalesIndexRoute = SalesIndexRouteImport.update({
+  id: '/sales/',
+  path: '/sales/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SalesIdRoute = SalesIdRouteImport.update({
+  id: '/sales/$id',
+  path: '/sales/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SalesNewRoute = SalesNewRouteImport.update({
+  id: '/sales/new',
+  path: '/sales/new',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PurchaseEditIdRoute = PurchaseEditIdRouteImport.update({
   id: '/purchase/edit/$id',
   path: '/purchase/edit/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SalesEditIdRoute = SalesEditIdRouteImport.update({
+  id: '/sales/edit/$id',
+  path: '/sales/edit/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -513,109 +513,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/settings': {
-      id: '/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof SettingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/reports': {
-      id: '/reports'
-      path: '/reports'
-      fullPath: '/reports'
-      preLoaderRoute: typeof ReportsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/quotations': {
-      id: '/quotations'
-      path: '/quotations'
-      fullPath: '/quotations'
-      preLoaderRoute: typeof QuotationsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/proforma': {
-      id: '/proforma'
-      path: '/proforma'
-      fullPath: '/proforma'
-      preLoaderRoute: typeof ProformaRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/payments': {
-      id: '/payments'
-      path: '/payments'
-      fullPath: '/payments'
-      preLoaderRoute: typeof PaymentsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/payees': {
-      id: '/payees'
-      path: '/payees'
-      fullPath: '/payees'
-      preLoaderRoute: typeof PayeesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/parties': {
-      id: '/parties'
-      path: '/parties'
-      fullPath: '/parties'
-      preLoaderRoute: typeof PartiesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/items': {
-      id: '/items'
-      path: '/items'
-      fullPath: '/items'
-      preLoaderRoute: typeof ItemsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/inventory': {
-      id: '/inventory'
-      path: '/inventory'
-      fullPath: '/inventory'
-      preLoaderRoute: typeof InventoryRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/gst': {
-      id: '/gst'
-      path: '/gst'
-      fullPath: '/gst'
-      preLoaderRoute: typeof GstRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/expenses': {
-      id: '/expenses'
-      path: '/expenses'
-      fullPath: '/expenses'
-      preLoaderRoute: typeof ExpensesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/documents': {
-      id: '/documents'
-      path: '/documents'
-      fullPath: '/documents'
-      preLoaderRoute: typeof DocumentsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/daybook': {
-      id: '/daybook'
-      path: '/daybook'
-      fullPath: '/daybook'
-      preLoaderRoute: typeof DaybookRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/cash': {
-      id: '/cash'
-      path: '/cash'
-      fullPath: '/cash'
-      preLoaderRoute: typeof CashRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/bank': {
@@ -625,130 +527,109 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BankRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/cash': {
+      id: '/cash'
+      path: '/cash'
+      fullPath: '/cash'
+      preLoaderRoute: typeof CashRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/sales/': {
-      id: '/sales/'
-      path: '/sales'
-      fullPath: '/sales/'
-      preLoaderRoute: typeof SalesIndexRouteImport
+    '/daybook': {
+      id: '/daybook'
+      path: '/daybook'
+      fullPath: '/daybook'
+      preLoaderRoute: typeof DaybookRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/sale-return/': {
-      id: '/sale-return/'
-      path: '/sale-return'
-      fullPath: '/sale-return/'
-      preLoaderRoute: typeof SaleReturnIndexRouteImport
+    '/documents': {
+      id: '/documents'
+      path: '/documents'
+      fullPath: '/documents'
+      preLoaderRoute: typeof DocumentsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/purchase/': {
-      id: '/purchase/'
-      path: '/purchase'
-      fullPath: '/purchase/'
-      preLoaderRoute: typeof PurchaseIndexRouteImport
+    '/expenses': {
+      id: '/expenses'
+      path: '/expenses'
+      fullPath: '/expenses'
+      preLoaderRoute: typeof ExpensesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/purchase-return/': {
-      id: '/purchase-return/'
-      path: '/purchase-return'
-      fullPath: '/purchase-return/'
-      preLoaderRoute: typeof PurchaseReturnIndexRouteImport
+    '/gst': {
+      id: '/gst'
+      path: '/gst'
+      fullPath: '/gst'
+      preLoaderRoute: typeof GstRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/sales/new': {
-      id: '/sales/new'
-      path: '/sales/new'
-      fullPath: '/sales/new'
-      preLoaderRoute: typeof SalesNewRouteImport
+    '/inventory': {
+      id: '/inventory'
+      path: '/inventory'
+      fullPath: '/inventory'
+      preLoaderRoute: typeof InventoryRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/sales/$id': {
-      id: '/sales/$id'
-      path: '/sales/$id'
-      fullPath: '/sales/$id'
-      preLoaderRoute: typeof SalesIdRouteImport
+    '/items': {
+      id: '/items'
+      path: '/items'
+      fullPath: '/items'
+      preLoaderRoute: typeof ItemsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/sale-return/new': {
-      id: '/sale-return/new'
-      path: '/sale-return/new'
-      fullPath: '/sale-return/new'
-      preLoaderRoute: typeof SaleReturnNewRouteImport
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/sale-return/$id': {
-      id: '/sale-return/$id'
-      path: '/sale-return/$id'
-      fullPath: '/sale-return/$id'
-      preLoaderRoute: typeof SaleReturnIdRouteImport
+    '/parties': {
+      id: '/parties'
+      path: '/parties'
+      fullPath: '/parties'
+      preLoaderRoute: typeof PartiesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/quotations_/$id': {
-      id: '/quotations_/$id'
-      path: '/quotations/$id'
-      fullPath: '/quotations/$id'
-      preLoaderRoute: typeof QuotationsIdRouteImport
+    '/payees': {
+      id: '/payees'
+      path: '/payees'
+      fullPath: '/payees'
+      preLoaderRoute: typeof PayeesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/purchase/new': {
-      id: '/purchase/new'
-      path: '/purchase/new'
-      fullPath: '/purchase/new'
-      preLoaderRoute: typeof PurchaseNewRouteImport
+    '/payments': {
+      id: '/payments'
+      path: '/payments'
+      fullPath: '/payments'
+      preLoaderRoute: typeof PaymentsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/purchase/$id': {
-      id: '/purchase/$id'
-      path: '/purchase/$id'
-      fullPath: '/purchase/$id'
-      preLoaderRoute: typeof PurchaseIdRouteImport
+    '/proforma': {
+      id: '/proforma'
+      path: '/proforma'
+      fullPath: '/proforma'
+      preLoaderRoute: typeof ProformaRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/purchase-return/new': {
-      id: '/purchase-return/new'
-      path: '/purchase-return/new'
-      fullPath: '/purchase-return/new'
-      preLoaderRoute: typeof PurchaseReturnNewRouteImport
+    '/quotations': {
+      id: '/quotations'
+      path: '/quotations'
+      fullPath: '/quotations'
+      preLoaderRoute: typeof QuotationsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/purchase-return/$id': {
-      id: '/purchase-return/$id'
-      path: '/purchase-return/$id'
-      fullPath: '/purchase-return/$id'
-      preLoaderRoute: typeof PurchaseReturnIdRouteImport
+    '/reports': {
+      id: '/reports'
+      path: '/reports'
+      fullPath: '/reports'
+      preLoaderRoute: typeof ReportsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/proforma_/$id': {
-      id: '/proforma_/$id'
-      path: '/proforma/$id'
-      fullPath: '/proforma/$id'
-      preLoaderRoute: typeof ProformaIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/payees_/$id': {
-      id: '/payees_/$id'
-      path: '/payees/$id'
-      fullPath: '/payees/$id'
-      preLoaderRoute: typeof PayeesIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/parties_/$id': {
-      id: '/parties_/$id'
-      path: '/parties/$id'
-      fullPath: '/parties/$id'
-      preLoaderRoute: typeof PartiesIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/items_/$id': {
-      id: '/items_/$id'
-      path: '/items/$id'
-      fullPath: '/items/$id'
-      preLoaderRoute: typeof ItemsIdRouteImport
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/bank_/$id': {
@@ -758,11 +639,123 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BankIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/sales/edit/$id': {
-      id: '/sales/edit/$id'
-      path: '/sales/edit/$id'
-      fullPath: '/sales/edit/$id'
-      preLoaderRoute: typeof SalesEditIdRouteImport
+    '/items_/$id': {
+      id: '/items_/$id'
+      path: '/items/$id'
+      fullPath: '/items/$id'
+      preLoaderRoute: typeof ItemsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/parties_/$id': {
+      id: '/parties_/$id'
+      path: '/parties/$id'
+      fullPath: '/parties/$id'
+      preLoaderRoute: typeof PartiesIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/payees_/$id': {
+      id: '/payees_/$id'
+      path: '/payees/$id'
+      fullPath: '/payees/$id'
+      preLoaderRoute: typeof PayeesIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/proforma_/$id': {
+      id: '/proforma_/$id'
+      path: '/proforma/$id'
+      fullPath: '/proforma/$id'
+      preLoaderRoute: typeof ProformaIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/purchase-return/': {
+      id: '/purchase-return/'
+      path: '/purchase-return'
+      fullPath: '/purchase-return/'
+      preLoaderRoute: typeof PurchaseReturnIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/purchase-return/$id': {
+      id: '/purchase-return/$id'
+      path: '/purchase-return/$id'
+      fullPath: '/purchase-return/$id'
+      preLoaderRoute: typeof PurchaseReturnIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/purchase-return/new': {
+      id: '/purchase-return/new'
+      path: '/purchase-return/new'
+      fullPath: '/purchase-return/new'
+      preLoaderRoute: typeof PurchaseReturnNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/purchase/': {
+      id: '/purchase/'
+      path: '/purchase'
+      fullPath: '/purchase/'
+      preLoaderRoute: typeof PurchaseIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/purchase/$id': {
+      id: '/purchase/$id'
+      path: '/purchase/$id'
+      fullPath: '/purchase/$id'
+      preLoaderRoute: typeof PurchaseIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/purchase/new': {
+      id: '/purchase/new'
+      path: '/purchase/new'
+      fullPath: '/purchase/new'
+      preLoaderRoute: typeof PurchaseNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/quotations_/$id': {
+      id: '/quotations_/$id'
+      path: '/quotations/$id'
+      fullPath: '/quotations/$id'
+      preLoaderRoute: typeof QuotationsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sale-return/': {
+      id: '/sale-return/'
+      path: '/sale-return'
+      fullPath: '/sale-return/'
+      preLoaderRoute: typeof SaleReturnIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sale-return/$id': {
+      id: '/sale-return/$id'
+      path: '/sale-return/$id'
+      fullPath: '/sale-return/$id'
+      preLoaderRoute: typeof SaleReturnIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sale-return/new': {
+      id: '/sale-return/new'
+      path: '/sale-return/new'
+      fullPath: '/sale-return/new'
+      preLoaderRoute: typeof SaleReturnNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sales/': {
+      id: '/sales/'
+      path: '/sales'
+      fullPath: '/sales/'
+      preLoaderRoute: typeof SalesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sales/$id': {
+      id: '/sales/$id'
+      path: '/sales/$id'
+      fullPath: '/sales/$id'
+      preLoaderRoute: typeof SalesIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sales/new': {
+      id: '/sales/new'
+      path: '/sales/new'
+      fullPath: '/sales/new'
+      preLoaderRoute: typeof SalesNewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/purchase/edit/$id': {
@@ -770,6 +763,13 @@ declare module '@tanstack/react-router' {
       path: '/purchase/edit/$id'
       fullPath: '/purchase/edit/$id'
       preLoaderRoute: typeof PurchaseEditIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sales/edit/$id': {
+      id: '/sales/edit/$id'
+      path: '/sales/edit/$id'
+      fullPath: '/sales/edit/$id'
+      preLoaderRoute: typeof SalesEditIdRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
