@@ -16,7 +16,7 @@ import { ItemDialog, StockAdjustDialog } from "./items";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 import { currentFifo } from "@/hooks/useFifo";
-import { lineKey, stockValueOf } from "@/lib/fifo";
+import { lineKey, stockValueOf, unitCostOf } from "@/lib/fifo";
 import type { Item, Invoice, Return } from "@/types";
 import {
   ArrowLeft,
@@ -217,7 +217,7 @@ function ItemDetailPage() {
           color={item.stock < 0 ? "text-rose-600" : "text-gray-800"}
         />
         <Stat label="Stock Value" value={fmtMoney(stockValueOf(item, currentFifo()))} />
-        <Stat label="Purchase Price" value={fmtMoney(item.purchasePrice)} />
+        <Stat label="Avg Cost" value={fmtMoney(unitCostOf(item, currentFifo()))} />
         <Stat label="Sale Price" value={fmtMoney(item.salePrice)} />
         <Stat label="Total Sold" value={`${soldQty} ${item.unit}`} />
         <Stat
@@ -241,7 +241,7 @@ function ItemDetailPage() {
             color={item.stock < 0 ? "text-rose-600" : "text-gray-800"}
           />
           <MobileStatCard label="Stock Value" value={fmtMoney(stockValueOf(item, currentFifo()))} />
-          <MobileStatCard label="Purchase Price" value={fmtMoney(item.purchasePrice)} />
+          <MobileStatCard label="Avg Cost" value={fmtMoney(unitCostOf(item, currentFifo()))} />
           <MobileStatCard label="Sale Price" value={fmtMoney(item.salePrice)} />
           <MobileStatCard label="Total Sold" value={`${soldQty} ${item.unit}`} />
           <MobileStatCard

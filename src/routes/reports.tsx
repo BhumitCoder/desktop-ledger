@@ -20,7 +20,7 @@ import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 import { useFifo, stockValueOn } from "@/hooks/useFifo";
-import { stockValueOf } from "@/lib/fifo";
+import { stockValueOf, unitCostOf } from "@/lib/fifo";
 import type { Invoice } from "@/types";
 import { tradingAccount, buildPartyStatement } from "@/lib/ledger";
 import { downloadCsv } from "@/lib/csv";
@@ -954,7 +954,7 @@ function ReportView({
           "Stock",
           "Unit",
           "Min Stock",
-          "Purchase Price",
+          "Avg Cost",
           "Sale Price",
           "Stock Value",
         ]}
@@ -967,7 +967,7 @@ function ReportView({
             String(i.stock),
             i.unit,
             i.minStock ? String(i.minStock) : "—",
-            fmtMoney(i.purchasePrice),
+            fmtMoney(unitCostOf(i, fifo)),
             fmtMoney(i.salePrice),
             fmtMoney(stockValueOf(i, fifo)),
           ])}

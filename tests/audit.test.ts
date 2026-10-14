@@ -3945,6 +3945,57 @@ console.log(`\n═════════════════════�
   );
 }
 
+/* ═══════ TEST AC: beside a stock value, the cost is the FIFO cost ═══════
+   Reported from the shop's phone: MIX HISAB's page read "Stock Value
+   ₹4,07,068" next to "Purchase Price ₹1,50,500" — the last bill's rate, from
+   a lump sum booked as one piece. Every screen that shows a stock value now
+   shows the cost it is built on, so Stock × Avg Cost = Stock Value. */
+{
+  const read = (f: string) => readFileSync(process.cwd() + "/" + f, "utf8");
+  const page = read("src/routes/items_.$id.tsx");
+  assert(
+    page.split("unitCostOf(item, currentFifo())").length - 1 === 2 &&
+      !page.includes("fmtMoney(item.purchasePrice)"),
+    "AC1: the item page (desktop and phone) shows Avg Cost, not the last bill's rate",
+  );
+  const rep = read("src/routes/reports.tsx");
+  assert(
+    rep.includes("fmtMoney(unitCostOf(i, fifo))") && !rep.includes("fmtMoney(i.purchasePrice)"),
+    "AC2: the stock report's cost column is FIFO, so its rows multiply out",
+  );
+  const list = read("src/routes/items.tsx");
+  assert(
+    list.includes("fmtMoney(unitCostOf(r, fifo))") &&
+      !list.includes("render: (r) => fmtMoney(r.purchasePrice)"),
+    "AC3: the items list shows the same cost",
+  );
+  // And the numbers agree: the live MIX HISAB shape, 120 left worth ₹4,07,068.
+  const mix = {
+    id: "MIX",
+    name: "MIX HISAB",
+    unit: "pcs",
+    gstRate: 0,
+    purchasePrice: 150500,
+    salePrice: 0,
+    stock: 120,
+    openingStock: 120,
+    createdAt: "2026-08-19T00:00:00Z",
+  } as Item;
+  const f = fifoCosts({
+    items: [{ ...mix, purchasePrice: 407068 / 120 }],
+    purchases: [],
+    sales: [],
+    saleReturns: [],
+    purchaseReturns: [],
+    adjustments: [],
+  });
+  assert(
+    // Avg Cost is shown to the paisa, so it may round by half a paisa a unit.
+    approx(unitCostOf(mix, f) * mix.stock, stockValueOf(mix, f), mix.stock * 0.005 + 0.01),
+    "AC4: Avg Cost × stock is the stock value shown beside it",
+  );
+}
+
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
 if (fails.length) {
   console.log(`\nFailures:`);

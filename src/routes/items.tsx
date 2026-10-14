@@ -24,6 +24,8 @@ import { Field } from "@/components/Field";
 import { ComboInput } from "@/components/ComboInput";
 import { NumField } from "@/components/NumInput";
 import { fmtMoney, today } from "@/lib/format";
+import { useFifo } from "@/hooks/useFifo";
+import { unitCostOf } from "@/lib/fifo";
 import { downloadCsv } from "@/lib/csv";
 import { parseImportFile, normalizeHeader } from "@/lib/sheetImport";
 import {
@@ -92,6 +94,7 @@ function ItemsPage() {
 
   const refresh = () => setRows(ItemRepo.all());
   const _repoV = useRepoData();
+  const fifo = useFifo();
   useEffect(refresh, [_repoV]);
 
   useEffect(() => {
@@ -164,11 +167,17 @@ function ItemsPage() {
     },
     { key: "category", label: "Category", width: "140px", render: (r) => r.category ?? "—" },
     {
+      /* What a unit on the shelf cost (FIFO) — the figure the stock value and
+         profit are built on. Not the item's purchase price, which is the last
+         bill's rate: one lump-sum bill made MIX HISAB read ₹1,50,500 here
+         beside a stock value worked out at ₹3,392 a piece. The purchase price
+         is still the item's own, edited in Edit Item. */
       key: "purchase",
-      label: "Purchase Price",
+      label: "Avg Cost",
       width: "130px",
       align: "right",
-      render: (r) => fmtMoney(r.purchasePrice),
+      render: (r) => fmtMoney(unitCostOf(r, fifo)),
+      sortValue: (r) => unitCostOf(r, fifo),
     },
     {
       key: "sale",
