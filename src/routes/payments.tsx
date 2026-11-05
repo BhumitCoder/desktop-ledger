@@ -23,6 +23,7 @@ import type {
 } from "@/types";
 import { fmtMoney, fmtDate, today, fmtDateShort } from "@/lib/format";
 import { netPartyPositions, spreadFifo } from "@/lib/ledger";
+import { withDiscount, linkOldestFirst, trimNewestFirst } from "@/lib/paymentEdit";
 import {
   ArrowDownCircle,
   ArrowUpCircle,
@@ -554,6 +555,9 @@ interface ApplyRow {
    * rupees ever arriving — see PaymentAllocation.discount. */
   discount: number;
   checked: boolean;
+  /** Cash + write-off THIS payment had already put on the bill, when it is
+   *  being edited — so "already paid" can mean paid by everything else. */
+  own: number;
 }
 
 export function ReceivePaymentDialog({
@@ -634,6 +638,17 @@ export function ReceivePaymentDialog({
    * payment always opens there, because a recorded allocation is a decision
    * someone already made and re-spreading it silently would rewrite history. */
   const [allocMode, setAllocMode] = useState<"auto" | "manual">("auto");
+  /**
+   * The payment's own amount, while correcting one.
+   *
+   * Editing used to open with no amount box at all: the amount was whatever
+   * the bills added up to, so a payment typed as ₹57,900 instead of
+   * ₹5,79,000 could only be fixed by re-typing every bill, and any part of
+   * it that was an advance (not linked to a bill) was silently dropped on
+   * save — off the payment AND off the bank account. Here it is the amount,
+   * the bills are what it is linked to, and the rest is an advance.
+   */
+  const [editAmount, setEditAmount] = useState(0);
   const [payAmount, setPayAmount] = useState(0);
   const [payDiscount, setPayDiscount] = useState(0);
 
@@ -679,6 +694,7 @@ export function ReceivePaymentDialog({
         setBankQ(BankRepo.all().find((b) => b.id === editing.bankId)?.name ?? "");
         setManualAmount(editing.allocations?.length ? 0 : editing.amount);
         setAllocMode("manual");
+        setEditAmount(editing.amount);
         setPayAmount(editing.amount);
         setPayDiscount(r2((editing.allocations ?? []).reduce((s, a) => s + (a.discount ?? 0), 0)));
       } else {
@@ -691,6 +707,7 @@ export function ReceivePaymentDialog({
         setBankQ("");
         setManualAmount(0);
         setAllocMode("auto");
+        setEditAmount(0);
         setPayAmount(0);
         setPayDiscount(0);
         /* With the party already known there is nothing to type there, and
@@ -745,6 +762,7 @@ export function ReceivePaymentDialog({
           apply: back,
           discount: backDisc,
           checked: back > 0 || backDisc > 0,
+          own: r2(back + backDisc),
         };
       }),
     );
@@ -805,16 +823,21 @@ export function ReceivePaymentDialog({
       purchases: PurchaseRepo.all(),
       saleReturns: SaleReturnRepo.all(),
       purchaseReturns: PurchaseReturnRepo.all(),
-      payments: PaymentRepo.all(),
+      /* Without the payment being corrected: its bills are shown with its
+         own money put back (see the rows above), so the balance beside them
+         has to be read the same way or the two disagree by exactly it. */
+      payments: PaymentRepo.all().filter((p) => p.id !== editing?.id),
     });
     const net = position?.net ?? 0;
-    // Positive = they owe us. Only the side this dialog is actually for has
-    // anything outstanding; the other side is nil, and says so.
-    return Math.max(0, isIn ? net : -net);
+    // Positive = they owe us, on the side this dialog is for.
+    return isIn ? net : -net;
   })();
+  /** The same, where it goes the other way: a party who is customer AND
+   *  supplier can owe the shop more than the shop owes them. */
+  const sideNet = r2(partyTrueBalance);
   // Portion of the true balance not already represented by an open invoice
   // row above (e.g. opening balance, or a manual ledger correction).
-  const unlinkedBalance = Math.max(0, r2(partyTrueBalance - totalOutstanding));
+  const unlinkedBalance = Math.max(0, r2(Math.max(0, sideNet) - totalOutstanding));
   /**
    * Everything this party owes, NET — the same figure their own statement
    * prints, and deliberately the same.
@@ -833,7 +856,7 @@ export function ReceivePaymentDialog({
    * dialog showed ₹27,400 of open bills while the statement showed the
    * ₹17,550 actually due, and neither screen mentioned the other.
    */
-  const totalDue = r2(partyTrueBalance);
+  const totalDue = Math.max(0, sideNet);
   /** What the shop owes this party, when that is what makes the two figures
    *  differ. Shown rather than netted away silently: "they owe me 27,400" and
    *  "I owe them 9,850" are both true, and the customer knows both. */
@@ -851,7 +874,26 @@ export function ReceivePaymentDialog({
   // open bills and the extra 5,000 is a real advance that must be recorded,
   // not quietly dropped from the receipt.
   const effectiveAmount =
-    allocMode === "auto" ? payAmount : totalApplied > 0 ? totalApplied : manualAmount;
+    allocMode === "auto"
+      ? payAmount
+      : editing
+        ? editAmount
+        : totalApplied > 0
+          ? totalApplied
+          : manualAmount;
+  /** While correcting: what is linked to bills, against the amount. */
+  const editLinked = totalApplied;
+  const editAdvance = r2(editAmount - editLinked);
+  const linkRest = () =>
+    setApplyRows((rows) => {
+      const next = linkOldestFirst(rows, Math.max(0, editAdvance));
+      return rows.map((r, i) => ({ ...r, apply: next[i], checked: next[i] > 0 || r.discount > 0 }));
+    });
+  const fitToAmount = () =>
+    setApplyRows((rows) => {
+      const next = trimNewestFirst(rows, Math.max(0, -editAdvance));
+      return rows.map((r, i) => ({ ...r, apply: next[i], checked: next[i] > 0 || r.discount > 0 }));
+    });
   const advanceLeft = Math.max(0, r2(payAmount - totalApplied));
   const unusedDiscount = Math.max(0, r2(payDiscount - totalDiscount));
 
@@ -884,15 +926,12 @@ export function ReceivePaymentDialog({
    * a bill can be closed exactly — never over-settled into a phantom credit. */
   const setRowDiscount = (idx: number, num: number) => {
     setApplyRows((rows) =>
-      rows.map((r, i) =>
-        i === idx
-          ? {
-              ...r,
-              discount: Math.min(r2(r.due - r.apply), Math.max(0, num)),
-              checked: r.apply > 0 || num > 0,
-            }
-          : r,
-      ),
+      rows.map((r, i) => {
+        if (i !== idx) return r;
+        // The cash gives way to the write-off — see withDiscount.
+        const next = withDiscount(r, num);
+        return { ...r, ...next, checked: next.apply > 0 || next.discount > 0 };
+      }),
     );
   };
 
@@ -921,16 +960,30 @@ export function ReceivePaymentDialog({
       toast.error("Enter or select an amount to pay");
       return;
     }
+    /* Correcting a payment: what is linked to bills cannot be more than the
+       payment itself. Refused, not trimmed — which bill keeps the money is
+       the person's call ("Fit bills to the amount" does it newest first). */
+    if (editing && allocMode === "manual" && editLinked > r2(editAmount) + 0.005) {
+      toast.error(
+        `${fmtMoney(editLinked)} is linked to bills — more than the ${fmtMoney(editAmount)} ${isIn ? "received" : "paid"}. Reduce a bill, or use "Fit bills to the amount".`,
+        { duration: 8000 },
+      );
+      return;
+    }
+    /* No money moved — a bill written off in full — so there is no cash or
+       bank to name. Asking anyway is what stopped a 100% write-off from
+       saving at all. */
+    const moneyMoves = r2(amount) > 0;
     /* Nothing is pre-selected, so nothing may be assumed. A receipt that
        records cash because nobody looked at the pills is money filed in the
        wrong place, and the ledger has no way of knowing it was never a
        decision. A split says where every rupee went by construction, so it
        needs no separate answer here. */
-    if (!splitRows && !modeChosen) {
+    if (moneyMoves && !splitRows && !modeChosen) {
       toast.error("Choose how the money moved — Cash or Bank");
       return;
     }
-    if (!splitRows && mode === "bank" && !bankId) {
+    if (moneyMoves && !splitRows && mode === "bank" && !bankId) {
       toast.error("Select which bank account this goes to");
       return;
     }
@@ -1052,7 +1105,7 @@ export function ReceivePaymentDialog({
       const attribution = {
         amount: r2(amount),
         mode,
-        bankId: mode === "bank" ? bankId : undefined,
+        bankId: moneyMoves && mode === "bank" ? bankId : undefined,
         splits: splitRows?.length ? splitRows : undefined,
       };
       for (const [id, amt] of bankParts(attribution)) {
@@ -1070,7 +1123,11 @@ export function ReceivePaymentDialog({
           // For a split receipt the rows are the attribution and the legacy
           // pair is left empty, so there is one answer for where it went.
           mode: splitRows?.length ? largestSplitMode(splitRows) : mode,
-          bankId: splitRows?.length ? undefined : mode === "bank" ? bankId : undefined,
+          bankId: splitRows?.length
+            ? undefined
+            : moneyMoves && mode === "bank"
+              ? bankId
+              : undefined,
           splits: splitRows?.length ? splitRows : undefined,
           allocations: allocations.length ? allocations : undefined,
           // Clear any legacy `ref` — its application was just reversed above,
@@ -1087,7 +1144,11 @@ export function ReceivePaymentDialog({
           type,
           amount: r2(amount),
           mode: splitRows?.length ? largestSplitMode(splitRows) : mode,
-          bankId: splitRows?.length ? undefined : mode === "bank" ? bankId : undefined,
+          bankId: splitRows?.length
+            ? undefined
+            : moneyMoves && mode === "bank"
+              ? bankId
+              : undefined,
           splits: splitRows?.length ? splitRows : undefined,
           allocations: allocations.length ? allocations : undefined,
           createdAt: new Date().toISOString(),
@@ -1098,8 +1159,13 @@ export function ReceivePaymentDialog({
       commitBatch(batch, "save payment");
 
       const invWord = isIn ? "invoice" : "bill";
+      const writtenOff = r2(allocations.reduce((n, a) => n + (a.discount ?? 0), 0));
       if (editing) {
         toast.success(`Payment updated — ${fmtMoney(amount)}`);
+      } else if (!moneyMoves && writtenOff > 0) {
+        toast.success(
+          `${fmtMoney(writtenOff)} written off on ${allocations.length} ${invWord}${allocations.length > 1 ? "s" : ""}`,
+        );
       } else if (allocations.length) {
         toast.success(
           `${fmtMoney(amount)} applied to ${allocations.length} ${invWord}${allocations.length > 1 ? "s" : ""}`,
@@ -1213,7 +1279,15 @@ export function ReceivePaymentDialog({
                   {offsettingBalance > 0.01 && (
                     <p className="text-[11px] text-gray-600 mt-1 leading-snug">
                       {fmtMoney(totalOutstanding)} on open {isIn ? "bills" : "purchases"}, less{" "}
-                      {fmtMoney(offsettingBalance)} {isIn ? "you owe them" : "they owe you"}
+                      {fmtMoney(r2(totalOutstanding - sideNet))}{" "}
+                      {isIn ? "you owe them" : "they owe you"}
+                      {sideNet < -0.01 && (
+                        <>
+                          {" "}
+                          — net, {isIn ? "you owe" : ""} {selectedParty.name}{" "}
+                          {isIn ? "" : "owes you"} {fmtMoney(-sideNet)}
+                        </>
+                      )}
                     </p>
                   )}
                 </div>
@@ -1271,13 +1345,14 @@ export function ReceivePaymentDialog({
                         {/* The everyday case: take a round figure and knock off
                             the odd rupees so the bill actually closes, instead
                             of leaving a few rupees open on it forever. */}
-                        {r2(totalDue - payAmount - payDiscount) > 0.01 && payAmount > 0 && (
+                        {r2(totalDue - payAmount - payDiscount) > 0.01 && (
                           <button
                             type="button"
                             onClick={() => setPayDiscount(r2(totalDue - payAmount))}
                             className="text-[11px] font-semibold text-amber-700 hover:underline"
                           >
-                            Settle rest {fmtMoney(r2(totalDue - payAmount))}
+                            {payAmount > 0 ? "Settle rest" : "Write off all"}{" "}
+                            {fmtMoney(r2(totalDue - payAmount))}
                           </button>
                         )}
                       </span>
@@ -1384,6 +1459,63 @@ export function ReceivePaymentDialog({
                     : `No outstanding ${isIn ? "invoices" : "bills"} — this will be recorded as an advance payment`}
                 </div>
               )}
+              {editing && allocMode === "manual" && (
+                <div className="rounded-md border border-gray-200 bg-white p-3 space-y-2">
+                  <label className="block">
+                    <span className="text-[12px] font-semibold text-gray-600 block mb-1">
+                      {isIn ? "Amount Received" : "Amount Paid"} (₹) *
+                    </span>
+                    <NumInput
+                      value={editAmount}
+                      onValue={setEditAmount}
+                      aria-label="Payment amount"
+                      placeholder="0.00"
+                      className={`w-full h-11 px-3 border-2 rounded-md text-right font-bold text-lg outline-none focus:border-primary bg-white tabular-nums ${isIn ? "text-emerald-700" : "text-rose-700"}`}
+                    />
+                  </label>
+                  <p className="text-[12px] text-gray-600" data-testid="edit-link-summary">
+                    Linked to {isIn ? "invoices" : "bills"}{" "}
+                    <strong className="tabular-nums">{fmtMoney(editLinked)}</strong>
+                    {editAdvance > 0.005 && (
+                      <>
+                        {" "}
+                        · Advance (not linked){" "}
+                        <strong className="tabular-nums">{fmtMoney(editAdvance)}</strong>
+                      </>
+                    )}
+                    {editAdvance < -0.005 && (
+                      <>
+                        {" "}
+                        ·{" "}
+                        <strong className="text-rose-700 tabular-nums">
+                          {fmtMoney(-editAdvance)} more than the amount
+                        </strong>
+                      </>
+                    )}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {editAdvance > 0.005 &&
+                      applyRows.some((r) => r2(r.due - r.apply - r.discount) > 0.005) && (
+                        <button
+                          type="button"
+                          onClick={linkRest}
+                          className="min-h-9 rounded-md border px-3 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+                        >
+                          Link the rest to open {isIn ? "invoices" : "bills"} (oldest first)
+                        </button>
+                      )}
+                    {editAdvance < -0.005 && (
+                      <button
+                        type="button"
+                        onClick={fitToAmount}
+                        className="min-h-9 rounded-md border px-3 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                      >
+                        Fit bills to the amount (newest first)
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
               {allocMode === "manual" && applyRows.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
@@ -1400,6 +1532,7 @@ export function ReceivePaymentDialog({
                           <button
                             type="button"
                             onClick={() => toggleRow(idx)}
+                            aria-label={`Select ${row.invoice.number}`}
                             className="shrink-0 mt-0.5"
                           >
                             {row.checked ? (
@@ -1418,15 +1551,16 @@ export function ReceivePaymentDialog({
                               <span className="text-xs text-gray-400 whitespace-nowrap">
                                 {fmtDate(row.invoice.date)}
                               </span>
-                              {row.invoice.paid > 0 && (
+                              {r2(row.invoice.paid - row.own) > 0.01 && (
                                 <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">
                                   Partial
                                 </span>
                               )}
                             </div>
                             <div className="text-xs text-gray-500 mt-0.5">
-                              Total {fmtMoney(row.invoice.total)} · Already paid{" "}
-                              {fmtMoney(row.invoice.paid)}
+                              Total {fmtMoney(row.invoice.total)} ·{" "}
+                              {editing ? "Paid by other payments" : "Already paid"}{" "}
+                              {fmtMoney(r2(row.invoice.paid - row.own))}
                             </div>
                           </div>
                         </div>
@@ -1451,6 +1585,7 @@ export function ReceivePaymentDialog({
                             <NumInput
                               value={row.apply}
                               onValue={(n) => setApply(idx, n)}
+                              aria-label={`Apply to ${row.invoice.number}`}
                               placeholder="0.00"
                               className={`w-full h-9 sm:h-7 px-2 text-right text-base sm:text-xs border rounded outline-none focus:ring-1 ${row.checked ? (isIn ? "border-emerald-400 focus:ring-emerald-300 bg-white" : "border-rose-400 focus:ring-rose-300 bg-white") : "border-gray-200 bg-gray-50"} tabular-nums`}
                             />
@@ -1465,6 +1600,7 @@ export function ReceivePaymentDialog({
                             <NumInput
                               value={row.discount}
                               onValue={(n) => setRowDiscount(idx, n)}
+                              aria-label={`Discount on ${row.invoice.number}`}
                               placeholder="0.00"
                               className={`w-full h-9 sm:h-7 px-2 text-right text-base sm:text-xs border rounded outline-none focus:ring-1 tabular-nums ${row.discount > 0 ? "border-amber-400 focus:ring-amber-300 bg-white" : "border-gray-200 bg-gray-50"}`}
                             />
@@ -1488,7 +1624,10 @@ export function ReceivePaymentDialog({
               {allocMode === "manual" && applyRows.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => setAllocMode("auto")}
+                  onClick={() => {
+                    if (editing) setPayAmount(editAmount);
+                    setAllocMode("auto");
+                  }}
                   className="mt-2 text-xs font-semibold text-blue-600 hover:underline"
                 >
                   ← Back to quick entry
@@ -1498,7 +1637,7 @@ export function ReceivePaymentDialog({
               {/* Manual amount — shown whenever nothing is applied to an invoice
                   yet, whether because there are none or none are checked. Quick
                   entry has its own amount box, so this is bill-by-bill only. */}
-              {allocMode === "manual" && totalApplied === 0 && (
+              {allocMode === "manual" && totalApplied === 0 && !editing && (
                 <div className="mt-3">
                   <label className="text-[12px] font-semibold text-gray-600 block mb-1">
                     {applyRows.length > 0 ? "Or record as advance (₹)" : "Amount (₹) *"}

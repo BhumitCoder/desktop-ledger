@@ -50,6 +50,7 @@ import {
   largestSplitMode,
 } from "@/lib/paymentSplit";
 import { readFileSync } from "node:fs";
+import { withDiscount, linkOldestFirst, trimNewestFirst } from "@/lib/paymentEdit";
 import { correctedOpening } from "@/lib/stock";
 import {
   fifoCosts,
@@ -3993,6 +3994,79 @@ console.log(`\n═════════════════════�
     // Avg Cost is shown to the paisa, so it may round by half a paisa a unit.
     approx(unitCostOf(mix, f) * mix.stock, stockValueOf(mix, f), mix.stock * 0.005 + 0.01),
     "AC4: Avg Cost × stock is the stock value shown beside it",
+  );
+}
+
+/* ═══════ TEST PE: correcting a payment, and writing a bill off ═══════
+   The rules the payment dialog now follows (see lib/paymentEdit.ts). */
+{
+  const link = (due: number, apply = 0, discount = 0) => ({ due, apply, discount });
+  // A 100% discount on a ticked bill: the cash gives way.
+  const w = withDiscount(link(800, 800), 800);
+  assert(
+    w.apply === 0 && w.discount === 800,
+    "PE1: a full discount on a ticked bill leaves no cash on it",
+  );
+  const w2 = withDiscount(link(1000, 1000), 300);
+  assert(w2.apply === 700 && w2.discount === 300, "PE2: a part discount takes only its own share");
+  assert(withDiscount(link(500, 0), 900).discount === 500, "PE3: never more than the bill owes");
+  assert(withDiscount(link(500, 200), -50).discount === 0, "PE4: never negative");
+  // Linking the rest of a corrected amount, oldest bill first.
+  const lo = linkOldestFirst([link(5000, 1500), link(8000)], 7500);
+  assert(
+    lo[0] === 5000 && lo[1] === 4000,
+    `PE5: the rest fills the oldest bill, then the next — ${lo}`,
+  );
+  const lo2 = linkOldestFirst([link(1000, 0, 1000), link(500)], 300);
+  assert(lo2[0] === 0 && lo2[1] === 300, "PE6: a bill already written off takes nothing more");
+  assert(linkOldestFirst([link(100)], 999)[0] === 100, "PE7: what does not fit stays an advance");
+  // Fitting the bills to a smaller amount, newest first.
+  const tn = trimNewestFirst([link(5000, 5000), link(8000, 4000)], 6000);
+  assert(tn[0] === 3000 && tn[1] === 0, `PE8: the newest bill gives back first — ${tn}`);
+  const tn2 = trimNewestFirst([link(5000, 5000, 200)], 1000);
+  assert(tn2[0] === 4000, "PE9: a write-off is left alone; only cash is taken back");
+  // Conservation, on random rows: linking then trimming the same sum is a no-op on the total.
+  for (let t = 0; t < 2000; t++) {
+    const rows = Array.from({ length: 1 + ri(5) }, () => {
+      const due = r2(1 + rnd() * 5000);
+      const discount = ri(4) === 0 ? r2(rnd() * due) : 0;
+      const apply = r2(rnd() * (due - discount));
+      return link(due, apply, discount);
+    });
+    const before = r2(rows.reduce((s, r) => s + r.apply, 0));
+    const room = r2(rows.reduce((s, r) => s + Math.max(0, r.due - r.apply - r.discount), 0));
+    const extra = r2(rnd() * 8000);
+    const linked = linkOldestFirst(rows, extra);
+    const total = r2(linked.reduce((s, x) => s + x, 0));
+    assert(
+      approx(total, r2(before + Math.min(extra, room))),
+      `PE10: linking adds exactly what fits — ${total}`,
+    );
+    assert(
+      linked.every((x, i) => x <= r2(rows[i].due - rows[i].discount) + 0.005),
+      "PE11: no bill is over-settled",
+    );
+    const cut = r2(rnd() * before);
+    const trimmed = trimNewestFirst(rows, cut);
+    assert(
+      approx(r2(trimmed.reduce((s, x) => s + x, 0)), r2(before - cut)),
+      "PE12: trimming takes back exactly the excess",
+    );
+    assert(
+      trimmed.every((x) => x >= -0.005),
+      "PE13: never below zero",
+    );
+  }
+  // Wiring: the dialog uses them, and a write-off needs no Cash/Bank.
+  const dlg = readFileSync(process.cwd() + "/src/routes/payments.tsx", "utf8");
+  assert(dlg.includes("withDiscount(r, num)"), "PE14: the row discount uses withDiscount");
+  assert(
+    dlg.includes("if (moneyMoves && !splitRows && !modeChosen)"),
+    "PE15: Cash or Bank is asked only when money actually moves",
+  );
+  assert(
+    dlg.includes("payments: PaymentRepo.all().filter((p) => p.id !== editing?.id)"),
+    "PE16: the balance beside a payment being corrected leaves that payment out",
   );
 }
 

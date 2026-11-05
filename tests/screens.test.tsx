@@ -27,6 +27,7 @@ import { BulkUpdateItemsDialog } from "@/components/BulkUpdateItemsDialog";
 import { PrintablePartyStatement } from "@/components/PrintablePartyStatement";
 import { CashBankTransferDialog } from "@/components/CashBankTransferDialog";
 import { PartyDialog } from "@/routes/parties";
+import { ReceivePaymentDialog } from "@/routes/payments";
 import { DataTable } from "@/components/DataTable";
 import { PrintableInvoice } from "@/components/PrintableInvoice";
 import { ThermalReceipt } from "@/components/ThermalReceipt";
@@ -1560,6 +1561,254 @@ async function runAll(): Promise<Results> {
       r2((rec?.allocations ?? []).reduce((s, a) => s + (a.discount ?? 0), 0)) === 500,
       `quick entry: the write-off is recorded as a discount — got ${JSON.stringify(rec?.allocations)}`,
     );
+  }
+
+  /* ── Payments: a write-off that moves no money, and correcting a payment ──
+     Reported from the counter, with a photograph:
+
+       1. "Receive payment, select party, give 100% discount, ₹0 received —
+          the bill is not settled." Two causes: the save demanded Cash or
+          Bank though no money moved, and on a ticked bill the discount had
+          no room left (the tick had filled the whole due as cash).
+       2. "A wrong amount was typed; editing it is a mess." Editing had no
+          amount box at all — the amount was whatever the bills added up to —
+          and any part of a payment not linked to a bill was silently dropped
+          on save, off the payment and off the account.
+
+     Driven through the real dialog, rendered on its own. */
+  {
+    const seedBill = (
+      id: string,
+      partyId: string,
+      partyName: string,
+      date: string,
+      total: number,
+      paid = 0,
+    ) =>
+      SalesRepo.add({
+        id,
+        createdAt: `${date}T09:00:00Z`,
+        number: id,
+        date,
+        partyId,
+        partyName,
+        lineItems: [],
+        subtotal: total,
+        discount: 0,
+        shippingCharge: 0,
+        taxAmount: 0,
+        total,
+        paid,
+        paymentMode: "credit",
+        gstEnabled: false,
+      } as never);
+    const seedParty = (id: string, name: string) =>
+      PartyRepo.add({
+        id,
+        createdAt: "2026-01-01T00:00:00Z",
+        name,
+        type: "customer",
+        openingBalance: 0,
+      } as never);
+    const mount = async (el: ReactNode) => {
+      const h = document.createElement("div");
+      document.body.appendChild(h);
+      const r = createRoot(h);
+      await act(async () => {
+        r.render(el);
+      });
+      await settleMs(200);
+      return () => {
+        r.unmount();
+        h.remove();
+      };
+    };
+    const byLabel = (label: string) =>
+      Array.from(document.querySelectorAll<HTMLInputElement>(`input[aria-label="${label}"]`)).pop();
+    const click = async (el: HTMLElement | null | undefined) => {
+      await act(async () => {
+        el?.click();
+      });
+      await settleMs(120);
+    };
+    const confirmReceipt = () =>
+      Array.from(document.querySelectorAll("button"))
+        .filter((b) => /Confirm Receipt/.test(b.textContent ?? ""))
+        .pop();
+
+    // 1a — quick entry: ₹0 received, the whole bill written off, NO mode picked.
+    seedParty("WOP", "Writeoff Customer");
+    seedBill("WOB1", "WOP", "Writeoff Customer", "2026-03-05", 1000);
+    let unmount = await mount(
+      <ReceivePaymentDialog
+        open
+        onOpenChange={() => {}}
+        type="in"
+        editing={null}
+        onSaved={() => {}}
+        presetParty={{ id: "WOP", name: "Writeoff Customer" }}
+      />,
+    );
+    const writeAll = Array.from(document.querySelectorAll("button"))
+      .filter((b) => /Write off all/.test(b.textContent ?? ""))
+      .pop();
+    assert(!!writeAll, "write-off: with nothing received, 'Write off all' is offered");
+    await click(writeAll);
+    await click(confirmReceipt());
+    const wo = PaymentRepo.all().find((p) => p.partyId === "WOP");
+    assert(
+      SalesRepo.get("WOB1")?.paid === 1000,
+      `write-off: ₹0 received and ₹1,000 written off closes the bill — paid ${SalesRepo.get("WOB1")?.paid}`,
+    );
+    assert(
+      !!wo && wo.amount === 0 && !wo.bankId && wo.allocations?.[0]?.discount === 1000,
+      `write-off: recorded as ₹0 cash with a ₹1,000 discount, on no account — ${JSON.stringify(wo)}`,
+    );
+    unmount();
+
+    // 1b — bill by bill: tick the bill (fills its due as cash), THEN a 100% discount.
+    seedParty("WOP2", "Writeoff Two");
+    seedBill("WOB2", "WOP2", "Writeoff Two", "2026-03-06", 800);
+    unmount = await mount(
+      <ReceivePaymentDialog
+        open
+        onOpenChange={() => {}}
+        type="in"
+        editing={null}
+        onSaved={() => {}}
+        presetParty={{ id: "WOP2", name: "Writeoff Two" }}
+      />,
+    );
+    await click(
+      Array.from(document.querySelectorAll("button"))
+        .filter((b) => /Adjust invoice by invoice/.test(b.textContent ?? ""))
+        .pop(),
+    );
+    await click(document.querySelector<HTMLElement>('button[aria-label="Select WOB2"]'));
+    assert(
+      byLabel("Apply to WOB2")?.value === "800",
+      "write-off: ticking the bill fills its due as cash",
+    );
+    await act(async () => {
+      setInput(byLabel("Discount on WOB2"), "800");
+    });
+    await settleMs(80);
+    assert(
+      byLabel("Discount on WOB2")?.value === "800" && !byLabel("Apply to WOB2")?.value,
+      `write-off: the cash gives way to a 100% discount — apply "${byLabel("Apply to WOB2")?.value}", discount "${byLabel("Discount on WOB2")?.value}"`,
+    );
+    await click(confirmReceipt());
+    assert(
+      SalesRepo.get("WOB2")?.paid === 800,
+      `write-off: and saving closes the bill — paid ${SalesRepo.get("WOB2")?.paid}`,
+    );
+    unmount();
+
+    // 2 — correcting a payment: ₹2,000 taken, ₹1,500 on EDB1, ₹500 an advance.
+    seedParty("EDP", "Edit Customer");
+    seedBill("EDB1", "EDP", "Edit Customer", "2026-03-01", 5000, 1500);
+    seedBill("EDB2", "EDP", "Edit Customer", "2026-03-02", 8000);
+    PaymentRepo.add({
+      id: "EDPAY",
+      createdAt: "2026-03-03T09:00:00Z",
+      date: "2026-03-03",
+      partyId: "EDP",
+      partyName: "Edit Customer",
+      type: "in",
+      amount: 2000,
+      mode: "cash",
+      allocations: [{ invoiceId: "EDB1", number: "EDB1", amount: 1500 }],
+    } as never);
+    const openEdit = () =>
+      mount(
+        <ReceivePaymentDialog
+          open
+          onOpenChange={() => {}}
+          type="in"
+          editing={PaymentRepo.get("EDPAY")!}
+          onSaved={() => {}}
+        />,
+      );
+
+    unmount = await openEdit();
+    assert(
+      byLabel("Payment amount")?.value === "2000",
+      "edit: the payment's own amount is there to correct",
+    );
+    const summary = () =>
+      Array.from(document.querySelectorAll('[data-testid="edit-link-summary"]')).pop()
+        ?.textContent ?? "";
+    assert(
+      summary().includes(fmtMoney(1500)) && summary().includes(fmtMoney(500)),
+      `edit: it says what is linked and what is an advance — "${summary()}"`,
+    );
+    // EDB1's own row: ₹1,500 of its paid is THIS payment, so nothing else paid it.
+    const edb1Row = Array.from(document.querySelectorAll<HTMLElement>("div"))
+      .filter(
+        (d) =>
+          (d.textContent ?? "").includes("EDB1") &&
+          (d.textContent ?? "").includes("Paid by other payments"),
+      )
+      .filter((d) => !(d.textContent ?? "").includes("EDB2"))
+      .pop();
+    assert(
+      !!edb1Row && (edb1Row.textContent ?? "").includes(`Paid by other payments ${fmtMoney(0)}`),
+      "edit: 'already paid' leaves out the payment being edited",
+    );
+    // Saved untouched, the ₹500 advance must survive. It used to vanish.
+    await click(confirmReceipt());
+    assert(
+      PaymentRepo.get("EDPAY")?.amount === 2000 && SalesRepo.get("EDB1")?.paid === 1500,
+      `edit: saving unchanged keeps the whole ₹2,000 — amount ${PaymentRepo.get("EDPAY")?.amount}, EDB1 paid ${SalesRepo.get("EDB1")?.paid}`,
+    );
+    unmount();
+
+    // The typo the client made, in reverse: the amount was really ₹9,000.
+    unmount = await openEdit();
+    await act(async () => {
+      setInput(byLabel("Payment amount"), "9000");
+    });
+    await settleMs(80);
+    await click(
+      Array.from(document.querySelectorAll("button"))
+        .filter((b) => /Link the rest/.test(b.textContent ?? ""))
+        .pop(),
+    );
+    await click(confirmReceipt());
+    const after9k = PaymentRepo.get("EDPAY");
+    assert(
+      after9k?.amount === 9000 &&
+        SalesRepo.get("EDB1")?.paid === 5000 &&
+        SalesRepo.get("EDB2")?.paid === 4000,
+      `edit: ₹9,000 with the rest linked oldest first — amount ${after9k?.amount}, EDB1 ${SalesRepo.get("EDB1")?.paid} (want 5000), EDB2 ${SalesRepo.get("EDB2")?.paid} (want 4000)`,
+    );
+    unmount();
+
+    // And down: ₹3,000. More is linked than paid, so saving is refused…
+    unmount = await openEdit();
+    await act(async () => {
+      setInput(byLabel("Payment amount"), "3000");
+    });
+    await settleMs(80);
+    await click(confirmReceipt());
+    assert(
+      PaymentRepo.get("EDPAY")?.amount === 9000,
+      "edit: linking more to bills than was paid is refused, not trimmed silently",
+    );
+    // …until the bills are fitted, newest first.
+    await click(
+      Array.from(document.querySelectorAll("button"))
+        .filter((b) => /Fit bills to the amount/.test(b.textContent ?? ""))
+        .pop(),
+    );
+    await click(confirmReceipt());
+    assert(
+      PaymentRepo.get("EDPAY")?.amount === 3000 &&
+        SalesRepo.get("EDB1")?.paid === 3000 &&
+        SalesRepo.get("EDB2")?.paid === 0,
+      `edit: ₹3,000 fitted newest first — amount ${PaymentRepo.get("EDPAY")?.amount}, EDB1 ${SalesRepo.get("EDB1")?.paid} (want 3000), EDB2 ${SalesRepo.get("EDB2")?.paid} (want 0)`,
+    );
+    unmount();
   }
 
   /* ── A rejected commit must be reported as one ───────────────────────
