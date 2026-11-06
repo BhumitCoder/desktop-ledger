@@ -1,3 +1,4 @@
+import { safeFileName } from "@/lib/fileName";
 import { today } from "@/lib/format";
 
 /** Parse RFC4180-ish CSV text into rows of string cells. Handles quoted
@@ -107,7 +108,9 @@ export function downloadCsv(filename: string, cols: string[], rows: string[][]) 
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${filename.toLowerCase().replace(/\s+/g, "-")}-${today()}.csv`;
+  // Named as the caller wrote it (see lib/fileName.ts): it used to be
+  // lowercased and hyphenated, "profit-&-loss-2026-11-06.csv".
+  a.download = `${safeFileName(filename)}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }

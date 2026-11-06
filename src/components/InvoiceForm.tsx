@@ -543,7 +543,10 @@ export function InvoiceForm({ mode, existing }: Props) {
   const editingId = existing?.id ?? "";
 
   const partyHistoryIndex = useRepoMemo(() => {
-    const map = new Map<string, { date: string; created: string; qty: number; price: number }[]>();
+    const map = new Map<
+      string,
+      { date: string; created: string; number: string; qty: number; price: number }[]
+    >();
     if (!historyPartyId) return map;
     for (const doc of repo.all()) {
       if (doc.partyId !== historyPartyId) continue;
@@ -551,10 +554,22 @@ export function InvoiceForm({ mode, existing }: Props) {
          price — and they show the price it is being corrected FROM, at the
          top of the list, as if it were the last sale. */
       if (editingId && doc.id === editingId) continue;
+      /* One row per bill and price. The same item on two lines of one bill
+         at one price is one sale, and listing it twice pushed a real earlier
+         price out of the few shown — which read as the list being random. */
       for (const l of doc.lineItems) {
         let rows = map.get(l.itemId);
         if (!rows) map.set(l.itemId, (rows = []));
-        rows.push({ date: doc.date, created: doc.createdAt || "", qty: l.qty, price: l.price });
+        const same = rows.find((r) => r.number === doc.number && r.price === l.price);
+        if (same) same.qty += l.qty;
+        else
+          rows.push({
+            date: doc.date,
+            created: doc.createdAt || "",
+            number: doc.number,
+            qty: l.qty,
+            price: l.price,
+          });
       }
     }
     for (const rows of map.values())
@@ -562,10 +577,13 @@ export function InvoiceForm({ mode, existing }: Props) {
     return map;
   }, [historyPartyId, editingId, repo]);
 
-  const partyItemHistory = (itemId: string): { date: string; qty: number; price: number }[] =>
+  /** This party's last three bills for the item, newest first. */
+  const partyItemHistory = (
+    itemId: string,
+  ): { date: string; number: string; qty: number; price: number }[] =>
     (partyHistoryIndex.get(itemId) ?? [])
-      .slice(0, 5)
-      .map(({ date, qty, price }) => ({ date, qty, price }));
+      .slice(0, 3)
+      .map(({ date, number, qty, price }) => ({ date, number, qty, price }));
 
   const lastPartyPrice = (itemId: string): number | undefined =>
     partyHistoryIndex.get(itemId)?.[0]?.price;
@@ -2835,7 +2853,7 @@ function PriceHistoryCell({
 }: {
   value: number;
   onValue: (n: number) => void;
-  history: { date: string; qty: number; price: number }[];
+  history: { date: string; number: string; qty: number; price: number }[];
   partyName: string;
   isSale: boolean;
   /** The phone card wants a full-height box; the table wants a 28px one. */
@@ -2890,7 +2908,7 @@ function PriceHistoryCell({
             className="z-50 border rounded-md bg-popover shadow-elevated overflow-auto"
           >
             <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground bg-muted/50 border-b">
-              Last {isSale ? "Sale" : "Purchase"} Prices — {partyName}
+              Last 3 {isSale ? "Sale" : "Purchase"} Prices — {partyName}
             </div>
             {!history.length ? (
               <div className="px-3 py-3 text-[12px] text-muted-foreground text-center">
@@ -2898,7 +2916,8 @@ function PriceHistoryCell({
               </div>
             ) : (
               <div>
-                <div className="grid grid-cols-3 gap-2 px-3 py-1 text-[10px] font-semibold uppercase text-muted-foreground border-b">
+                <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-1 text-[10px] font-semibold uppercase text-muted-foreground border-b">
+                  <span>Bill</span>
                   <span>Date</span>
                   <span className="text-right">Qty</span>
                   <span className="text-right">Price</span>
@@ -2912,8 +2931,11 @@ function PriceHistoryCell({
                       onValue(h.price);
                       setOpen(false);
                     }}
-                    className="w-full grid grid-cols-3 gap-2 px-3 py-1.5 text-[12px] text-left hover:bg-accent border-b last:border-0"
+                    className="w-full grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-1.5 text-[12px] text-left hover:bg-accent border-b last:border-0"
                   >
+                    <span className="font-mono text-[11px] text-blue-700 truncate">
+                      #{h.number}
+                    </span>
                     <span className="text-muted-foreground">{fmtDate(h.date)}</span>
                     <span className="text-right tabular-nums">{h.qty}</span>
                     <span className="text-right tabular-nums font-semibold">

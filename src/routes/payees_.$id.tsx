@@ -1,3 +1,4 @@
+import { fileName, periodLabel } from "@/lib/fileName";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useGoBack } from "@/hooks/useGoBack";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -75,7 +76,8 @@ function PayeeLedgerPage() {
   const totalPaid = rows.reduce((s, r) => s + r.amount, 0);
   const allTimeTotal = allRows.reduce((s, r) => s + r.amount, 0);
 
-  const pdfName = () => `Payee-Ledger-${(payee?.name ?? "Payee").replace(/\s+/g, "-")}`;
+  const pdfName = () =>
+    fileName("Payee Ledger", payee?.name ?? "Payee", periodLabel(dateFrom, dateTo));
 
   // Re-entry point for printOrEscapeStandalone's standalone-app escape (see
   // lib/print.ts) — this tab opened fresh with ?print=1, so print
@@ -122,7 +124,7 @@ function PayeeLedgerPage() {
       r.amount,
       r.running,
     ]);
-    downloadXlsx(`Payee-Ledger-${payee.name}`, [
+    downloadXlsx(pdfName(), [
       {
         name: payee.name,
         rows: [[company.name], [`Ledger Of ${payee.name}`], [], header, ...sheetRows],

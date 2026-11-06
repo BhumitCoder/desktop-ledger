@@ -1,3 +1,4 @@
+import { safeFileName } from "@/lib/fileName";
 import {
   renderPdfServerFn,
   renderPdfBase64ServerFn,
@@ -105,7 +106,8 @@ export async function elementToPdfBase64(
 }
 
 function pdfFilename(name: string): string {
-  return name.toLowerCase().endsWith(".pdf") ? name : `${name}.pdf`;
+  const base = name.toLowerCase().endsWith(".pdf") ? name.slice(0, -4) : name;
+  return `${safeFileName(base)}.pdf`;
 }
 
 function triggerDownload(blob: Blob, name: string) {

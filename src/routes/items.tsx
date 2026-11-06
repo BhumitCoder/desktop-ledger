@@ -1,3 +1,4 @@
+import { fileName } from "@/lib/fileName";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { matchesQuery } from "@/lib/search";
 import { useEffect, useRef, useState } from "react";
@@ -23,7 +24,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Field } from "@/components/Field";
 import { ComboInput } from "@/components/ComboInput";
 import { NumField } from "@/components/NumInput";
-import { fmtMoney, today } from "@/lib/format";
+import { fmtDate, fmtMoney, today } from "@/lib/format";
 import { useFifo } from "@/hooks/useFifo";
 import { unitCostOf } from "@/lib/fifo";
 import { downloadCsv } from "@/lib/csv";
@@ -289,7 +290,13 @@ function ItemsPage() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => downloadCsv("items", [...EXPORT_COLUMNS], rows.map(itemToBulkRow))}
+              onClick={() =>
+                downloadCsv(
+                  fileName("Items", fmtDate(today())),
+                  [...EXPORT_COLUMNS],
+                  rows.map(itemToBulkRow),
+                )
+              }
               title="Export CSV"
               className="hidden sm:inline-flex"
             >
@@ -1024,7 +1031,7 @@ function BulkImportDialog({
               type="button"
               size="sm"
               variant="outline"
-              onClick={() => downloadCsv("items-template", [...BULK_COLUMNS], [])}
+              onClick={() => downloadCsv("Items Import Template", [...BULK_COLUMNS], [])}
             >
               <Download className="h-3.5 w-3.5" /> Sample CSV
             </Button>

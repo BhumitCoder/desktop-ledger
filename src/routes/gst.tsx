@@ -1,3 +1,4 @@
+import { fileName } from "@/lib/fileName";
 import { createFileRoute } from "@tanstack/react-router";
 import { PageHeader } from "@/components/PageHeader";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -97,7 +98,11 @@ function GstPage() {
   const handleDownloadPdf = async () => {
     if (!printRef.current) return;
     try {
-      await downloadElementAsPdf(printRef.current, `GST-${period}`, "portrait");
+      await downloadElementAsPdf(
+        printRef.current,
+        fileName("GST Summary", periodLabel(period)),
+        "portrait",
+      );
       toast.success("GST summary downloaded as PDF");
     } catch {
       toast.error("Could not generate PDF");
@@ -110,7 +115,7 @@ function GstPage() {
       ...rows.map((r) => [`${r.rate}%`, r.taxable, r.tax / 2, r.tax / 2, r.tax]),
       ["Total", "", "", "", rows.reduce((s, r) => s + r.tax, 0)],
     ];
-    downloadXlsx(`GST-${period}`, [
+    downloadXlsx(fileName("GST Summary", periodLabel(period)), [
       { name: "GSTR-1 Sales", rows: sheetRows(gstr1) },
       { name: "GSTR-2 Purchase", rows: sheetRows(gstr2) },
     ]);

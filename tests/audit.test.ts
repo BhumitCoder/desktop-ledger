@@ -50,6 +50,7 @@ import {
   largestSplitMode,
 } from "@/lib/paymentSplit";
 import { readFileSync } from "node:fs";
+import { fileName, periodLabel, safeFileName } from "@/lib/fileName";
 import { withDiscount, linkOldestFirst, trimNewestFirst } from "@/lib/paymentEdit";
 import { correctedOpening } from "@/lib/stock";
 import {
@@ -4067,6 +4068,81 @@ console.log(`\n═════════════════════�
   assert(
     dlg.includes("payments: PaymentRepo.all().filter((p) => p.id !== editing?.id)"),
     "PE16: the balance beside a payment being corrected leaves that payment out",
+  );
+}
+
+/* ═══════ TEST FN: every download is named like a person named it ═══════
+   "Statement-LOTUS", "items", "bizdesk-backup-2026-11-06", and CSV/Excel
+   lowercased into "profit-&-loss-2026-11-06.csv". One rule now. */
+{
+  assert(
+    fileName("Invoice INV-0747", "I-BELL MOBILE") === "Invoice INV-0747 - I-BELL MOBILE",
+    "FN1: what, number, party — case kept",
+  );
+  assert(
+    fileName("Statement", "LOTUS", periodLabel("2026-10-01", "2026-10-31")) ===
+      "Statement - LOTUS - 01 Oct 2026 to 31 Oct 2026",
+    `FN2: a statement says whose and which period — ${fileName("Statement", "LOTUS", periodLabel("2026-10-01", "2026-10-31"))}`,
+  );
+  assert(
+    fileName("Statement", "LOTUS", periodLabel("", "")) === "Statement - LOTUS",
+    "FN3: no period, no dangling dash",
+  );
+  assert(
+    periodLabel("", "2026-10-31") === "Up to 31 Oct 2026",
+    "FN4: an open start reads as 'Up to'",
+  );
+  assert(periodLabel("2026-10-01", "") === "From 01 Oct 2026", "FN5: an open end reads as 'From'");
+  assert(
+    safeFileName('A/B: "C" <D>|E*F?') === "A B C D E F",
+    `FN6: characters no file system takes are gone — ${safeFileName('A/B: "C" <D>|E*F?')}`,
+  );
+  assert(
+    safeFileName("Report.  ") === "Report",
+    "FN7: no trailing dot or space (Windows refuses them)",
+  );
+  assert(safeFileName("   ") === "Document", "FN8: never an empty name");
+  assert(
+    safeFileName("x".repeat(400)).length === 150,
+    "FN9: never longer than a file system allows",
+  );
+
+  // Wiring: the helpers keep the name as given, and no screen builds its own.
+  const read = (f: string) => readFileSync(process.cwd() + "/" + f, "utf8");
+  for (const f of ["src/lib/csv.ts", "src/lib/xlsx.ts"])
+    assert(
+      !read(f).includes("toLowerCase().replace(/\\s+/g"),
+      `FN10: ${f} no longer lowercases and hyphenates names`,
+    );
+  const oldNames = [
+    "`Statement-${",
+    "`Payee-Ledger-${",
+    "`Passbook-${",
+    "`Bank-${",
+    "`Daybook-${",
+    "`GST-${",
+    'downloadCsv("items"',
+    "bizdesk-backup-",
+  ];
+  const files = [
+    "src/routes/parties_.$id.tsx",
+    "src/routes/payees_.$id.tsx",
+    "src/routes/bank_.$id.tsx",
+    "src/routes/daybook.tsx",
+    "src/routes/gst.tsx",
+    "src/routes/items.tsx",
+    "src/routes/settings.tsx",
+    "src/components/PartyLedgerExportDialog.tsx",
+  ];
+  for (const f of files) {
+    const code = read(f);
+    const left = oldNames.filter((n) => code.includes(n));
+    assert(left.length === 0, `FN11: ${f} uses the shared names — still has ${left.join(", ")}`);
+  }
+  const sale = read("src/routes/sales.$id.tsx");
+  assert(
+    sale.split("fileName(`Invoice ${inv.number}`, inv.partyName)").length - 1 === 5,
+    "FN12: a sale invoice is named the same when printed (both ways), downloaded, shared and sent",
   );
 }
 

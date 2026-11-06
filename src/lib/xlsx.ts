@@ -1,3 +1,4 @@
+import { safeFileName } from "@/lib/fileName";
 export interface XlsxSheet {
   name: string;
   rows: (string | number)[][];
@@ -49,5 +50,5 @@ export async function downloadXlsx(filename: string, sheets: XlsxSheet[]) {
     ws["!cols"] = autoColumnWidths(s.rows);
     XLSX.utils.book_append_sheet(wb, ws, safeSheetName(s.name, used));
   }
-  XLSX.writeFile(wb, `${filename.toLowerCase().replace(/\s+/g, "-")}.xlsx`);
+  XLSX.writeFile(wb, `${safeFileName(filename)}.xlsx`);
 }

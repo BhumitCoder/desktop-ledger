@@ -1,3 +1,4 @@
+import { fileName } from "@/lib/fileName";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useGoBack } from "@/hooks/useGoBack";
 import { useEffect, useRef, useState } from "react";
@@ -34,7 +35,11 @@ function SaleReturnDetailPage() {
     if (!ret || !printRef.current || pdfBusy) return;
     setPdfBusy(true);
     try {
-      await downloadElementAsPdf(printRef.current, ret.number, "portrait");
+      await downloadElementAsPdf(
+        printRef.current,
+        fileName(`Credit Note ${ret.number}`, ret.partyName),
+        "portrait",
+      );
       toast.success("Credit note downloaded as PDF");
     } catch {
       toast.error("Could not generate PDF — try again once online");
@@ -92,7 +97,13 @@ function SaleReturnDetailPage() {
             <FileDown className="h-4 w-4" />
           </button>
           <button
-            onClick={() => printOrEscapeStandalone(ret.number, undefined, handleDownloadPdf)}
+            onClick={() =>
+              printOrEscapeStandalone(
+                fileName(`Credit Note ${ret.number}`, ret.partyName),
+                undefined,
+                handleDownloadPdf,
+              )
+            }
             disabled={!!pdfBusy}
             className="inline-flex items-center gap-1.5 h-8 px-4 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition disabled:opacity-60 disabled:cursor-not-allowed"
           >

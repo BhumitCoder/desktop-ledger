@@ -1,3 +1,4 @@
+import { fileName } from "@/lib/fileName";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useGoBack } from "@/hooks/useGoBack";
 import { useEffect, useRef, useState } from "react";
@@ -72,7 +73,7 @@ function BillDetailPage() {
     if (print && inv) {
       const t = setTimeout(() => {
         if (isStandalone()) handleDownloadPdf();
-        else printWithName(inv.number);
+        else printWithName(fileName(`Purchase Bill ${inv.number}`, inv.partyName));
       }, 500);
       return () => clearTimeout(t);
     }
@@ -86,7 +87,11 @@ function BillDetailPage() {
     resetShare();
     setPdfBusy("download");
     try {
-      await downloadElementAsPdf(printRef.current, inv.number, "portrait");
+      await downloadElementAsPdf(
+        printRef.current,
+        fileName(`Purchase Bill ${inv.number}`, inv.partyName),
+        "portrait",
+      );
       toast.success("Bill downloaded as PDF");
     } catch {
       toast.error("Could not generate PDF — try Print instead");
@@ -99,7 +104,11 @@ function BillDetailPage() {
     if (!inv || !printRef.current || pdfBusy) return;
     setPdfBusy("share");
     try {
-      await share(printRef.current, inv.number, "portrait");
+      await share(
+        printRef.current,
+        fileName(`Purchase Bill ${inv.number}`, inv.partyName),
+        "portrait",
+      );
     } catch {
       toast.error("Could not share bill — try Download PDF instead");
     } finally {
@@ -184,7 +193,13 @@ function BillDetailPage() {
             <Share2 className="h-4 w-4" />
           </button>
           <button
-            onClick={() => printOrEscapeStandalone(inv.number, undefined, handleDownloadPdf)}
+            onClick={() =>
+              printOrEscapeStandalone(
+                fileName(`Purchase Bill ${inv.number}`, inv.partyName),
+                undefined,
+                handleDownloadPdf,
+              )
+            }
             disabled={!!pdfBusy}
             className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 h-8 px-4 bg-primary text-white rounded-md text-sm font-semibold hover:opacity-90 transition disabled:opacity-60 disabled:cursor-not-allowed"
             title="Print"

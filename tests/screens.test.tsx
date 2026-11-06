@@ -859,6 +859,134 @@ async function runAll(): Promise<Results> {
   // 1000 − 100 − 540 COGS − 5000 expenses (GST-exclusive, so unchanged here)
   has(home, `₹ ${fmt(-4640)}`, "dashboard: Net Profit = −4640");
 
+  /* ── Last prices: one row per bill, the last three, with the bill number ──
+     Reported: "the last 3 prices in a sale bill come at random". The order
+     was by bill date all along; what read as random was the same bill listed
+     twice when the item sat on two of its lines (pushing a real earlier
+     price off the list), five rows where the shop looks for three, and no
+     bill number to tell them apart. */
+  {
+    PartyRepo.add({
+      id: "PHP",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "History Probe Party",
+      type: "customer",
+      openingBalance: 0,
+    } as never);
+    ItemRepo.add({
+      id: "PHI",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "History Probe Item",
+      unit: "pcs",
+      gstRate: 0,
+      purchasePrice: 50,
+      salePrice: 99,
+      stock: 100,
+      openingStock: 100,
+    } as never);
+    const bill = (id: string, date: string, lines: [number, number][]) =>
+      SalesRepo.add({
+        id,
+        createdAt: `${date}T09:00:00Z`,
+        number: id,
+        date,
+        partyId: "PHP",
+        partyName: "History Probe Party",
+        lineItems: lines.map(([qty, price], i) => ({
+          id: `${id}-L${i}`,
+          itemId: "PHI",
+          name: "History Probe Item",
+          unit: "pcs",
+          qty,
+          price,
+          discountPct: 0,
+          gstRate: 0,
+          amount: qty * price,
+        })),
+        subtotal: 0,
+        discount: 0,
+        shippingCharge: 0,
+        taxAmount: 0,
+        total: 0,
+        paid: 0,
+        paymentMode: "credit",
+        gstEnabled: false,
+      } as never);
+    bill("PH-1", "2026-03-01", [[1, 100]]);
+    bill("PH-2", "2026-03-02", [[1, 110]]);
+    bill("PH-3", "2026-03-03", [[1, 120]]);
+    bill("PH-4", "2026-03-04", [
+      [1, 130],
+      [2, 130],
+    ]); // the item on two lines
+
+    const visible = () =>
+      Array.from(host.querySelectorAll<HTMLInputElement>("input")).filter(
+        (el) => el.offsetParent !== null,
+      );
+    await renderRoute("/sales/new");
+    await settleMs(120);
+    const party = visible().find((el) => el.placeholder === "Type name or search…");
+    const addItem = visible().find((el) => el.placeholder === "Type item name to add…");
+    if (party && addItem) {
+      await act(async () => {
+        party.focus();
+        setInput(party, "History Probe Party");
+      });
+      await settleMs(60);
+      await act(async () => {
+        addItem.focus();
+        setInput(addItem, "History Probe Item");
+      });
+      await settleMs(220);
+      const option = Array.from(document.body.querySelectorAll<HTMLElement>("[data-opt]"))
+        .filter((d) => (d.textContent ?? "").startsWith("History Probe Item"))
+        .pop();
+      await act(async () => {
+        option?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      });
+      await settleMs(220);
+      const price = visible().find((el) => el.value === "99");
+      assert(!!price, "last 3: the line is on the bill at its selling price");
+      if (price) {
+        await act(async () => {
+          price.focus();
+          price.dispatchEvent(new FocusEvent("focus", { bubbles: true }));
+          price.click();
+        });
+        await settleMs(160);
+        const panel = Array.from(document.body.querySelectorAll<HTMLElement>("div"))
+          .filter(
+            (d) =>
+              getComputedStyle(d).position === "fixed" &&
+              d.className.includes("z-50") &&
+              (d.textContent ?? "").includes("Prices —"),
+          )
+          .pop();
+        const buttons = Array.from(panel?.querySelectorAll("button") ?? []);
+        const rows = buttons.map((b) => b.textContent ?? "");
+        // Cells: bill, date, qty, price.
+        const qtyOf = (b?: Element) => b?.children[2]?.textContent?.trim();
+        assert(
+          rows.length === 3,
+          `last 3: exactly three rows — got ${rows.length}: ${JSON.stringify(rows)}`,
+        );
+        assert(
+          rows[0]?.includes("#PH-4") && rows[1]?.includes("#PH-3") && rows[2]?.includes("#PH-2"),
+          `last 3: newest bill first, each named — ${JSON.stringify(rows)}`,
+        );
+        assert(
+          rows.filter((r) => r.includes("#PH-4")).length === 1 && qtyOf(buttons[0]) === "3",
+          `last 3: a bill with the item on two lines is ONE row, its qty added (3) — ${rows[0]}`,
+        );
+        await act(async () => {
+          (document.activeElement as HTMLElement | null)?.blur();
+        });
+        await settleMs(220);
+      }
+    }
+  }
+
   /* ── The last-prices popup: whose prices, and when ──────────────────
      Reported from the counter: "sometimes it comes, sometimes it doesn't,
      and when it comes it is sometimes wrong". Three causes, each pinned:

@@ -1,3 +1,4 @@
+import { fileName, periodLabel as periodText } from "@/lib/fileName";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useGoBack } from "@/hooks/useGoBack";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -154,7 +155,7 @@ function PartyStatementPage() {
     else navigate({ to: "/purchase-return/$id", params: { id: e.docId } });
   };
 
-  const pdfName = () => `Statement-${(party?.name ?? "Party").replace(/\s+/g, "-")}`;
+  const pdfName = () => fileName("Statement", party?.name ?? "Party", periodText(dateFrom, dateTo));
 
   // Re-entry point for printOrEscapeStandalone's standalone-app escape (see
   // lib/print.ts) — this tab opened fresh with ?print=1, so print immediately
@@ -336,9 +337,7 @@ function PartyStatementPage() {
     // Real .xlsx via the same builder the Party Ledger report uses — proper
     // column widths and numeric amount cells (the old CSV version opened
     // with every column truncated in Excel/WPS/Numbers)
-    downloadXlsx(`Statement-${party.name}`, [
-      partyStatementSheet(party, rows, company, periodLabel),
-    ]);
+    downloadXlsx(pdfName(), [partyStatementSheet(party, rows, company, periodLabel)]);
     toast.success("Statement downloaded as Excel");
   };
 

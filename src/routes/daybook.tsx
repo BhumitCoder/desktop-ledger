@@ -1,3 +1,4 @@
+import { fileName } from "@/lib/fileName";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { matchesQuery } from "@/lib/search";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -105,7 +106,7 @@ function DaybookPage() {
   // Re-entry point for printOrEscapeStandalone's standalone-app escape (see
   // lib/print.ts) — the day's data is already loaded synchronously from the
   // repos, so this can fire as soon as the date search param above resolves.
-  useAutoPrintFromUrl(`Daybook-${date}`, true);
+  useAutoPrintFromUrl(fileName("Day Book", fmtDate(date)), true);
 
   const rows = useRepoMemo<DayRow[]>(() => {
     const list: DayRow[] = [];
@@ -413,7 +414,7 @@ function DaybookPage() {
       `${net >= 0 ? "" : "-"}${fmtMoney(Math.abs(net))}`,
     ];
     const allRows = [...meta, header, ...body, [], totalsRow, netRow];
-    downloadCsv(`Daybook-${date}`, allRows[0], allRows.slice(1));
+    downloadCsv(fileName("Day Book", fmtDate(date)), allRows[0], allRows.slice(1));
   };
 
   const { shareReady, share, resetShare } = useShareablePdf("Daybook");
@@ -423,7 +424,7 @@ function DaybookPage() {
     resetShare();
     setPdfBusy("download");
     try {
-      await downloadElementAsPdf(printRef.current, `Daybook-${date}`, "portrait");
+      await downloadElementAsPdf(printRef.current, fileName("Day Book", fmtDate(date)), "portrait");
       toast.success("Daybook downloaded as PDF");
     } catch {
       toast.error("Could not generate PDF — try Print instead");
@@ -436,7 +437,7 @@ function DaybookPage() {
     if (!printRef.current || pdfBusy) return;
     setPdfBusy("share");
     try {
-      await share(printRef.current, `Daybook-${date}`, "portrait");
+      await share(printRef.current, fileName("Day Book", fmtDate(date)), "portrait");
     } catch {
       toast.error("Could not share daybook — try Download PDF instead");
     } finally {
@@ -530,7 +531,11 @@ function DaybookPage() {
             </button>
             <button
               onClick={() =>
-                printOrEscapeStandalone(`Daybook-${date}`, { date }, handleDownloadPdf)
+                printOrEscapeStandalone(
+                  fileName("Day Book", fmtDate(date)),
+                  { date },
+                  handleDownloadPdf,
+                )
               }
               disabled={!!pdfBusy}
               className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 h-8 px-3.5 bg-white border border-gray-200 rounded-md text-xs font-semibold text-gray-600 hover:bg-gray-50 transition disabled:opacity-60 disabled:cursor-not-allowed"

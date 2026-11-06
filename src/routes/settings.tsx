@@ -1,3 +1,4 @@
+import { fileName } from "@/lib/fileName";
 import { createFileRoute } from "@tanstack/react-router";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -22,7 +23,7 @@ import { Field } from "@/components/Field";
 import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { today, fmtMoney } from "@/lib/format";
+import { today, fmtDate, fmtMoney } from "@/lib/format";
 import { APP_NAME, APP_VERSION } from "@/lib/version";
 import { auth, isBrowser } from "@/lib/firebase";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -247,7 +248,7 @@ function SettingsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `bizdesk-backup-${today()}.json`;
+    a.download = `${fileName(CompanyRepo.get().name || "Business", "Backup", fmtDate(today()))}.json`;
     a.click();
     URL.revokeObjectURL(url);
     toast.success("Backup downloaded");

@@ -922,7 +922,7 @@ function BulkPartyImportDialog({
               type="button"
               size="sm"
               variant="outline"
-              onClick={() => downloadCsv("parties-template", [...PARTY_BULK_COLUMNS], [])}
+              onClick={() => downloadCsv("Parties Import Template", [...PARTY_BULK_COLUMNS], [])}
             >
               <Download className="h-3.5 w-3.5" /> Sample CSV
             </Button>

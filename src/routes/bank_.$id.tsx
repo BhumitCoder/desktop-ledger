@@ -1,3 +1,4 @@
+import { fileName } from "@/lib/fileName";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useGoBack } from "@/hooks/useGoBack";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -12,7 +13,7 @@ import {
   CashAdjustmentRepo,
 } from "@/repositories";
 import { buildBankLedger, type BankLedgerRow } from "@/lib/ledger";
-import { fmtDate, fmtDateShort, fmtMoney } from "@/lib/format";
+import { fmtDate, fmtDateShort, fmtMoney, today } from "@/lib/format";
 import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
@@ -63,7 +64,7 @@ function BankStatementPage() {
   // Re-entry point for printOrEscapeStandalone's standalone-app escape (see
   // lib/print.ts) — this tab opened fresh with ?print=1, so print
   // immediately once the bank account has loaded.
-  useAutoPrintFromUrl(bank ? `Bank-${bank.name.replace(/\s+/g, "-")}` : null, !!bank);
+  useAutoPrintFromUrl(bank ? fileName("Bank Passbook", bank.name) : null, !!bank);
 
   /* A transfer is corrected as the whole thing it is — both legs together —
      so the dialog is handed its CASH leg, which is what it keys on. Editing
@@ -157,7 +158,11 @@ function BankStatementPage() {
       fmtMoney(balance),
     ];
     const allRows = [...meta, header, ...body, [], closing];
-    downloadCsv(`Passbook-${bank.name}`, allRows[0], allRows.slice(1));
+    downloadCsv(
+      fileName("Bank Passbook", bank.name, fmtDate(today())),
+      allRows[0],
+      allRows.slice(1),
+    );
   };
 
   // Print's standalone-app fallback (see lib/print.ts) — the installed
@@ -169,7 +174,7 @@ function BankStatementPage() {
     try {
       await downloadElementAsPdf(
         printRef.current,
-        `Bank-${bank.name.replace(/\s+/g, "-")}`,
+        fileName("Bank Passbook", bank.name, fmtDate(today())),
         "portrait",
       );
       toast.success("Passbook downloaded as PDF");
@@ -216,7 +221,7 @@ function BankStatementPage() {
           <button
             onClick={() =>
               printOrEscapeStandalone(
-                `Bank-${bank.name.replace(/\s+/g, "-")}`,
+                fileName("Bank Passbook", bank.name, fmtDate(today())),
                 undefined,
                 handleDownloadPdf,
               )

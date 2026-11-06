@@ -1,3 +1,4 @@
+import { fileName, periodLabel as periodText } from "@/lib/fileName";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -130,8 +131,7 @@ function ReportsPage() {
   }, [dateFrom, dateTo]);
 
   const current = REPORTS.find((r) => r.key === active);
-  const reportFilename = () =>
-    `${(current?.label ?? "Report").replace(/\s+/g, "-")}-${dateFrom}-to-${dateTo}`;
+  const reportFilename = () => fileName(current?.label ?? "Report", periodText(dateFrom, dateTo));
 
   // Re-entry point for printOrEscapeStandalone's standalone-app escape (see
   // lib/print.ts) — the ?r= param already in this URL restores the same
@@ -777,7 +777,9 @@ function ReportView({
         <div className="flex items-center justify-between gap-2 mb-3">
           <h2 className="text-base font-bold text-gray-800 truncate">{label}</h2>
           <button
-            onClick={() => downloadXlsx("Party Ledger", sheets)}
+            onClick={() =>
+              downloadXlsx(fileName("Party Ledger", periodText(dateFrom, dateTo)), sheets)
+            }
             title="Export Excel (one sheet per party)"
             className="no-print shrink-0 inline-flex items-center gap-1.5 h-8 px-3 bg-white border border-gray-200 rounded-md text-xs font-semibold text-gray-600 hover:bg-gray-50 transition"
           >
@@ -1192,7 +1194,16 @@ function TableReport({
             {/* Export what is on screen, so a filtered report and its CSV
                 cannot disagree about what they contain. */}
             <button
-              onClick={() => downloadCsv(label, cols, sortedRows)}
+              onClick={() =>
+                downloadCsv(
+                  fileName(
+                    label,
+                    dateCache ? periodText(dateCache.dateFrom, dateCache.dateTo) : "",
+                  ),
+                  cols,
+                  sortedRows,
+                )
+              }
               className="no-print inline-flex items-center gap-1.5 h-8 px-3 bg-white border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 hover:bg-gray-50 hover:shadow-sm transition"
             >
               <Download className="h-3.5 w-3.5" /> Export CSV

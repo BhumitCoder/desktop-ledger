@@ -1,3 +1,4 @@
+import { fileName, periodLabel as periodText } from "@/lib/fileName";
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -73,8 +74,6 @@ export function PartyLedgerExportDialog({
   const periodLabel = wholeLedger
     ? "All transactions"
     : `${dateFrom ? fmtDate(dateFrom) : "Beginning"} — ${dateTo ? fmtDate(dateTo) : "Today"}`;
-  /** Filenames shouldn't claim a range that wasn't applied. */
-  const fileSuffix = wholeLedger ? "all" : `${dateFrom || "start"}-to-${dateTo || "today"}`;
 
   /** Statement rows for one party over the chosen window. */
   const rowsFor = (party: Party) =>
@@ -91,9 +90,6 @@ export function PartyLedgerExportDialog({
       dateTo,
     ).rows;
 
-  /** Filenames must survive a file system: no slashes, colons or quotes. */
-  const safeName = (s: string) => s.replace(/[\\/:*?"<>|]+/g, "-").trim();
-
   const downloadExcel = async () => {
     if (!parties.length) return;
     setBusy({ kind: "excel", done: 0 });
@@ -105,7 +101,10 @@ export function PartyLedgerExportDialog({
           format === "simple"
             ? partySimpleLedgerSheet(p, rowsFor(p), company, periodLabel)
             : partyStatementSheet(p, rowsFor(p), company, periodLabel);
-        await downloadXlsx(`Statement-${safeName(p.name)}-${fileSuffix}`, [sheet]);
+        await downloadXlsx(
+          fileName("Statement", p.name, wholeLedger ? "Full Ledger" : periodText(dateFrom, dateTo)),
+          [sheet],
+        );
         setBusy({ kind: "excel", done: i + 1 });
         if (i < parties.length - 1) await pause(DOWNLOAD_GAP_MS);
       }
@@ -190,9 +189,13 @@ export function PartyLedgerExportDialog({
 
       for (let i = 0; i < blobs.length; i++) {
         downloadFile(
-          new File([blobs[i]], `Statement-${safeName(docs[i].party.name)}-${fileSuffix}.pdf`, {
-            type: "application/pdf",
-          }),
+          new File(
+            [blobs[i]],
+            `${fileName("Statement", docs[i].party.name, wholeLedger ? "Full Ledger" : periodText(dateFrom, dateTo))}.pdf`,
+            {
+              type: "application/pdf",
+            },
+          ),
         );
         if (i < blobs.length - 1) await pause(DOWNLOAD_GAP_MS);
       }
