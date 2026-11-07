@@ -906,6 +906,8 @@ export interface BankLedgerRow {
    * had to be deleted from the Cash page and re-entered from memory.
    */
   transferId?: string;
+  /** The deposit/withdrawal record this row IS — so it can be deleted. */
+  txnId?: string;
 }
 
 /**
@@ -991,6 +993,7 @@ export function buildBankLedger(
         debit: 0,
         credit: t.amount,
         transferId: t.transferId,
+        txnId: t.id,
       });
     } else if (t.type === "withdraw") {
       entries.push({
@@ -1001,6 +1004,7 @@ export function buildBankLedger(
         debit: t.amount,
         credit: 0,
         transferId: t.transferId,
+        txnId: t.id,
       });
     }
   }

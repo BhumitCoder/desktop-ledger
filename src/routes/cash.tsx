@@ -1,3 +1,4 @@
+import { removalForCashAdjustment } from "@/lib/entryRemoval";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { matchesQuery } from "@/lib/search";
 import { useEffect, useMemo, useState } from "react";
@@ -82,7 +83,12 @@ function CashPage() {
     const adj = CashAdjustmentRepo.get(id);
     if (!adj) return;
 
-    const legs = transferLegsFor(adj, BankTxnRepo.all());
+    // Every leg of it — see entryRemoval.ts.
+    const removal = removalForCashAdjustment(adj, {
+      bankTxns: BankTxnRepo.all(),
+      cashAdjustments: CashAdjustmentRepo.all(),
+    });
+    const legs = removal.bankTxns;
     const what = legs.length
       ? `Delete this transfer? It will be removed from cash AND from ${legs
           .map((t) => BankRepo.get(t.bankId)?.name ?? "the bank account")
@@ -91,7 +97,7 @@ function CashPage() {
     if (!confirm(what)) return;
 
     const batch = newBatch();
-    CashAdjustmentRepo.removeBatched(batch, adj.id);
+    for (const a of removal.cashAdjustments) CashAdjustmentRepo.removeBatched(batch, a.id);
     for (const leg of legs) {
       BankTxnRepo.removeBatched(batch, leg.id);
       // Put the account back where it was: a deposit added, so removing it

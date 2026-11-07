@@ -1,3 +1,4 @@
+import { syncNamesAfterRename } from "@/lib/nameSyncApply";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { matchesQuery } from "@/lib/search";
 import { useEffect, useRef, useState } from "react";
@@ -301,6 +302,9 @@ function PayeeDialog({
     setSaving(true);
     if (payee) {
       PayeeRepo.update(payee.id, form as Payee);
+      // Expenses carry the payee's name — a rename reaches them too.
+      if ((form.name ?? "").trim() !== (payee.name ?? "").trim())
+        void syncNamesAfterRename({ payeeIds: [payee.id] });
       toast.success("Payee updated");
     } else {
       PayeeRepo.add({ name: form.name!, defaultCategory: form.defaultCategory });

@@ -20,7 +20,10 @@ import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 import { downloadCsv } from "@/lib/csv";
 import { downloadElementAsPdf } from "@/lib/pdf";
 import type { BankAccount, CashAdjustment } from "@/types";
-import { Pencil } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
+import { usePermissions } from "@/hooks/usePermissions";
+import { newBatch, commitBatch } from "@/repositories/base";
+import { removalForBankTxn, balanceReversal } from "@/lib/entryRemoval";
 import { CashBankTransferDialog } from "@/components/CashBankTransferDialog";
 import {
   ArrowLeft,
@@ -74,6 +77,51 @@ function BankStatementPage() {
   const [editingTransferId, setEditingTransferId] = useState<string | null>(null);
 
   /** Open whichever kind of transfer this row belongs to. */
+  const { isOwner, canDelete } = usePermissions();
+  const deleteAllowed = isOwner || canDelete("cashBank");
+
+  /**
+   * Delete a deposit, withdrawal or transfer from the passbook — all of it.
+   * A transfer goes off BOTH accounts (and the cash side, if cash was one of
+   * them), each put back where it was, in one batch so it cannot land half.
+   */
+  const deleteEntry = (txnId: string) => {
+    if (!deleteAllowed) {
+      toast.error("You don't have permission to delete bank entries");
+      return;
+    }
+    const txn = BankTxnRepo.get(txnId);
+    if (!txn) return;
+    const removal = removalForBankTxn(txn, {
+      bankTxns: BankTxnRepo.all(),
+      cashAdjustments: CashAdjustmentRepo.all(),
+    });
+    const places = [
+      ...removal.bankTxns.map((t) => BankRepo.get(t.bankId)?.name ?? "a bank account"),
+      ...(removal.cashAdjustments.length ? ["Cash in Hand"] : []),
+    ];
+    const isTransfer = places.length > 1;
+    if (
+      !confirm(
+        isTransfer
+          ? `Delete this transfer of ${fmtMoney(txn.amount)}? It comes off ${places.join(" AND ")}, and both go back to what they were.`
+          : `Delete this ${txn.type === "deposit" ? "deposit" : "withdrawal"} of ${fmtMoney(txn.amount)}?`,
+      )
+    )
+      return;
+    const batch = newBatch();
+    for (const t of removal.bankTxns) {
+      BankTxnRepo.removeBatched(batch, t.id);
+      if (BankRepo.get(t.bankId))
+        BankRepo.adjustFieldBatched(batch, t.bankId, "balance", balanceReversal(t));
+    }
+    for (const a of removal.cashAdjustments) CashAdjustmentRepo.removeBatched(batch, a.id);
+    commitBatch(batch, "delete bank entry").then((ok) => {
+      if (!ok) toast.error("Could not delete — reload and check before trying again");
+      else toast.success(isTransfer ? "Transfer deleted from both accounts" : "Entry deleted");
+    });
+  };
+
   const editTransfer = (transferId: string) => {
     const cashLeg = CashAdjustmentRepo.all().find((a) => a.transferId === transferId) ?? null;
     if (cashLeg) setEditingTransfer(cashLeg);
@@ -372,6 +420,39 @@ function BankStatementPage() {
                           </span>
                         </div>
                       </div>
+                      {/* The same edit and delete the desk table offers. A
+                          phone had neither, so an entry made there could not
+                          be taken back there. */}
+                      {(e.transferId || (e.txnId && deleteAllowed)) && (
+                        <div className="flex shrink-0 items-center gap-1 no-print">
+                          {e.transferId && (
+                            <button
+                              onClick={(ev) => {
+                                ev.stopPropagation();
+                                editTransfer(e.transferId!);
+                              }}
+                              aria-label="Edit this transfer"
+                              className="h-11 w-11 inline-flex items-center justify-center rounded-md text-gray-400 hover:bg-blue-50 hover:text-blue-600"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                          )}
+                          {e.txnId && deleteAllowed && (
+                            <button
+                              onClick={(ev) => {
+                                ev.stopPropagation();
+                                deleteEntry(e.txnId!);
+                              }}
+                              aria-label={
+                                e.transferId ? "Delete this transfer" : "Delete this entry"
+                              }
+                              className="h-11 w-11 inline-flex items-center justify-center rounded-md text-gray-400 hover:bg-rose-50 hover:text-rose-600"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -425,6 +506,23 @@ function BankStatementPage() {
                         screen — a bill, a receipt, an expense — and is
                         corrected there, where the rest of its detail lives. */}
                     <td className="px-2 py-2.5 text-right whitespace-nowrap no-print">
+                      {e.txnId && deleteAllowed && (
+                        <button
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            deleteEntry(e.txnId!);
+                          }}
+                          aria-label={e.transferId ? "Delete this transfer" : "Delete this entry"}
+                          className="rounded p-1.5 text-gray-300 transition hover:bg-rose-50 hover:text-rose-600"
+                          title={
+                            e.transferId
+                              ? "Delete this transfer (both accounts)"
+                              : "Delete this entry"
+                          }
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                       {e.transferId && (
                         <button
                           onClick={(ev) => {

@@ -1,3 +1,5 @@
+import { planNameSync, type NameFix } from "@/lib/nameSync";
+import { nameSyncData, applyNameFixes } from "@/lib/nameSyncApply";
 import { fileName } from "@/lib/fileName";
 import { createFileRoute } from "@tanstack/react-router";
 import { PageHeader } from "@/components/PageHeader";
@@ -66,6 +68,9 @@ function SettingsPage() {
   // balances already inflated in the live data stay inflated until they're
   // re-derived from the documents — that's what this does.
   const [bankPlan, setBankPlan] = useState<DataRepairPlan | null>(null);
+  /* Names left behind by renames made before a rename carried them along —
+     a party renamed "SMVD" still read "SAMVED SANGHVI" on 29 records. */
+  const [namePlan, setNamePlan] = useState<NameFix[] | null>(null);
   const [checkingBank, setCheckingBank] = useState(false);
 
   const bankRepairData = (): DataRepairData => ({
@@ -90,7 +95,10 @@ function SettingsPage() {
     try {
       const plan = planDataRepair(bankRepairData());
       setBankPlan(plan);
-      if (!plan.hasWork) toast.success("All bank balances match your transactions");
+      const names = planNameSync(nameSyncData());
+      setNamePlan(names);
+      if (!plan.hasWork && !names.length)
+        toast.success("All bank balances match your transactions, and every name is current");
     } finally {
       setCheckingBank(false);
     }
@@ -105,24 +113,41 @@ function SettingsPage() {
     // report, which may have been produced minutes ago on another device's
     // data. This also makes the button safe to press twice.
     const plan = planDataRepair(bankRepairData());
-    if (!plan.hasWork) {
+    const names = planNameSync(nameSyncData());
+    if (!plan.hasWork && !names.length) {
       setBankPlan(plan);
+      setNamePlan(names);
       toast.success("Nothing to correct — balances already match");
       return;
     }
     if (
       !confirm(
-        `Recalculate ${plan.accounts.length} bank balance(s), ${plan.items.length} item stock(s) and ${plan.bills.length} bill record(s)?
+        (plan.hasWork
+          ? `Recalculate ${plan.accounts.length} bank balance(s), ${plan.items.length} item stock(s) and ${plan.bills.length} bill record(s)?
 
 ` +
-          "These are the only running totals the app stores. They are rebuilt from your own " +
-          "bills, payments, returns, deposits and adjustments. No bill, payment or return is " +
-          "added, changed or deleted.",
+            "These are the only running totals the app stores. They are rebuilt from your own " +
+            "bills, payments, returns, deposits and adjustments. No bill, payment or return is " +
+            "added or deleted.\n\n"
+          : "") +
+          (names.length
+            ? `Bring the party and item names up to date on ${names.length} record(s) — bills, returns, payments and adjustments still showing a name from before it was renamed. Only the name (and a bill's phone, where the party has one) changes.`
+            : ""),
       )
     )
       return;
     setBusy(true);
     try {
+      if (names.length && !(await applyNameFixes(names))) {
+        setNamePlan(planNameSync(nameSyncData()));
+        toast.error("The names did not all reach the cloud — reload the app and try again");
+        return;
+      }
+      setNamePlan(planNameSync(nameSyncData()));
+      if (!plan.hasWork) {
+        toast.success(`Brought ${names.length} record(s) up to date with the current names`);
+        return;
+      }
       const batch = newBatch();
       for (const b of plan.bills) {
         const repo = b.kind === "sale" ? SalesRepo : PurchaseRepo;
@@ -558,7 +583,7 @@ function SettingsPage() {
                       <ShieldCheck className="h-3.5 w-3.5" />
                       {checkingBank ? "Checking…" : "Check Calculations"}
                     </Button>
-                    {bankPlan?.hasWork && (
+                    {(bankPlan?.hasWork || !!namePlan?.length) && (
                       <Button
                         type="button"
                         disabled={busy}
@@ -570,7 +595,30 @@ function SettingsPage() {
                     )}
                   </div>
 
-                  {bankPlan && !bankPlan.hasWork && (
+                  {!!namePlan?.length && (
+                    <div className="mt-4" data-testid="name-fixes">
+                      <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                        Records still showing an old name ({namePlan.length})
+                      </p>
+                      <div className="border border-gray-100 rounded-md overflow-hidden max-h-64 overflow-y-auto">
+                        {namePlan.slice(0, 200).map((f) => (
+                          <div
+                            key={`${f.collection}-${f.id}`}
+                            className="flex items-center justify-between gap-3 px-3 py-2 text-xs border-b border-gray-100 last:border-b-0"
+                          >
+                            <span className="font-mono font-semibold text-gray-800 shrink-0">
+                              {f.label}
+                            </span>
+                            <span className="truncate text-right text-gray-500">
+                              {f.changes.join(" · ")}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {bankPlan && !bankPlan.hasWork && !namePlan?.length && (
                     <div className="mt-4 flex items-start gap-2 text-xs bg-emerald-50/60 border border-emerald-100 rounded-md px-3 py-2.5">
                       <ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
                       <p className="text-gray-700">

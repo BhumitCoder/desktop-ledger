@@ -4555,6 +4555,237 @@ async function runAll(): Promise<Results> {
     h.remove();
   }
 
+  /* ── A rename reaches every record; a bill can change hands; the passbook deletes ──
+     Reported from the shop, all three:
+
+       1. "We renamed a party — sales still show the old name." Bills and
+          payments carry a copy of the name; only the party changed.
+       2. "Editing a bill and changing the party's name does nothing." The
+          phone box kept the OLD party's phone, and the save matches by phone
+          first — so the bill went straight back to the old party.
+       3. "Deleting a transfer doesn't put the money back where it came
+          from." The passbook could not delete at all: not a transfer, not a
+          plain deposit. */
+  {
+    const realConfirm = window.confirm;
+    // 1 — rename the party; its bill and its payment follow.
+    PartyRepo.add({
+      id: "RNP",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "SAMVED SANGHVI",
+      phone: "9000000001",
+      type: "customer",
+      openingBalance: 0,
+    } as never);
+    PartyRepo.add({
+      id: "RNQ",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "Other Buyer",
+      phone: "9000000002",
+      type: "customer",
+      openingBalance: 0,
+    } as never);
+    const rnBill = (id: string, number: string) =>
+      SalesRepo.add({
+        id,
+        createdAt: `${D2}T08:00:00Z`,
+        number,
+        date: D2,
+        partyId: "RNP",
+        partyName: "SAMVED SANGHVI",
+        partyPhone: "9000000001",
+        lineItems: [
+          {
+            id: `${id}-L1`,
+            itemId: "I1",
+            name: "USB Cable",
+            unit: "pcs",
+            qty: 1,
+            price: 100,
+            discountPct: 0,
+            gstRate: 0,
+            amount: 100,
+            costPrice: 60,
+          },
+        ],
+        subtotal: 100,
+        discount: 0,
+        shippingCharge: 0,
+        taxAmount: 0,
+        total: 100,
+        paid: 0,
+        paymentMode: "credit",
+        gstEnabled: false,
+      } as never);
+    rnBill("RNS1", "RN-1");
+    PaymentRepo.add({
+      id: "RNPAY",
+      createdAt: `${D2}T09:00:00Z`,
+      date: D2,
+      partyId: "RNP",
+      partyName: "SAMVED SANGHVI",
+      type: "in",
+      amount: 0,
+      mode: "cash",
+    } as never);
+    {
+      const h = document.createElement("div");
+      document.body.appendChild(h);
+      const r = createRoot(h);
+      await act(async () => {
+        r.render(
+          <PartyDialog
+            open
+            onOpenChange={() => {}}
+            party={PartyRepo.get("RNP")!}
+            onSaved={() => {}}
+          />,
+        );
+      });
+      await settleMs(120);
+      const dlg = currentDialog();
+      const nameBox = dlg.querySelector("input") as HTMLInputElement | null;
+      assert(nameBox?.value === "SAMVED SANGHVI", "rename: the party's name is in the box");
+      await act(async () => {
+        setInput(nameBox, "SMVD");
+      });
+      await settleMs(60);
+      await act(async () => {
+        (dlg.querySelector('button[type="submit"]') as HTMLButtonElement | null)?.click();
+      });
+      await settleMs(400);
+      assert(PartyRepo.get("RNP")?.name === "SMVD", "rename: the party is renamed");
+      assert(
+        SalesRepo.get("RNS1")?.partyName === "SMVD",
+        `rename: the party's bill shows the new name — "${SalesRepo.get("RNS1")?.partyName}"`,
+      );
+      assert(
+        PaymentRepo.get("RNPAY")?.partyName === "SMVD",
+        `rename: and so does its payment — "${PaymentRepo.get("RNPAY")?.partyName}"`,
+      );
+      r.unmount();
+      h.remove();
+    }
+
+    // 2 — the bill changes hands: typed name, old phone still in the box.
+    rnBill("RNS2", "RN-2");
+    SaleReturnRepo.add({
+      id: "RNR",
+      createdAt: `${D2}T10:00:00Z`,
+      number: "RN-CR",
+      date: D2,
+      originalRef: "RN-2",
+      partyId: "RNP",
+      partyName: "SAMVED SANGHVI",
+      lineItems: [],
+      subtotal: 0,
+      taxAmount: 0,
+      total: 0,
+    } as never);
+    await renderRoute("/sales/edit/RNS2");
+    await settleMs(150);
+    const visible = () =>
+      Array.from(host.querySelectorAll<HTMLInputElement>("input")).filter(
+        (el) => el.offsetParent !== null,
+      );
+    const partyBox = visible().find((el) => el.placeholder === "Type name or search…");
+    assert(!!partyBox, "change hands: the party box is on the bill");
+    if (partyBox) {
+      await act(async () => {
+        partyBox.focus();
+        setInput(partyBox, "Other Buyer");
+      });
+      await settleMs(250);
+      const phoneBox = visible().find((el) => el.placeholder === "10-digit phone (auto-match)");
+      assert(
+        !phoneBox?.value,
+        `change hands: the old party's phone lets go with its name — "${phoneBox?.value}"`,
+      );
+      const save = Array.from(host.querySelectorAll("button"))
+        .filter((b) => (b.textContent ?? "").trim() === "Save" && b.offsetParent !== null)
+        .pop();
+      await act(async () => {
+        save?.click();
+      });
+      await settleMs(400);
+      assert(
+        SalesRepo.get("RNS2")?.partyId === "RNQ" &&
+          SalesRepo.get("RNS2")?.partyName === "Other Buyer",
+        `change hands: the bill is now Other Buyer's — ${SalesRepo.get("RNS2")?.partyId} / ${SalesRepo.get("RNS2")?.partyName}`,
+      );
+      assert(
+        SaleReturnRepo.get("RNR")?.partyId === "RNQ",
+        `change hands: its return goes with it — ${SaleReturnRepo.get("RNR")?.partyId}`,
+      );
+    }
+
+    // 3 — the passbook deletes a transfer (both accounts) and a plain deposit.
+    BankRepo.add({
+      id: "DLA",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "Delete Test A",
+      openingBalance: 1000,
+      balance: 750, // 1000 − 300 out + 50 in
+    } as never);
+    BankRepo.add({
+      id: "DLB",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "Delete Test B",
+      openingBalance: 0,
+      balance: 300,
+    } as never);
+    for (const t of [
+      {
+        id: "DLT1",
+        bankId: "DLA",
+        type: "withdraw",
+        amount: 300,
+        transferId: "DLX",
+        notes: "Transfer Delete Test A → Delete Test B",
+      },
+      {
+        id: "DLT2",
+        bankId: "DLB",
+        type: "deposit",
+        amount: 300,
+        transferId: "DLX",
+        notes: "Transfer Delete Test A → Delete Test B",
+      },
+      { id: "DLT3", bankId: "DLA", type: "deposit", amount: 50, notes: "counter cash" },
+    ])
+      BankTxnRepo.add({ ...t, date: D2, createdAt: `${D2}T11:00:00Z` } as never);
+    window.confirm = () => true;
+    await renderRoute("/bank/DLA");
+    await settleMs(150);
+    const delBtn = (label: string) =>
+      Array.from(document.querySelectorAll<HTMLButtonElement>(`button[aria-label="${label}"]`))
+        .filter((b) => b.offsetParent !== null)
+        .pop();
+    assert(!!delBtn("Delete this transfer"), "passbook: a transfer can be deleted");
+    await act(async () => {
+      delBtn("Delete this transfer")?.click();
+    });
+    await settleMs(200);
+    assert(
+      !BankTxnRepo.get("DLT1") && !BankTxnRepo.get("DLT2"),
+      "passbook: deleting a transfer removes BOTH of its legs",
+    );
+    assert(
+      BankRepo.get("DLA")?.balance === 1050 && BankRepo.get("DLB")?.balance === 0,
+      `passbook: and both accounts go back — A ${BankRepo.get("DLA")?.balance} (want 1050), B ${BankRepo.get("DLB")?.balance} (want 0)`,
+    );
+    assert(!!delBtn("Delete this entry"), "passbook: a plain deposit can be deleted too");
+    await act(async () => {
+      delBtn("Delete this entry")?.click();
+    });
+    await settleMs(200);
+    assert(
+      !BankTxnRepo.get("DLT3") && BankRepo.get("DLA")?.balance === 1000,
+      `passbook: deleting the deposit takes it back off — A ${BankRepo.get("DLA")?.balance} (want 1000)`,
+    );
+    window.confirm = realConfirm;
+  }
+
   /* ── Rows per page: 500 by default, changed once, remembered ──────────
      1,400 items at 50 a page meant paging to find something, or reading a
      total off one page and believing it was the whole list. */

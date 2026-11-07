@@ -50,6 +50,9 @@ import {
   largestSplitMode,
 } from "@/lib/paymentSplit";
 import { readFileSync } from "node:fs";
+import { planNameSync } from "@/lib/nameSync";
+import type { Party, Payee } from "@/types";
+import { removalForBankTxn, removalForCashAdjustment, balanceReversal } from "@/lib/entryRemoval";
 import { fileName, periodLabel, safeFileName } from "@/lib/fileName";
 import { withDiscount, linkOldestFirst, trimNewestFirst } from "@/lib/paymentEdit";
 import { correctedOpening } from "@/lib/stock";
@@ -4143,6 +4146,270 @@ console.log(`\n═════════════════════�
   assert(
     sale.split("fileName(`Invoice ${inv.number}`, inv.partyName)").length - 1 === 5,
     "FN12: a sale invoice is named the same when printed (both ways), downloaded, shared and sent",
+  );
+}
+
+/* ═══════ TEST NS: names follow the master; deletes take every leg ═══════ */
+{
+  const party = (id: string, name: string, phone?: string) =>
+    ({ id, name, phone, type: "both", openingBalance: 0, createdAt: "" }) as unknown as Party;
+  const item = (id: string, name: string) =>
+    ({
+      id,
+      name,
+      unit: "pcs",
+      gstRate: 0,
+      purchasePrice: 0,
+      salePrice: 0,
+      stock: 0,
+      openingStock: 0,
+      createdAt: "",
+    }) as Item;
+  const line = (itemId: string, name: string) =>
+    ({
+      id: nid(),
+      itemId,
+      name,
+      unit: "pcs",
+      qty: 2,
+      price: 50,
+      discountPct: 0,
+      gstRate: 0,
+      amount: 100,
+    }) as LineItem;
+  const bill = (
+    id: string,
+    partyId: string,
+    partyName: string,
+    lines: LineItem[],
+    partyPhone?: string,
+  ) =>
+    ({
+      id,
+      number: id,
+      date: "2026-03-01",
+      createdAt: "",
+      partyId,
+      partyName,
+      partyPhone,
+      lineItems: lines,
+      subtotal: 0,
+      taxAmount: 0,
+      total: 0,
+      paid: 0,
+    }) as unknown as Invoice & Return;
+  const base = {
+    parties: [
+      party("P1", "SMVD", "9000000001"),
+      party("P2", "MIX CH"),
+      party("P3", "Unchanged Co", ""),
+    ],
+    items: [item("IA", "SM S24U NATURAL BACK GLASS"), item("IB", "IP 15 OCA GLASS")],
+    payees: [{ id: "Y1", name: "Landlord", createdAt: "" } as Payee],
+    sales: [
+      bill("S1", "P1", "SAMVED SANGHVI", [
+        line("IA", "S24U NATURAL BACK GLASS"),
+        line("IB", "IP 15 OCA GLASS"),
+      ]),
+      bill("S2", "P3", "Unchanged Co", [line("IB", "IP 15 OCA GLASS")], "8000000000"),
+    ],
+    purchases: [bill("B1", "P2", "MIX CHINA", [])],
+    saleReturns: [bill("R1", "P1", "SAMVED SANGHVI", [])],
+    purchaseReturns: [] as Return[],
+    payments: [
+      {
+        id: "PY1",
+        partyId: "P1",
+        partyName: "SAMVED SANGHVI",
+        type: "in",
+        amount: 5,
+        date: "2026-03-02",
+      } as unknown as Payment,
+    ],
+    expenses: [
+      {
+        id: "E1",
+        payeeId: "Y1",
+        payeeName: "Old Landlord",
+        amount: 1,
+        date: "2026-03-03",
+      } as unknown as Expense,
+    ],
+    stockAdjustments: [
+      {
+        id: "A1",
+        itemId: "IA",
+        itemName: "S24U NATURAL BACK GLASS",
+        type: "add",
+        qty: 1,
+        date: "2026-03-04",
+        createdAt: "",
+      } as StockAdjustment,
+    ],
+  };
+  const all = planNameSync(base);
+  const fix = (c: string, id: string) => all.find((f) => f.collection === c && f.id === id);
+  assert(
+    fix("sales", "S1")?.patch.partyName === "SMVD",
+    "NS1: a renamed party's bill takes the new name",
+  );
+  assert(
+    fix("sales", "S1")?.patch.partyPhone === "9000000001",
+    "NS2: and the party's phone, where the bill had none",
+  );
+  const s1Lines = fix("sales", "S1")?.patch.lineItems as LineItem[] | undefined;
+  assert(
+    s1Lines?.[0].name === "SM S24U NATURAL BACK GLASS" && s1Lines?.[1].name === "IP 15 OCA GLASS",
+    "NS3: a renamed item's line takes the new name; the others are left as they are",
+  );
+  assert(
+    !!s1Lines &&
+      s1Lines.every(
+        (l, i) =>
+          l.qty === base.sales[0].lineItems[i].qty &&
+          l.price === base.sales[0].lineItems[i].price &&
+          l.id === base.sales[0].lineItems[i].id,
+      ),
+    "NS4: only the NAME on a line changes — qty, price and id are untouched",
+  );
+  assert(!fix("sales", "S2"), "NS5: a party with no phone does not blank a bill's own number");
+  assert(fix("purchases", "B1")?.patch.partyName === "MIX CH", "NS6: purchases follow too");
+  assert(fix("saleReturns", "R1")?.patch.partyName === "SMVD", "NS7: and returns");
+  assert(fix("payments", "PY1")?.patch.partyName === "SMVD", "NS8: and payments");
+  assert(fix("expenses", "E1")?.patch.payeeName === "Landlord", "NS9: and expenses, by payee");
+  assert(
+    fix("stockAdjustments", "A1")?.patch.itemName === "SM S24U NATURAL BACK GLASS",
+    "NS10: and stock adjustments, by item",
+  );
+  const scoped = planNameSync(base, { partyIds: ["P2"] });
+  assert(
+    scoped.length === 1 && scoped[0].id === "B1",
+    `NS11: a rename touches only what that party is on — ${scoped.map((f) => f.id)}`,
+  );
+  assert(
+    planNameSync(base, { itemIds: ["IB"] }).length === 0,
+    "NS12: an item whose name did not change touches nothing",
+  );
+  // Applying the plan leaves nothing to do: it is idempotent.
+  const applied = JSON.parse(JSON.stringify(base));
+  const keyOf: Record<string, string> = {
+    sales: "sales",
+    purchases: "purchases",
+    saleReturns: "saleReturns",
+    purchaseReturns: "purchaseReturns",
+    payments: "payments",
+    expenses: "expenses",
+    stockAdjustments: "stockAdjustments",
+  };
+  for (const f of all) {
+    const list = applied[keyOf[f.collection]] as { id: string }[];
+    const i = list.findIndex((d) => d.id === f.id);
+    list[i] = { ...list[i], ...f.patch };
+  }
+  assert(planNameSync(applied).length === 0, "NS13: once applied, nothing is left to fix");
+
+  // Deleting cash and bank entries: every leg, each balance put back.
+  const tx = (
+    id: string,
+    bankId: string,
+    type: "deposit" | "withdraw",
+    amount: number,
+    extra: Partial<BankTxn> = {},
+  ) =>
+    ({
+      id,
+      bankId,
+      type,
+      amount,
+      date: "2026-03-05",
+      createdAt: "",
+      notes: "",
+      ...extra,
+    }) as BankTxn;
+  const ca = (
+    id: string,
+    type: "add" | "reduce",
+    amount: number,
+    extra: Partial<CashAdjustment> = {},
+  ) =>
+    ({
+      id,
+      type,
+      amount,
+      date: "2026-03-05",
+      createdAt: "",
+      reason: "",
+      ...extra,
+    }) as CashAdjustment;
+  const bankTxns = [
+    tx("T1", "BA", "withdraw", 300, { transferId: "X1", notes: "Transfer A → B" }),
+    tx("T2", "BB", "deposit", 300, { transferId: "X1", notes: "Transfer A → B" }),
+    tx("T3", "BA", "deposit", 80, { transferId: "X2", notes: "Transfer Cash in Hand → A" }),
+    tx("T4", "BA", "deposit", 50, { notes: "counter cash" }),
+    tx("T5", "BB", "deposit", 40, { notes: "Transfer to B — old" }),
+    tx("T6", "BA", "withdraw", 20, { notes: "Transfer A → C — old" }),
+    tx("T7", "BC", "deposit", 20, { notes: "Transfer A → C — old" }),
+  ];
+  const cashAdjustments = [
+    ca("C1", "reduce", 80, { transferId: "X2", reason: "Transfer Cash in Hand → A" }),
+    ca("C2", "reduce", 40, { reason: "Transfer to B — old" }),
+  ];
+  const d = { bankTxns, cashAdjustments };
+  const ids = (r: { bankTxns: BankTxn[]; cashAdjustments: CashAdjustment[] }) =>
+    [...r.bankTxns.map((t) => t.id), ...r.cashAdjustments.map((a) => a.id)].sort().join(",");
+  assert(
+    ids(removalForBankTxn(bankTxns[0], d)) === "T1,T2",
+    "DR1: a bank-to-bank transfer goes off both banks",
+  );
+  assert(
+    ids(removalForBankTxn(bankTxns[2], d)) === "C1,T3",
+    "DR2: a cash-to-bank transfer takes its cash side too",
+  );
+  assert(ids(removalForBankTxn(bankTxns[3], d)) === "T4", "DR3: a plain deposit is just itself");
+  assert(
+    ids(removalForBankTxn(bankTxns[4], d)) === "C2,T5",
+    "DR4: an OLD cash transfer (no shared id) is still found whole",
+  );
+  assert(
+    ids(removalForBankTxn(bankTxns[5], d)) === "T6,T7",
+    "DR5: an OLD bank-to-bank transfer is still found whole",
+  );
+  assert(
+    ids(removalForCashAdjustment(cashAdjustments[0], d)) === "C1,T3",
+    "DR6: from the cash side, the bank side goes too",
+  );
+  assert(
+    balanceReversal(bankTxns[1]) === -300 && balanceReversal(bankTxns[0]) === 300,
+    "DR7: a deposit comes back off, a withdrawal goes back on",
+  );
+
+  // Wiring.
+  const read = (f: string) => readFileSync(process.cwd() + "/" + f, "utf8");
+  assert(
+    read("src/routes/parties.tsx").includes("syncNamesAfterRename({ partyIds: [party.id] })"),
+    "NS14: renaming a party carries the name",
+  );
+  assert(
+    read("src/routes/items.tsx").includes("syncNamesAfterRename({ itemIds: [item.id] })"),
+    "NS15: renaming an item carries the name",
+  );
+  assert(
+    read("src/components/BulkUpdateItemsDialog.tsx").includes(
+      "syncNamesAfterRename({ itemIds: renamedIds })",
+    ),
+    "NS16: so does a bulk rename",
+  );
+  assert(
+    read("src/routes/payees.tsx").includes("syncNamesAfterRename({ payeeIds: [payee.id] })"),
+    "NS17: and a payee rename",
+  );
+  assert(
+    read("src/routes/bank_.$id.tsx").includes("removalForBankTxn(txn"),
+    "DR8: the passbook deletes through the shared rule",
+  );
+  assert(
+    read("src/routes/cash.tsx").includes("removalForCashAdjustment(adj"),
+    "DR9: and so does the Cash page",
   );
 }
 

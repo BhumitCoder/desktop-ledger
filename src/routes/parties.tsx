@@ -1,3 +1,4 @@
+import { syncNamesAfterRename } from "@/lib/nameSyncApply";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { matchesQuery } from "@/lib/search";
 import { useEffect, useRef, useState } from "react";
@@ -894,6 +895,11 @@ function BulkPartyImportDialog({
         );
         return;
       }
+      // An updated phone reaches the bills that carry it, as a rename does.
+      const updatedIds = valid
+        .filter((r) => r.status === "update" && r.matchId)
+        .map((r) => r.matchId!);
+      if (updatedIds.length) await syncNamesAfterRename({ partyIds: updatedIds });
       toast.success(
         `Imported: ${newCount} new, ${updateCount} updated` +
           (errorCount ? `, ${errorCount} skipped (errors)` : ""),
@@ -1076,7 +1082,24 @@ export function PartyDialog({
     setSaving(true);
     if (party) {
       PartyRepo.update(party.id, form as Party);
-      toast.success("Party updated");
+      /* Every bill, return and payment carries a copy of the party's name
+         (and a bill its phone). Renaming only the party left the sales list,
+         statements and PDFs on the old name — so the copies follow now. */
+      const renamed =
+        (form.name ?? "").trim() !== (party.name ?? "").trim() ||
+        (form.phone ?? "").trim() !== (party.phone ?? "").trim();
+      if (renamed) {
+        void syncNamesAfterRename({ partyIds: [party.id] }).then((n) => {
+          if (n === null)
+            toast.error(
+              "Party saved, but some bills still show the old name — run Settings › Fix Calculations",
+            );
+          else
+            toast.success(
+              n ? `Party updated — ${n} record(s) now show the new name` : "Party updated",
+            );
+        });
+      } else toast.success("Party updated");
     } else {
       PartyRepo.add({
         ...form,

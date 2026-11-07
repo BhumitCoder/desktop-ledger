@@ -1050,6 +1050,23 @@ export function InvoiceForm({ mode, existing }: Props) {
     // the linked-invoice display goes stale. Cascade the rename to them in the
     // same batch. (Payment MATH keys on invoiceId, so balances stay correct
     // regardless; this keeps the human-readable links right too.)
+    /* The bill moved to another party: its returns go with it. A return is
+       against this bill, so it belongs to whoever the bill belongs to — left
+       behind, it credited the old party for goods the new one sent back. */
+    if (existing?.id && existing.partyId && existing.partyId !== finalInv.partyId) {
+      const retRepo = isSale ? SaleReturnRepo : PurchaseReturnRepo;
+      const refs = new Set([(existing.number ?? "").trim(), finalInv.number].filter(Boolean));
+      for (const ret of retRepo.all()) {
+        if (ret.partyId === existing.partyId && refs.has((ret.originalRef ?? "").trim())) {
+          retRepo.updateBatched(batch, ret.id, {
+            partyId: finalInv.partyId,
+            partyName: finalInv.partyName,
+            partyPhone: finalInv.partyPhone,
+          });
+        }
+      }
+    }
+
     if (existing?.id) {
       const oldNum = (existing.number ?? "").trim();
       const newNum = finalInv.number;
@@ -1441,7 +1458,16 @@ export function InvoiceForm({ mode, existing }: Props) {
                       setPartyQ(e.target.value);
                       setPartyOpen(true);
                       setPartyIdx(0);
-                      if (inv.partyId) setInv({ ...inv, partyId: "", partyName: e.target.value });
+                      if (inv.partyId) {
+                        /* Typing over the name lets go of that party — and of
+                           its phone with it. The phone used to stay, and the
+                           save matches by phone FIRST, so a bill whose name
+                           was changed quietly went back to the old party:
+                           "editing the name does nothing". A phone the person
+                           typed themselves is kept. */
+                        if (phoneQ.trim() === (inv.partyPhone ?? "").trim()) setPhoneQ("");
+                        setInv({ ...inv, partyId: "", partyName: e.target.value, partyPhone: "" });
+                      }
                     }}
                     onFocus={() => setPartyOpen(true)}
                     onBlur={() => setTimeout(() => setPartyOpen(false), 150)}

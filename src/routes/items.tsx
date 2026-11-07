@@ -1,3 +1,4 @@
+import { syncNamesAfterRename } from "@/lib/nameSyncApply";
 import { fileName } from "@/lib/fileName";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { matchesQuery } from "@/lib/search";
@@ -655,6 +656,16 @@ export function ItemDialog({
       const patch: Partial<Item> = { ...f };
       delete patch.stock; // stock only changes via atomic increments
       ItemRepo.adjustField(item.id, "stock", openingDelta, patch);
+      /* Bill lines and stock adjustments carry the item's name; a rename
+         reaches them too, or old bills keep the old name for ever. */
+      if ((f.name ?? "").trim() !== (item.name ?? "").trim()) {
+        void syncNamesAfterRename({ itemIds: [item.id] }).then((n) => {
+          if (n === null)
+            toast.error(
+              "Item saved, but some bills still show the old name — run Settings › Fix Calculations",
+            );
+        });
+      }
       toast.success(
         openingDelta !== 0
           ? `Item updated — stock adjusted by ${openingDelta > 0 ? "+" : ""}${openingDelta}`

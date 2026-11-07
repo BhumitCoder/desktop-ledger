@@ -1,3 +1,4 @@
+import { syncNamesAfterRename } from "@/lib/nameSyncApply";
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -353,6 +354,14 @@ export function BulkUpdateItemsDialog({
         return;
       }
 
+      // Renamed items: their bill lines and adjustments follow.
+      const renamedIds = items
+        .filter((it) => draft[it.id] && isDirty(it, "name"))
+        .map((it) => it.id);
+      if (renamedIds.length && (await syncNamesAfterRename({ itemIds: renamedIds })) === null)
+        toast.error(
+          "Saved, but some bills still show old item names — run Settings › Fix Calculations",
+        );
       toast.success(
         `Updated ${itemCount} item${itemCount === 1 ? "" : "s"}` +
           (openingCount
