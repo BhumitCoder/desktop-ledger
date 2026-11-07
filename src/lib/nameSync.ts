@@ -1,4 +1,7 @@
 import type {
+  BankAccount,
+  BankTxn,
+  CashAdjustment,
   Expense,
   Invoice,
   Item,
@@ -38,7 +41,9 @@ export type NameSyncCollection =
   | "purchaseReturns"
   | "payments"
   | "expenses"
-  | "stockAdjustments";
+  | "stockAdjustments"
+  | "bankTxns"
+  | "cashAdjustments";
 
 export interface NameFix {
   collection: NameSyncCollection;
@@ -61,6 +66,10 @@ export interface NameSyncData {
   payments: Payment[];
   expenses: Expense[];
   stockAdjustments: StockAdjustment[];
+  /** For transfer descriptions, which name the accounts they moved between. */
+  banks?: BankAccount[];
+  bankTxns?: BankTxn[];
+  cashAdjustments?: CashAdjustment[];
 }
 
 /** Restrict the plan to what a rename touched. Absent = everything. */
@@ -68,6 +77,7 @@ export interface NameSyncScope {
   partyIds?: string[];
   itemIds?: string[];
   payeeIds?: string[];
+  bankIds?: string[];
 }
 
 const trimmed = (s: unknown) => (typeof s === "string" ? s.trim() : "");
@@ -77,7 +87,8 @@ export function planNameSync(data: NameSyncData, scope: NameSyncScope = {}): Nam
   const partyScoped = !!scope.partyIds;
   const itemScoped = !!scope.itemIds;
   const payeeScoped = !!scope.payeeIds;
-  const everything = !partyScoped && !itemScoped && !payeeScoped;
+  const bankScoped = !!scope.bankIds;
+  const everything = !partyScoped && !itemScoped && !payeeScoped && !bankScoped;
   const doParties = everything || partyScoped;
   const doItems = everything || itemScoped;
   const doPayees = everything || payeeScoped;
@@ -178,6 +189,111 @@ export function planNameSync(data: NameSyncData, scope: NameSyncScope = {}): Nam
         patch: { payeeName: p.name },
         changes: [`${e.payeeName || "(no name)"} → ${p.name}`],
       });
+    }
+  }
+  if (everything || bankScoped) fixes.push(...planTransferNotes(data, scope.bankIds));
+  return fixes;
+}
+
+const CASH = "Cash in Hand";
+/** "Transfer A → B", the note the transfer dialog writes ahead of the user's own. */
+const TRANSFER_PREFIX = /^Transfer .+ → .+$/;
+
+/**
+ * Transfer descriptions, rebuilt from the transfer itself.
+ *
+ * The transfer dialog writes "Transfer {from} → {to}" (plus the person's own
+ * note) onto both legs, and a Deposit / Withdraw with counter cash writes
+ * "Bank deposit — {account}" on its cash side. Those are text: rename the
+ * account and they kept saying "CHINA" for an account now called "K CH".
+ * They are rebuilt from the legs — the account money left and the one it
+ * reached — never by searching the text for the old name, and the person's
+ * own note is kept. A note that is itself just an old "Transfer A → B" (left
+ * by an edit that put the old description back in the note box) is dropped.
+ *
+ * Only transfers that carry a shared id: older ones have nothing reliable to
+ * rebuild from, and are left as they are.
+ */
+function planTransferNotes(data: NameSyncData, bankIds?: string[]): NameFix[] {
+  const banks = new Map((data.banks ?? []).map((b) => [b.id, b] as const));
+  const groups = new Map<string, { bank: BankTxn[]; cash: CashAdjustment[] }>();
+  const group = (id: string) => {
+    let g = groups.get(id);
+    if (!g) groups.set(id, (g = { bank: [], cash: [] }));
+    return g;
+  };
+  for (const t of data.bankTxns ?? []) if (t.transferId) group(t.transferId).bank.push(t);
+  for (const a of data.cashAdjustments ?? []) if (a.transferId) group(a.transferId).cash.push(a);
+
+  const fixes: NameFix[] = [];
+  for (const g of groups.values()) {
+    if (bankIds && !g.bank.some((t) => bankIds.includes(t.bankId))) continue;
+    // Every account named must still exist, or there is nothing to name it by.
+    if (g.bank.some((t) => !banks.get(t.bankId))) continue;
+    const nameOf = (t: BankTxn) => banks.get(t.bankId)!.name;
+
+    // A Deposit / Withdraw with counter cash: only its cash side names the bank.
+    const depositCash = g.cash.find((a) => /^bank (deposit|withdraw) — /i.test(a.reason ?? ""));
+    if (depositCash && g.bank.length === 1) {
+      const want = `Bank ${g.bank[0].type} — ${nameOf(g.bank[0])}`;
+      if ((depositCash.reason ?? "") !== want)
+        fixes.push({
+          collection: "cashAdjustments",
+          id: depositCash.id,
+          label: depositCash.date,
+          patch: { reason: want },
+          changes: [`${depositCash.reason} → ${want}`],
+        });
+      continue;
+    }
+
+    const out = g.bank.find((t) => t.type === "withdraw");
+    const into = g.bank.find((t) => t.type === "deposit");
+    const cashOut = g.cash.find((a) => a.type === "reduce");
+    const cashIn = g.cash.find((a) => a.type === "add");
+    const from = out ? nameOf(out) : cashOut ? CASH : null;
+    const to = into ? nameOf(into) : cashIn ? CASH : null;
+    if (!from || !to) continue;
+    const prefix = `Transfer ${from} → ${to}`;
+
+    const legs: {
+      collection: "bankTxns" | "cashAdjustments";
+      id: string;
+      date: string;
+      text: string;
+      field: "notes" | "reason";
+    }[] = [
+      ...g.bank.map((t) => ({
+        collection: "bankTxns" as const,
+        id: t.id,
+        date: t.date,
+        text: t.notes ?? "",
+        field: "notes" as const,
+      })),
+      ...g.cash.map((a) => ({
+        collection: "cashAdjustments" as const,
+        id: a.id,
+        date: a.date,
+        text: a.reason ?? "",
+        field: "reason" as const,
+      })),
+    ];
+    // Only the dialog's own format is rebuilt; anything else was typed by hand.
+    if (!legs.every((l) => /^transfer\s/i.test(l.text.trim()))) continue;
+    for (const l of legs) {
+      const text = l.text.trim();
+      const cut = text.indexOf(" — ");
+      let note = cut >= 0 ? text.slice(cut + 3).trim() : "";
+      if (TRANSFER_PREFIX.test(note)) note = "";
+      const want = note ? `${prefix} — ${note}` : prefix;
+      if (text !== want)
+        fixes.push({
+          collection: l.collection,
+          id: l.id,
+          label: l.date,
+          patch: { [l.field]: want },
+          changes: [`${text} → ${want}`],
+        });
     }
   }
   return fixes;

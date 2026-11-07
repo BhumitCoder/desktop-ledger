@@ -19,12 +19,13 @@ import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 import { downloadCsv } from "@/lib/csv";
 import { downloadElementAsPdf } from "@/lib/pdf";
-import type { BankAccount, CashAdjustment } from "@/types";
+import type { BankAccount, BankTxn, CashAdjustment } from "@/types";
 import { Pencil, Trash2 } from "lucide-react";
 import { usePermissions } from "@/hooks/usePermissions";
 import { newBatch, commitBatch } from "@/repositories/base";
 import { removalForBankTxn, balanceReversal } from "@/lib/entryRemoval";
 import { CashBankTransferDialog } from "@/components/CashBankTransferDialog";
+import { BankTxnDialog } from "./bank";
 import {
   ArrowLeft,
   Printer,
@@ -75,9 +76,12 @@ function BankStatementPage() {
      move on one account and not the other. */
   const [editingTransfer, setEditingTransfer] = useState<CashAdjustment | null>(null);
   const [editingTransferId, setEditingTransferId] = useState<string | null>(null);
+  /** A plain deposit or withdrawal being corrected. */
+  const [editingTxn, setEditingTxn] = useState<BankTxn | null>(null);
 
   /** Open whichever kind of transfer this row belongs to. */
-  const { isOwner, canDelete } = usePermissions();
+  const { isOwner, canDelete, canEdit } = usePermissions();
+  const editAllowed = isOwner || canEdit("cashBank");
   const deleteAllowed = isOwner || canDelete("cashBank");
 
   /**
@@ -95,6 +99,7 @@ function BankStatementPage() {
     const removal = removalForBankTxn(txn, {
       bankTxns: BankTxnRepo.all(),
       cashAdjustments: CashAdjustmentRepo.all(),
+      banks: BankRepo.all(),
     });
     const places = [
       ...removal.bankTxns.map((t) => BankRepo.get(t.bankId)?.name ?? "a bank account"),
@@ -120,6 +125,24 @@ function BankStatementPage() {
       if (!ok) toast.error("Could not delete — reload and check before trying again");
       else toast.success(isTransfer ? "Transfer deleted from both accounts" : "Entry deleted");
     });
+  };
+
+  /**
+   * Correct a deposit or withdrawal. One whose cash side was written without
+   * a link (older Deposit / Withdraw entries) is a transfer in all but name,
+   * so it opens as one and both sides change together; a truly standalone
+   * entry opens on its own.
+   */
+  const editEntry = (txnId: string) => {
+    const txn = BankTxnRepo.get(txnId);
+    if (!txn) return;
+    const cashSide = removalForBankTxn(txn, {
+      bankTxns: BankTxnRepo.all(),
+      cashAdjustments: CashAdjustmentRepo.all(),
+      banks: BankRepo.all(),
+    }).cashAdjustments[0];
+    if (cashSide) setEditingTransfer(cashSide);
+    else setEditingTxn(txn);
   };
 
   const editTransfer = (transferId: string) => {
@@ -423,8 +446,20 @@ function BankStatementPage() {
                       {/* The same edit and delete the desk table offers. A
                           phone had neither, so an entry made there could not
                           be taken back there. */}
-                      {(e.transferId || (e.txnId && deleteAllowed)) && (
+                      {(e.transferId || (e.txnId && (deleteAllowed || editAllowed))) && (
                         <div className="flex shrink-0 items-center gap-1 no-print">
+                          {!e.transferId && e.txnId && editAllowed && (
+                            <button
+                              onClick={(ev) => {
+                                ev.stopPropagation();
+                                editEntry(e.txnId!);
+                              }}
+                              aria-label="Edit this entry"
+                              className="h-11 w-11 inline-flex items-center justify-center rounded-md text-gray-400 hover:bg-blue-50 hover:text-blue-600"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                          )}
                           {e.transferId && (
                             <button
                               onClick={(ev) => {
@@ -523,6 +558,19 @@ function BankStatementPage() {
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       )}
+                      {!e.transferId && e.txnId && editAllowed && (
+                        <button
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            editEntry(e.txnId!);
+                          }}
+                          aria-label="Edit this entry"
+                          className="rounded p-1.5 text-gray-300 transition hover:bg-blue-50 hover:text-blue-600"
+                          title="Edit this entry"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                       {e.transferId && (
                         <button
                           onClick={(ev) => {
@@ -566,6 +614,13 @@ function BankStatementPage() {
           rewrites BOTH legs of a transfer together, and a second
           implementation of that is a second chance to move money on one
           account and not the other. */}
+      <BankTxnDialog
+        open={!!editingTxn}
+        onOpenChange={(v) => !v && setEditingTxn(null)}
+        accounts={BankRepo.all()}
+        editing={editingTxn}
+        onSaved={() => setEditingTxn(null)}
+      />
       <CashBankTransferDialog
         open={!!editingTransfer || !!editingTransferId}
         onOpenChange={(v) => !v && closeTransfer()}

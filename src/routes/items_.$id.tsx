@@ -17,7 +17,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 import { currentFifo } from "@/hooks/useFifo";
 import { lineKey, stockValueOf, unitCostOf } from "@/lib/fifo";
-import type { Item, Invoice, Return } from "@/types";
+import type { Item, Invoice, Return, StockAdjustment } from "@/types";
 import {
   ArrowLeft,
   Package,
@@ -27,7 +27,11 @@ import {
   TrendingUp,
   ArrowDownLeft,
   ArrowUpRight,
+  Trash2,
 } from "lucide-react";
+import { newBatch, commitBatch } from "@/repositories/base";
+import { adjustmentEffect } from "@/lib/stock";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/items_/$id")({ component: ItemDetailPage });
 
@@ -44,6 +48,8 @@ interface HistoryRow {
   rate: number | null;
   docId?: string;
   docKind?: "sale" | "purchase" | "sale-return" | "purchase-return";
+  /** The stock adjustment this row is, so it can be corrected or deleted. */
+  adjId?: string;
 }
 
 function ItemDetailPage() {
@@ -51,11 +57,14 @@ function ItemDetailPage() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
   const goBack = useGoBack("/items");
-  const { isOwner, canEdit } = usePermissions();
+  const { isOwner, canEdit, canDelete } = usePermissions();
+  const deleteAllowed = isOwner || canDelete("masterData");
   const editAllowed = isOwner || canEdit("masterData");
   const [item, setItem] = useState<Item | null | undefined>(undefined);
   const [editOpen, setEditOpen] = useState(false);
   const [adjustOpen, setAdjustOpen] = useState(false);
+  /** An adjustment being corrected from the history below. */
+  const [editAdj, setEditAdj] = useState<StockAdjustment | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -131,6 +140,7 @@ function ItemDetailPage() {
         qtyIn: a.type === "add" ? a.qty : 0,
         qtyOut: a.type === "reduce" ? a.qty : 0,
         rate: null,
+        adjId: a.id,
       });
     }
     entries.sort(
@@ -140,6 +150,67 @@ function ItemDetailPage() {
   }, [item, id, refreshKey]);
 
   const pg = usePagination(rows, "item-history");
+
+  /**
+   * Delete a stock adjustment. Its effect comes off the item's stock in the
+   * same batch as the record, so the item ends where it would have been had
+   * the adjustment never been made. An adjustment could not be deleted (or
+   * corrected) anywhere before — a wrong one could only be cancelled by a
+   * second, opposite one, both of which then counted in profit & loss.
+   */
+  const deleteAdj = (adjId: string) => {
+    if (!deleteAllowed) {
+      toast.error("You don't have permission to delete stock adjustments");
+      return;
+    }
+    const a = StockAdjustmentRepo.get(adjId);
+    if (!a) return;
+    if (
+      !confirm(
+        `Delete this stock ${a.type === "add" ? "addition" : "reduction"} of ${a.qty}? The item's stock goes back by the same amount.`,
+      )
+    )
+      return;
+    const batch = newBatch();
+    if (ItemRepo.get(a.itemId))
+      ItemRepo.adjustFieldBatched(batch, a.itemId, "stock", -adjustmentEffect(a.type, a.qty));
+    StockAdjustmentRepo.removeBatched(batch, a.id);
+    commitBatch(batch, "delete stock adjustment").then((ok) => {
+      if (!ok) toast.error("Could not delete — reload and check before trying again");
+      else toast.success("Stock adjustment deleted — stock put back");
+    });
+  };
+  const AdjActions = ({ adjId, big }: { adjId: string; big?: boolean }) => {
+    const cls = big
+      ? "h-11 w-11 inline-flex items-center justify-center rounded-md"
+      : "rounded p-1.5";
+    return (
+      <span className="inline-flex items-center gap-0.5" onClick={(ev) => ev.stopPropagation()}>
+        {editAllowed && (
+          <button
+            type="button"
+            onClick={() => setEditAdj(StockAdjustmentRepo.get(adjId) ?? null)}
+            aria-label="Edit this adjustment"
+            title="Edit this adjustment"
+            className={`${cls} text-gray-400 transition hover:bg-blue-50 hover:text-blue-600`}
+          >
+            <Pencil className={big ? "h-4 w-4" : "h-3.5 w-3.5"} />
+          </button>
+        )}
+        {deleteAllowed && (
+          <button
+            type="button"
+            onClick={() => deleteAdj(adjId)}
+            aria-label="Delete this adjustment"
+            title="Delete this adjustment"
+            className={`${cls} text-gray-400 transition hover:bg-rose-50 hover:text-rose-600`}
+          >
+            <Trash2 className={big ? "h-4 w-4" : "h-3.5 w-3.5"} />
+          </button>
+        )}
+      </span>
+    );
+  };
 
   const openRow = (e: HistoryRow) => {
     if (!e.docId || !e.docKind) return;
@@ -305,6 +376,9 @@ function ItemDetailPage() {
                           <p className="font-mono text-[10px] text-blue-500 mt-0.5">{e.ref}</p>
                         )}
                       </div>
+                      {e.adjId && (editAllowed || deleteAllowed) && (
+                        <AdjActions adjId={e.adjId} big />
+                      )}
                     </div>
                   );
                 })}
@@ -316,7 +390,7 @@ function ItemDetailPage() {
           <table className="hidden md:table w-full text-[12.5px] border-collapse">
             <thead>
               <tr className="bg-gray-50">
-                {["Date", "Type", "Ref #", "Party", "Rate", "Qty In", "Qty Out"].map((h, i) => (
+                {["Date", "Type", "Ref #", "Party", "Rate", "Qty In", "Qty Out", ""].map((h, i) => (
                   <th
                     key={h}
                     className={`px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500 border-b border-gray-200 whitespace-nowrap ${i >= 4 ? "text-right" : "text-left"}`}
@@ -329,7 +403,7 @@ function ItemDetailPage() {
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-14 text-gray-400">
+                  <td colSpan={8} className="text-center py-14 text-gray-400">
                     No transactions for this item yet
                   </td>
                 </tr>
@@ -364,6 +438,9 @@ function ItemDetailPage() {
                     <td className="px-4 py-2.5 text-right tabular-nums text-rose-600 font-semibold">
                       {e.qtyOut ? `−${e.qtyOut}` : "—"}
                     </td>
+                    <td className="px-2 py-2.5 text-right whitespace-nowrap no-print">
+                      {e.adjId && <AdjActions adjId={e.adjId} />}
+                    </td>
                   </tr>
                 ))
               )}
@@ -387,9 +464,13 @@ function ItemDetailPage() {
         onSaved={() => setRefreshKey((k) => k + 1)}
       />
       <StockAdjustDialog
-        item={adjustOpen ? item : null}
+        item={adjustOpen || editAdj ? item : null}
+        editing={editAdj}
         onOpenChange={(v) => {
-          if (!v) setAdjustOpen(false);
+          if (!v) {
+            setAdjustOpen(false);
+            setEditAdj(null);
+          }
         }}
         onSaved={() => setRefreshKey((k) => k + 1)}
       />

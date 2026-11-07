@@ -1,4 +1,7 @@
 import {
+  BankRepo,
+  BankTxnRepo,
+  CashAdjustmentRepo,
   ExpenseRepo,
   ItemRepo,
   PartyRepo,
@@ -26,6 +29,9 @@ export function nameSyncData(): NameSyncData {
     payments: PaymentRepo.all(),
     expenses: ExpenseRepo.all(),
     stockAdjustments: StockAdjustmentRepo.all(),
+    banks: BankRepo.all(),
+    bankTxns: BankTxnRepo.all(),
+    cashAdjustments: CashAdjustmentRepo.all(),
   };
 }
 
@@ -37,6 +43,8 @@ const repoOf = {
   payments: PaymentRepo,
   expenses: ExpenseRepo,
   stockAdjustments: StockAdjustmentRepo,
+  bankTxns: BankTxnRepo,
+  cashAdjustments: CashAdjustmentRepo,
 } as const;
 
 /** Firestore takes at most 500 writes in one batch; stay well under. */

@@ -25,7 +25,11 @@ const sameAmount = (a: number, b: number) => Math.abs(a - b) < 0.005;
 
 export function removalForBankTxn(
   txn: BankTxn,
-  data: { bankTxns: BankTxn[]; cashAdjustments: CashAdjustment[] },
+  data: {
+    bankTxns: BankTxn[];
+    cashAdjustments: CashAdjustment[];
+    banks?: { id: string; name: string }[];
+  },
 ): EntryRemoval {
   if (txn.transferId) {
     return {
@@ -33,7 +37,16 @@ export function removalForBankTxn(
       cashAdjustments: data.cashAdjustments.filter((a) => a.transferId === txn.transferId),
     };
   }
-  if (!isTransferNote(txn.notes)) return { bankTxns: [txn], cashAdjustments: [] };
+  if (!isTransferNote(txn.notes)) {
+    // A Deposit / Withdraw that took its cash from (or gave it to) the
+    // counter: find its cash side the same way the Cash page does.
+    const cashSide = data.cashAdjustments.find(
+      (a) =>
+        !a.transferId &&
+        transferLegsFor(a, data.bankTxns, data.banks ?? []).some((t) => t.id === txn.id),
+    );
+    return { bankTxns: [txn], cashAdjustments: cashSide ? [cashSide] : [] };
+  }
   const note = (txn.notes ?? "").trim();
   const other = txn.type === "deposit" ? "withdraw" : "deposit";
   const bankPartner = data.bankTxns.find(
@@ -64,10 +77,14 @@ export function removalForBankTxn(
 
 export function removalForCashAdjustment(
   adj: CashAdjustment,
-  data: { bankTxns: BankTxn[]; cashAdjustments: CashAdjustment[] },
+  data: {
+    bankTxns: BankTxn[];
+    cashAdjustments: CashAdjustment[];
+    banks?: { id: string; name: string }[];
+  },
 ): EntryRemoval {
   return {
-    bankTxns: transferLegsFor(adj, data.bankTxns),
+    bankTxns: transferLegsFor(adj, data.bankTxns, data.banks ?? []),
     cashAdjustments: adj.transferId
       ? data.cashAdjustments.filter((a) => a.transferId === adj.transferId)
       : [adj],

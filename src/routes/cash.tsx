@@ -87,6 +87,7 @@ function CashPage() {
     const removal = removalForCashAdjustment(adj, {
       bankTxns: BankTxnRepo.all(),
       cashAdjustments: CashAdjustmentRepo.all(),
+      banks: BankRepo.all(),
     });
     const legs = removal.bankTxns;
     const what = legs.length
@@ -356,7 +357,7 @@ function CashPage() {
                 <CashRowActions
                   row={e}
                   onEdit={(adj) =>
-                    transferLegsFor(adj, BankTxnRepo.all()).length > 0
+                    transferLegsFor(adj, BankTxnRepo.all(), BankRepo.all()).length > 0
                       ? setEditTransfer(adj)
                       : setEditAdj(adj)
                   }
@@ -430,7 +431,7 @@ function CashRowActions({
     // a flag, so transfers made before the two legs were stamped with a
     // shared id are refused too. Those are the ones that mattered: they were
     // being offered for edit.
-    const isTransfer = !!adj && transferLegsFor(adj, BankTxnRepo.all()).length > 0;
+    const isTransfer = !!adj && transferLegsFor(adj, BankTxnRepo.all(), BankRepo.all()).length > 0;
     return (
       <span
         className="inline-flex items-center justify-center gap-0.5"

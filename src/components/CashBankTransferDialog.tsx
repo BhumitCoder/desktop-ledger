@@ -18,7 +18,7 @@ import {
 import { newBatch, commitBatch, genId } from "@/repositories/base";
 import { useRepoMemo } from "@/hooks/useRepoData";
 import { cashFlows } from "@/lib/ledger";
-import { transferLegsFor } from "@/lib/transferLegs";
+import { transferLegsFor, userNoteOf } from "@/lib/transferLegs";
 import type { CashAdjustment } from "@/types";
 import { fmtMoney, today } from "@/lib/format";
 
@@ -123,7 +123,7 @@ export function CashBankTransferDialog({
   // leg says the direction: cash OUT means cash was the source.
   const editLegs = useMemo(() => {
     const all = BankTxnRepo.all();
-    if (editing) return transferLegsFor(editing, all);
+    if (editing) return transferLegsFor(editing, all, BankRepo.all());
     if (editingTransferId) return all.filter((t) => t.transferId === editingTransferId);
     return [];
   }, [editing, editingTransferId]);
@@ -142,7 +142,7 @@ export function CashBankTransferDialog({
       const leg = out ?? into;
       setAmount(leg?.amount ?? 0);
       setDate(leg?.date ?? today());
-      setNotes((leg?.notes ?? "").replace(/^Transfer\b[^—]*—\s*/i, "").trim());
+      setNotes(userNoteOf(leg?.notes ?? ""));
       setSaving(false);
       return;
     }
@@ -155,7 +155,7 @@ export function CashBankTransferDialog({
       setDate(editing.date);
       // Strip the "Transfer X → Y" prefix the save adds back, so the note the
       // person actually typed is what they see in the box.
-      setNotes((editing.reason ?? "").replace(/^Transfer\b[^—]*—\s*/i, "").trim());
+      setNotes(userNoteOf(editing.reason ?? ""));
       setSaving(false);
       return;
     }

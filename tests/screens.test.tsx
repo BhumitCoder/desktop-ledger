@@ -28,6 +28,7 @@ import { PrintablePartyStatement } from "@/components/PrintablePartyStatement";
 import { CashBankTransferDialog } from "@/components/CashBankTransferDialog";
 import { PartyDialog } from "@/routes/parties";
 import { ReceivePaymentDialog } from "@/routes/payments";
+import { BankTxnDialog } from "@/routes/bank";
 import { DataTable } from "@/components/DataTable";
 import { PrintableInvoice } from "@/components/PrintableInvoice";
 import { ThermalReceipt } from "@/components/ThermalReceipt";
@@ -4782,6 +4783,185 @@ async function runAll(): Promise<Results> {
     assert(
       !BankTxnRepo.get("DLT3") && BankRepo.get("DLA")?.balance === 1000,
       `passbook: deleting the deposit takes it back off — A ${BankRepo.get("DLA")?.balance} (want 1000)`,
+    );
+    window.confirm = realConfirm;
+  }
+
+  /* ── Adjustments edit and delete; bank entries edit; deposits link their cash ──
+     Three gaps closed together: a stock adjustment could be neither corrected
+     nor deleted, a plain deposit or withdrawal could not be corrected, and a
+     Deposit / Withdraw that took its cash from the counter wrote the two sides
+     UNLINKED — so deleting one left the other holding money that had gone. */
+  {
+    const realConfirm = window.confirm;
+    window.confirm = () => true;
+    const clickBtn = async (sel: string) => {
+      const b = Array.from(document.querySelectorAll<HTMLButtonElement>(sel))
+        .filter((x) => x.offsetParent !== null)
+        .pop();
+      await act(async () => {
+        b?.click();
+      });
+      await settleMs(200);
+      return !!b;
+    };
+
+    // 1 — stock adjustment: edit, then delete, from the item page.
+    ItemRepo.add({
+      id: "ADJI",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "Adjust Probe Item",
+      unit: "pcs",
+      gstRate: 0,
+      purchasePrice: 10,
+      salePrice: 20,
+      stock: 15, // 10 opening + 5 added
+      openingStock: 10,
+    } as never);
+    StockAdjustmentRepo.add({
+      id: "ADJ1",
+      createdAt: `${D2}T09:00:00Z`,
+      itemId: "ADJI",
+      itemName: "Adjust Probe Item",
+      date: D2,
+      type: "add",
+      qty: 5,
+      reason: "count",
+    } as never);
+    await renderRoute("/items/ADJI");
+    await settleMs(150);
+    assert(
+      await clickBtn('button[aria-label="Edit this adjustment"]'),
+      "adjust: an adjustment can be edited",
+    );
+    const dlg = currentDialog();
+    assert(
+      (dlg.textContent ?? "").includes("Edit Stock Adjustment"),
+      "adjust: the dialog says it is editing",
+    );
+    const qtyBox = Array.from(dlg.querySelectorAll<HTMLInputElement>("input")).find(
+      (i) => i.value === "5",
+    );
+    assert(!!qtyBox, "adjust: the recorded quantity is in the box");
+    await act(async () => {
+      setInput(qtyBox, "8");
+    });
+    await settleMs(60);
+    await act(async () => {
+      (dlg.querySelector('button[type="submit"]') as HTMLButtonElement | null)?.click();
+    });
+    await settleMs(250);
+    assert(
+      ItemRepo.get("ADJI")?.stock === 18 && StockAdjustmentRepo.get("ADJ1")?.qty === 8,
+      `adjust: +5 corrected to +8 moves stock by 3 — stock ${ItemRepo.get("ADJI")?.stock} (want 18), record ${StockAdjustmentRepo.get("ADJ1")?.qty}`,
+    );
+    assert(
+      await clickBtn('button[aria-label="Delete this adjustment"]'),
+      "adjust: an adjustment can be deleted",
+    );
+    assert(
+      !StockAdjustmentRepo.get("ADJ1") && ItemRepo.get("ADJI")?.stock === 10,
+      `adjust: deleting it puts the stock back to the opening 10 — ${ItemRepo.get("ADJI")?.stock}`,
+    );
+
+    // 2 — a plain deposit can be corrected from the passbook.
+    BankRepo.add({
+      id: "EDB",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "Edit Entry Bank",
+      openingBalance: 0,
+      balance: 400,
+    } as never);
+    BankTxnRepo.add({
+      id: "EDT",
+      createdAt: `${D2}T09:00:00Z`,
+      bankId: "EDB",
+      date: D2,
+      type: "deposit",
+      amount: 400,
+      notes: "slip 7",
+    } as never);
+    await renderRoute("/bank/EDB");
+    await settleMs(150);
+    assert(
+      await clickBtn('button[aria-label="Edit this entry"]'),
+      "bank entry: a plain deposit can be edited",
+    );
+    const bdlg = currentDialog();
+    const amt = Array.from(bdlg.querySelectorAll<HTMLInputElement>("input")).find(
+      (i) => i.value === "400",
+    );
+    assert(!!amt, "bank entry: its amount is in the box");
+    await act(async () => {
+      setInput(amt, "650");
+    });
+    await settleMs(60);
+    await act(async () => {
+      (bdlg.querySelector('button[type="submit"]') as HTMLButtonElement | null)?.click();
+    });
+    await settleMs(250);
+    assert(
+      BankTxnRepo.get("EDT")?.amount === 650 && BankRepo.get("EDB")?.balance === 650,
+      `bank entry: 400 corrected to 650 — record ${BankTxnRepo.get("EDT")?.amount}, balance ${BankRepo.get("EDB")?.balance}`,
+    );
+
+    // 3 — a deposit taken from the counter links its two sides, and deletes whole.
+    BankRepo.add({
+      id: "LNB",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "Linked Deposit Bank",
+      openingBalance: 0,
+      balance: 0,
+    } as never);
+    {
+      const h = document.createElement("div");
+      document.body.appendChild(h);
+      const r = createRoot(h);
+      await act(async () => {
+        r.render(
+          <BankTxnDialog
+            open
+            onOpenChange={() => {}}
+            accounts={[BankRepo.get("LNB")!]}
+            onSaved={() => {}}
+          />,
+        );
+      });
+      await settleMs(120);
+      const d = currentDialog();
+      const amountBox = Array.from(d.querySelectorAll<HTMLInputElement>("input")).find(
+        (i) => i.getAttribute("inputmode") === "decimal",
+      );
+      await act(async () => {
+        setInput(amountBox, "300");
+      });
+      await settleMs(60);
+      await act(async () => {
+        (d.querySelector('button[type="submit"]') as HTMLButtonElement | null)?.click();
+      });
+      await settleMs(250);
+      r.unmount();
+      h.remove();
+    }
+    const lnTxn = BankTxnRepo.all().find((t) => t.bankId === "LNB");
+    const lnCash = CashAdjustmentRepo.all().find(
+      (a) => a.transferId && a.transferId === lnTxn?.transferId,
+    );
+    assert(
+      !!lnTxn?.transferId && !!lnCash && BankRepo.get("LNB")?.balance === 300,
+      `linked deposit: both sides carry one id — bank ${lnTxn?.transferId}, cash ${lnCash?.transferId}`,
+    );
+    await renderRoute("/bank/LNB");
+    await settleMs(150);
+    assert(
+      await clickBtn('button[aria-label="Delete this transfer"]'),
+      "linked deposit: deletes as one transfer",
+    );
+    assert(
+      !BankTxnRepo.get(lnTxn?.id ?? "") &&
+        !CashAdjustmentRepo.get(lnCash?.id ?? "") &&
+        BankRepo.get("LNB")?.balance === 0,
+      `linked deposit: the bank AND the counter cash both go back — balance ${BankRepo.get("LNB")?.balance}`,
     );
     window.confirm = realConfirm;
   }

@@ -19,7 +19,8 @@ import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 import { useStickyState } from "@/hooks/useStickySearch";
 import { BulkUpdateItemsDialog } from "@/components/BulkUpdateItemsDialog";
 import { newBatch, commitBatch } from "@/repositories/base";
-import type { Item } from "@/types";
+import type { Item, StockAdjustment } from "@/types";
+import { adjustmentEffect } from "@/lib/stock";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/Field";
@@ -451,10 +452,14 @@ export function StockAdjustDialog({
   item,
   onOpenChange,
   onSaved,
+  editing = null,
 }: {
   item: Item | null;
   onOpenChange: (v: boolean) => void;
   onSaved: () => void;
+  /** An adjustment being corrected. Its old effect on stock is undone and
+   *  the new one applied, in one batch with the record itself. */
+  editing?: StockAdjustment | null;
 }) {
   const [type, setType] = useState<"add" | "reduce">("add");
   const [qty, setQty] = useState(0);
@@ -467,18 +472,25 @@ export function StockAdjustDialog({
 
   useEffect(() => {
     if (item) {
-      setType("add");
-      setQty(0);
-      setDate(today());
-      setReason("");
+      setType(editing?.type ?? "add");
+      setQty(editing?.qty ?? 0);
+      setDate(editing?.date ?? today());
+      setReason(editing?.reason ?? "");
       setSaving(false);
       savingRef.current = false;
     }
-  }, [item]);
+  }, [item, editing]);
 
   if (!item) return null;
   const n = qty;
-  const newStock = Math.round((item.stock + (type === "add" ? n : -n)) * 100) / 100;
+  /* How far this save moves the stock: the new effect, less the old one
+     when an existing adjustment is being corrected. */
+  const delta =
+    Math.round(
+      (adjustmentEffect(type, n) - (editing ? adjustmentEffect(editing.type, editing.qty) : 0)) *
+        100,
+    ) / 100;
+  const newStock = Math.round((item.stock + delta) * 100) / 100;
 
   const save = (e: React.FormEvent) => {
     e.preventDefault();
@@ -493,18 +505,30 @@ export function StockAdjustDialog({
     // otherwise a partial failure could move stock with no audit trail (or
     // vice versa).
     const batch = newBatch();
-    ItemRepo.adjustFieldBatched(batch, item.id, "stock", type === "add" ? n : -n);
-    StockAdjustmentRepo.addBatched(batch, {
-      itemId: item.id,
-      itemName: item.name,
-      date,
-      type,
-      qty: n,
-      reason: reason.trim() || undefined,
-    });
-    commitBatch(batch, "stock adjustment");
+    if (delta !== 0) ItemRepo.adjustFieldBatched(batch, item.id, "stock", delta);
+    if (editing) {
+      StockAdjustmentRepo.updateBatched(batch, editing.id, {
+        itemName: item.name,
+        date,
+        type,
+        qty: n,
+        reason: reason.trim() || undefined,
+      });
+    } else {
+      StockAdjustmentRepo.addBatched(batch, {
+        itemId: item.id,
+        itemName: item.name,
+        date,
+        type,
+        qty: n,
+        reason: reason.trim() || undefined,
+      });
+    }
+    commitBatch(batch, editing ? "edit stock adjustment" : "stock adjustment");
     toast.success(
-      `${item.name}: stock ${type === "add" ? "increased" : "reduced"} by ${n} → now ${newStock} ${item.unit}`,
+      editing
+        ? `${item.name}: adjustment corrected → stock now ${newStock} ${item.unit}`
+        : `${item.name}: stock ${type === "add" ? "increased" : "reduced"} by ${n} → now ${newStock} ${item.unit}`,
     );
     onSaved();
     onOpenChange(false);
@@ -514,7 +538,9 @@ export function StockAdjustDialog({
     <Dialog open={!!item} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Adjust Stock — {item.name}</DialogTitle>
+          <DialogTitle>
+            {editing ? "Edit Stock Adjustment" : "Adjust Stock"} — {item.name}
+          </DialogTitle>
         </DialogHeader>
         <form onSubmit={save} className="space-y-3">
           <p className="text-sm text-muted-foreground">

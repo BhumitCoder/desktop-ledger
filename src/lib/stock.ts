@@ -39,3 +39,14 @@ export function correctedOpening(opening: number, delta: number): number | null 
   const next = Math.round(((Number(opening) || 0) + (Number(delta) || 0)) * 100) / 100;
   return next < 0 ? null : next;
 }
+
+/**
+ * What a stock adjustment does to the item's stock: +qty for "add", −qty for
+ * "reduce". Editing one moves stock by the difference between its new and
+ * old effect; deleting one moves it by minus its effect — so the item ends
+ * exactly where it would have been had the adjustment always been right.
+ */
+export function adjustmentEffect(type: "add" | "reduce", qty: number): number {
+  const q = Math.round((Number(qty) || 0) * 100) / 100;
+  return type === "add" ? q : -q;
+}

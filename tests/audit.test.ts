@@ -50,6 +50,8 @@ import {
   largestSplitMode,
 } from "@/lib/paymentSplit";
 import { readFileSync } from "node:fs";
+import { adjustmentEffect } from "@/lib/stock";
+import { userNoteOf } from "@/lib/transferLegs";
 import { planNameSync } from "@/lib/nameSync";
 import type { Party, Payee } from "@/types";
 import { removalForBankTxn, removalForCashAdjustment, balanceReversal } from "@/lib/entryRemoval";
@@ -4410,6 +4412,172 @@ console.log(`\n═════════════════════�
   assert(
     read("src/routes/cash.tsx").includes("removalForCashAdjustment(adj"),
     "DR9: and so does the Cash page",
+  );
+}
+
+/* ═══════ TEST EA: adjustments and bank entries can be corrected; transfer text follows renames ═══════ */
+{
+  // Stock adjustments: what one does, so edit and delete can undo it exactly.
+  assert(
+    adjustmentEffect("add", 5) === 5 && adjustmentEffect("reduce", 5) === -5,
+    "EA1: add is +qty, reduce is −qty",
+  );
+  const editDelta = adjustmentEffect("reduce", 3) - adjustmentEffect("add", 5);
+  assert(editDelta === -8, "EA2: correcting +5 to −3 moves stock by −8");
+  assert(-adjustmentEffect("reduce", 2.5) === 2.5, "EA3: deleting a reduction puts the stock back");
+
+  // Deposit / Withdraw with counter cash: the two sides are found together.
+  const bk = (id: string, name: string) => ({ id, name });
+  const banks = [bk("BK1", "K CH"), bk("BK2", "KNT ACT")];
+  const tx = (
+    id: string,
+    bankId: string,
+    type: "deposit" | "withdraw",
+    amount: number,
+    extra: Partial<BankTxn> = {},
+  ) => ({ id, bankId, type, amount, date: "2026-04-01", createdAt: "", ...extra }) as BankTxn;
+  const ca = (
+    id: string,
+    type: "add" | "reduce",
+    amount: number,
+    reason: string,
+    extra: Partial<CashAdjustment> = {},
+  ) =>
+    ({ id, type, amount, reason, date: "2026-04-01", createdAt: "", ...extra }) as CashAdjustment;
+  const dep = tx("D1", "BK1", "deposit", 500, { notes: "slip 44" });
+  const depCash = ca("DC1", "reduce", 500, "Bank deposit — K CH");
+  const other = tx("D2", "BK2", "deposit", 500, { notes: "" });
+  assert(
+    transferLegsFor(depCash, [dep, other], banks)
+      .map((t) => t.id)
+      .join() === "D1",
+    "EA4: an unlinked deposit's cash side finds its bank side by the account's name",
+  );
+  assert(
+    transferLegsFor(ca("DC2", "reduce", 500, "Bank deposit — OLD NAME"), [dep, other], banks)
+      .length === 0,
+    "EA5: with two equal deposits and no name to go by, nothing is guessed",
+  );
+  assert(
+    transferLegsFor(ca("DC3", "add", 500, "Bank deposit — K CH"), [dep], banks).length === 0,
+    "EA6: a cash ADD is never the cash side of a deposit",
+  );
+  const rm = removalForBankTxn(dep, { bankTxns: [dep, other], cashAdjustments: [depCash], banks });
+  assert(
+    rm.bankTxns.map((t) => t.id).join() === "D1" &&
+      rm.cashAdjustments.map((a) => a.id).join() === "DC1",
+    "EA7: deleting an unlinked deposit takes its cash side too",
+  );
+  const lone = removalForBankTxn(other, { bankTxns: [dep, other], cashAdjustments: [], banks });
+  assert(
+    lone.bankTxns.length === 1 && lone.cashAdjustments.length === 0,
+    "EA8: a deposit with no cash side is just itself",
+  );
+
+  // The transfer edit box gives back only the person's own note.
+  assert(
+    userNoteOf("Transfer A → B — TO K") === "TO K",
+    "EA9: the description is taken off the note",
+  );
+  assert(
+    userNoteOf("Transfer A → B") === "",
+    "EA10: a note that was only the description is empty",
+  );
+  assert(
+    userNoteOf("Transfer KNT ACT → K CH — Transfer KNT ACT → CHINA") === "",
+    "EA11: and a stacked old description is not handed back as a note",
+  );
+  assert(userNoteOf("paid rent") === "paid rent", "EA12: a hand-written note is left alone");
+
+  // Transfer descriptions, rebuilt from the transfer after a rename.
+  const empty = {
+    parties: [],
+    items: [],
+    payees: [],
+    sales: [],
+    purchases: [],
+    saleReturns: [],
+    purchaseReturns: [],
+    payments: [],
+    expenses: [],
+    stockAdjustments: [],
+  };
+  const bankTxns = [
+    tx("T1", "BK2", "withdraw", 90, { transferId: "X1", notes: "Transfer KNT ACT → CHINA" }),
+    tx("T2", "BK1", "deposit", 90, { transferId: "X1", notes: "Transfer KNT ACT → CHINA" }),
+    tx("T3", "BK1", "deposit", 80, {
+      transferId: "X2",
+      notes: "Transfer Cash in Hand → CHINA — TO K",
+    }),
+    tx("T4", "BK1", "deposit", 70, {
+      transferId: "X3",
+      notes: "Transfer Cash in Hand → K CH — Transfer Cash in Hand → K CH",
+    }),
+    tx("T5", "BK1", "deposit", 60, { transferId: "X4", notes: "slip 9" }),
+    tx("T6", "BK1", "deposit", 50, { notes: "Transfer to CHINA — old" }),
+  ];
+  const cashAdjustments = [
+    ca("C2", "reduce", 80, "Transfer Cash in Hand → CHINA — TO K", { transferId: "X2" }),
+    ca("C3", "reduce", 70, "Transfer Cash in Hand → K CH — Transfer Cash in Hand → K CH", {
+      transferId: "X3",
+    }),
+    ca("C4", "reduce", 60, "Bank deposit — CHINA", { transferId: "X4" }),
+  ];
+  const plan = planNameSync({ ...empty, banks: banks as never, bankTxns, cashAdjustments });
+  const want = (id: string) => {
+    const f = plan.find((x) => x.id === id);
+    return f ? (f.patch.notes ?? f.patch.reason) : undefined;
+  };
+  assert(
+    want("T1") === "Transfer KNT ACT → K CH" && want("T2") === "Transfer KNT ACT → K CH",
+    "EA13: a renamed account's transfer says the new name on both legs",
+  );
+  assert(
+    want("T3") === "Transfer Cash in Hand → K CH — TO K" &&
+      want("C2") === "Transfer Cash in Hand → K CH — TO K",
+    "EA14: the person's own note is kept",
+  );
+  assert(
+    want("T4") === "Transfer Cash in Hand → K CH" && want("C3") === "Transfer Cash in Hand → K CH",
+    "EA15: a stacked description is cleaned to one",
+  );
+  assert(
+    want("C4") === "Bank deposit — K CH" && want("T5") === undefined,
+    "EA16: a counter-cash deposit renames its cash side; the bank slip note is the person's and stays",
+  );
+  assert(want("T6") === undefined, "EA17: an old transfer with no shared id is left as it is");
+  assert(
+    plan.every((f) => Object.keys(f.patch).every((k) => k === "notes" || k === "reason")),
+    "EA18: only the description changes",
+  );
+  const scoped = planNameSync(
+    { ...empty, banks: banks as never, bankTxns, cashAdjustments },
+    { bankIds: ["BK2"] },
+  );
+  assert(
+    scoped
+      .map((f) => f.id)
+      .sort()
+      .join() === "T1,T2",
+    "EA19: renaming one account touches only its transfers",
+  );
+
+  // Wiring.
+  const read = (f: string) => readFileSync(process.cwd() + "/" + f, "utf8");
+  const bank = read("src/routes/bank.tsx");
+  assert(
+    /const transferId = linkCash \? genId\(\) : undefined;[\s\S]*?transferId,[\s\S]*?reason: `Bank \$\{type\} — \$\{bank\.name\}`,\s*transferId,/.test(
+      bank,
+    ),
+    "EA20: a deposit with counter cash links its two sides",
+  );
+  assert(
+    bank.includes("syncNamesAfterRename({ bankIds: [bank.id] })"),
+    "EA21: renaming an account rebuilds its transfer descriptions",
+  );
+  assert(
+    read("src/routes/items_.$id.tsx").includes("-adjustmentEffect(a.type, a.qty)"),
+    "EA22: deleting an adjustment puts its stock back",
   );
 }
 

@@ -1,3 +1,4 @@
+import { syncNamesAfterRename } from "@/lib/nameSyncApply";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
@@ -13,9 +14,9 @@ import {
   CashAdjustmentRepo,
 } from "@/repositories";
 import { useRepoData } from "@/hooks/useRepoData";
-import { newBatch, commitBatch } from "@/repositories/base";
+import { newBatch, commitBatch, genId } from "@/repositories/base";
 import { bankFlows, netFlow } from "@/lib/ledger";
-import type { BankAccount } from "@/types";
+import type { BankAccount, BankTxn } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/Field";
@@ -294,16 +295,24 @@ function BankPage() {
   );
 }
 
-function BankTxnDialog({
+export function BankTxnDialog({
   open,
   onOpenChange,
   accounts,
   onSaved,
+  editing = null,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   accounts: BankAccount[];
   onSaved: () => void;
+  /**
+   * A standalone deposit or withdrawal being corrected (one that moved no
+   * counter cash — one that did is a transfer, and is edited as one). Its
+   * old effect comes off its old account and the new one goes on, in one
+   * batch with the record.
+   */
+  editing?: BankTxn | null;
 }) {
   const [bankId, setBankId] = useState("");
   const [type, setType] = useState<"deposit" | "withdraw">("deposit");
@@ -318,16 +327,16 @@ function BankTxnDialog({
 
   useEffect(() => {
     if (open) {
-      setBankId(accounts[0]?.id ?? "");
-      setType("deposit");
-      setAmount(0);
-      setDate(today());
-      setNotes("");
-      setLinkCash(true);
+      setBankId(editing?.bankId ?? accounts[0]?.id ?? "");
+      setType(editing?.type === "withdraw" ? "withdraw" : "deposit");
+      setAmount(editing?.amount ?? 0);
+      setDate(editing?.date ?? today());
+      setNotes(editing?.notes ?? "");
+      setLinkCash(!editing);
       setSaving(false);
       savingRef.current = false;
     }
-  }, [open, accounts]);
+  }, [open, accounts, editing]);
 
   const save = (e: React.FormEvent) => {
     e.preventDefault();
@@ -354,12 +363,43 @@ function BankTxnDialog({
     // derived passbook before).
     const batch = newBatch();
     const delta = type === "deposit" ? n : -n;
+    if (editing) {
+      // Undo the old effect on its old account, then apply the new one.
+      if (BankRepo.get(editing.bankId))
+        BankRepo.adjustFieldBatched(
+          batch,
+          editing.bankId,
+          "balance",
+          editing.type === "deposit" ? -editing.amount : editing.amount,
+        );
+      BankRepo.adjustFieldBatched(batch, bank.id, "balance", delta);
+      BankTxnRepo.updateBatched(batch, editing.id, {
+        bankId: bank.id,
+        date,
+        type,
+        amount: n,
+        notes: notes.trim() || undefined,
+      });
+      commitBatch(batch, "edit bank txn");
+      toast.success(
+        `Entry updated — ${fmtMoney(n)} ${type === "deposit" ? "to" : "from"} ${bank.name}`,
+      );
+      onSaved();
+      onOpenChange(false);
+      return;
+    }
+    /* With the counter's cash in it, this is a transfer between cash and the
+       bank: both records carry one id, so editing or deleting either finds
+       the other. They used to be written unlinked, and deleting one left the
+       other — the money did not go back where it came from. */
+    const transferId = linkCash ? genId() : undefined;
     BankTxnRepo.addBatched(batch, {
       bankId: bank.id,
       date,
       type,
       amount: n,
       notes: notes.trim() || undefined,
+      transferId,
     });
     BankRepo.adjustFieldBatched(batch, bank.id, "balance", delta);
     if (linkCash) {
@@ -369,6 +409,7 @@ function BankTxnDialog({
         type: type === "deposit" ? "reduce" : "add",
         amount: n,
         reason: `Bank ${type} — ${bank.name}`,
+        transferId,
       });
     }
     commitBatch(batch, "bank txn");
@@ -383,7 +424,7 @@ function BankTxnDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Bank Deposit / Withdraw</DialogTitle>
+          <DialogTitle>{editing ? "Edit Bank Entry" : "Bank Deposit / Withdraw"}</DialogTitle>
         </DialogHeader>
         <form onSubmit={save} className="space-y-3">
           <label className="flex flex-col gap-1 text-[12px]">
@@ -431,19 +472,21 @@ function BankTxnDialog({
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Reference, slip no…"
           />
-          <label className="flex items-center gap-2 text-[13px] cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={linkCash}
-              onChange={(e) => setLinkCash(e.target.checked)}
-              className="accent-primary"
-            />
-            <span>
-              {type === "deposit"
-                ? "Deposited from cash on hand (reduce counter cash)"
-                : "Withdrawn to cash on hand (add counter cash)"}
-            </span>
-          </label>
+          {!editing && (
+            <label className="flex items-center gap-2 text-[13px] cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={linkCash}
+                onChange={(e) => setLinkCash(e.target.checked)}
+                className="accent-primary"
+              />
+              <span>
+                {type === "deposit"
+                  ? "Deposited from cash on hand (reduce counter cash)"
+                  : "Withdrawn to cash on hand (add counter cash)"}
+              </span>
+            </label>
+          )}
           <div className="flex justify-end gap-2">
             <Button
               type="button"
@@ -525,6 +568,10 @@ function BankDialog({
       const descriptive: Partial<BankAccount> = { ...f };
       delete descriptive.balance; // balance only ever changes via atomic increments
       BankRepo.adjustField(bank.id, "balance", openingDelta, descriptive);
+      /* Transfer descriptions name the account ("Transfer K CH → KNT ACT").
+         They are rebuilt from the transfers themselves to say the new name. */
+      if ((f.name ?? "").trim() !== (bank.name ?? "").trim())
+        void syncNamesAfterRename({ bankIds: [bank.id] });
     } else
       BankRepo.add({
         ...f,

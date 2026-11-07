@@ -131,7 +131,7 @@ function SettingsPage() {
             "added or deleted.\n\n"
           : "") +
           (names.length
-            ? `Bring the party and item names up to date on ${names.length} record(s) — bills, returns, payments and adjustments still showing a name from before it was renamed. Only the name (and a bill's phone, where the party has one) changes.`
+            ? `Bring names up to date on ${names.length} record(s) — bills, returns, payments, adjustments and transfer descriptions still showing a name from before it was renamed. Only the name (and a bill's phone, where the party has one) changes.`
             : ""),
       )
     )
