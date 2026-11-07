@@ -465,6 +465,8 @@ export function StockAdjustDialog({
   const [qty, setQty] = useState(0);
   const [date, setDate] = useState(today());
   const [reason, setReason] = useState("");
+  /** What one unit added cost. 0 = value it at the average on hand. */
+  const [rate, setRate] = useState(0);
   const [saving, setSaving] = useState(false);
   // Synchronous double-submit guard — `saving` state doesn't update until the
   // next render, so two rapid submits in the same tick both see it false.
@@ -476,6 +478,7 @@ export function StockAdjustDialog({
       setQty(editing?.qty ?? 0);
       setDate(editing?.date ?? today());
       setReason(editing?.reason ?? "");
+      setRate(editing?.rate ?? 0);
       setSaving(false);
       savingRef.current = false;
     }
@@ -513,6 +516,7 @@ export function StockAdjustDialog({
         type,
         qty: n,
         reason: reason.trim() || undefined,
+        rate: type === "add" && rate > 0 ? rate : undefined,
       });
     } else {
       StockAdjustmentRepo.addBatched(batch, {
@@ -522,6 +526,7 @@ export function StockAdjustDialog({
         type,
         qty: n,
         reason: reason.trim() || undefined,
+        rate: type === "add" && rate > 0 ? rate : undefined,
       });
     }
     commitBatch(batch, editing ? "edit stock adjustment" : "stock adjustment");
@@ -567,6 +572,9 @@ export function StockAdjustDialog({
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <NumField label={`Quantity (${item.unit}) *`} value={qty} onValue={setQty} />
+            {type === "add" && (
+              <NumField label="At Price (per unit)" value={rate} onValue={setRate} />
+            )}
             <Field
               label="Date"
               type="date"
@@ -798,6 +806,15 @@ export function ItemDialog({
             label="Opening Stock"
             value={f.openingStock ?? 0}
             onValue={(n) => setF({ ...f, openingStock: n })}
+          />
+          {/* What the opening stock cost, as Vyapar asks for it. Left at 0,
+              the item's purchase price stands in, as it always did. */}
+          <NumField
+            label="Opening Stock at Price (per unit)"
+            value={f.openingStockRate ?? 0}
+            // 0 = not set. Stored as 0, not removed: an item edit merges, so
+            // removing the field would leave the old price in place.
+            onValue={(n) => setF({ ...f, openingStockRate: Math.max(0, n) })}
           />
           <Field
             label="Min Stock (low-stock alert)"

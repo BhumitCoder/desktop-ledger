@@ -2965,7 +2965,9 @@ console.log(`\n═════════════════════�
    fail is not evidence. */
 {
   const form = readFileSync(process.cwd() + "/src/components/InvoiceForm.tsx", "utf8");
-  const want = "price: isSale ? (it.salePrice ?? 0) : (historicalPrice ?? it.purchasePrice),";
+  // The party's own last price only when the shop turns on Party-wise item rate.
+  const want =
+    "price: isSale ? (partyRate ?? it.salePrice ?? 0) : (historicalPrice ?? it.purchasePrice),";
   const n = form.split(want).length - 1;
   assert(
     n === 2,
@@ -4578,6 +4580,81 @@ console.log(`\n═════════════════════�
   assert(
     read("src/routes/items_.$id.tsx").includes("-adjustmentEffect(a.type, a.qty)"),
     "EA22: deleting an adjustment puts its stock back",
+  );
+}
+
+/* ═══════ TEST AP: opening stock and stock added carry their own price ═══════ */
+{
+  const it = (id: string, opening: number, pp: number, openingStockRate?: number) =>
+    ({
+      id,
+      name: id,
+      unit: "pcs",
+      gstRate: 0,
+      purchasePrice: pp,
+      salePrice: 0,
+      stock: opening,
+      openingStock: opening,
+      openingStockRate,
+      createdAt: "",
+    }) as Item;
+  const none = { purchases: [], sales: [], saleReturns: [], purchaseReturns: [], adjustments: [] };
+  const v = (f: ReturnType<typeof fifoCosts>, id: string) => f.byItem.get(id)?.value;
+  assert(
+    v(fifoCosts({ ...none, items: [it("O1", 10, 999, 55)] }), "O1") === 550,
+    "AP1: opening stock is valued at its own price (10 × 55), not the item's",
+  );
+  assert(
+    v(fifoCosts({ ...none, items: [it("O2", 10, 40)] }), "O2") === 400,
+    "AP2: with no price given, the item's price stands in, as before",
+  );
+  assert(
+    v(fifoCosts({ ...none, items: [it("O3", 10, 40, 0)] }), "O3") === 400,
+    "AP3: a price of 0 means not set",
+  );
+  const adj = (id: string, type: "add" | "reduce", qty: number, rate?: number) =>
+    ({
+      id,
+      itemId: "A1",
+      itemName: "A1",
+      type,
+      qty,
+      rate,
+      date: "2026-05-01",
+      createdAt: "",
+    }) as StockAdjustment;
+  const f1 = fifoCosts({
+    ...none,
+    items: [it("A1", 10, 100)],
+    adjustments: [adj("J1", "add", 2, 70)],
+  });
+  assert(
+    v(f1, "A1") === 1000 + 140 && f1.adjustmentCost.get("J1") === 140,
+    "AP4: stock added at a price comes in at that price (2 × 70)",
+  );
+  const f2 = fifoCosts({ ...none, items: [it("A1", 10, 100)], adjustments: [adj("J2", "add", 2)] });
+  assert(v(f2, "A1") === 1200, "AP5: with no price, at the average on hand (100), as before");
+  const f3 = fifoCosts({
+    ...none,
+    items: [it("A1", 10, 100)],
+    adjustments: [adj("J3", "reduce", 2, 5)],
+  });
+  assert(
+    f3.adjustmentCost.get("J3") === 200,
+    "AP6: a reduction always leaves at FIFO cost, whatever price is typed",
+  );
+  const read = (f: string) => readFileSync(process.cwd() + "/" + f, "utf8");
+  assert(
+    read("src/routes/settings.tsx").includes('label="Party-wise item rate"'),
+    "AP7: Party-wise item rate is a setting",
+  );
+  assert(
+    read("src/components/InvoiceForm.tsx").split(
+      "const partyRate = isSale && company.partyWiseRate ? lastPartyPrice(it.id) : undefined;",
+    ).length -
+      1 ===
+      2,
+    "AP8: both places that build a sale line honour it",
   );
 }
 

@@ -35,6 +35,9 @@ export interface Item {
   stock: number;
   minStock?: number;
   openingStock: number;
+  /** What one unit of the opening stock cost ("at price", as Vyapar asks).
+   *  Unset: the price the item had before its first purchase — see fifo.ts. */
+  openingStockRate?: number;
   description?: string;
   createdAt: string;
 }
@@ -178,6 +181,9 @@ export interface StockAdjustment {
   type: "add" | "reduce";
   qty: number;
   reason?: string;
+  /** What one unit ADDED cost ("at price"). Unset: the average of what is
+   *  on hand. A reduction always leaves at FIFO cost, whatever is typed. */
+  rate?: number;
   createdAt: string;
 }
 
@@ -279,6 +285,9 @@ export interface Company {
    * lagging behind). When turned off, such saves are blocked with an error
    * instead of just a warning. */
   allowNegativeStock?: boolean;
+  /** Vyapar's "Party wise item rate": a sale line starts at the price this
+   *  party last paid for the item, instead of the item's sale price. */
+  partyWiseRate?: boolean;
   /** Preferred print format, remembered from the invoice page */
   printFormat?: PrintFormat;
   /** Set once the owner has finished checking existing opening balances

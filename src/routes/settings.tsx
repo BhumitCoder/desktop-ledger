@@ -463,6 +463,12 @@ function SettingsPage() {
                     label="Allow selling below available stock"
                     hint="Turn off to block sales/returns that would take stock negative"
                   />
+                  <ToggleRow
+                    checked={c.partyWiseRate === true}
+                    onChange={(v) => setC({ ...c, partyWiseRate: v })}
+                    label="Party-wise item rate"
+                    hint="On: a sale line starts at the price this party last paid for the item. Off: at the item's sale price."
+                  />
                 </div>
               </div>
               <div className="px-5 py-3 border-t bg-gray-50/60 flex justify-end">

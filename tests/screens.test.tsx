@@ -988,6 +988,54 @@ async function runAll(): Promise<Results> {
     }
   }
 
+  /* ── Party-wise item rate (Vyapar's setting) ──────────────────────────
+     Off, a sale line starts at the item's sale price (99). On, it starts at
+     what THIS party last paid — PH-4 at 130 for History Probe Party. */
+  {
+    const run = async () => {
+      await renderRoute("/sales/new");
+      await settleMs(120);
+      const vis = () =>
+        Array.from(host.querySelectorAll<HTMLInputElement>("input")).filter(
+          (el) => el.offsetParent !== null,
+        );
+      const party = vis().find((el) => el.placeholder === "Type name or search…");
+      const addItem = vis().find((el) => el.placeholder === "Type item name to add…");
+      await act(async () => {
+        party?.focus();
+        setInput(party, "History Probe Party");
+      });
+      await settleMs(60);
+      await act(async () => {
+        addItem?.focus();
+        setInput(addItem, "History Probe Item");
+      });
+      await settleMs(220);
+      const option = Array.from(document.body.querySelectorAll<HTMLElement>("[data-opt]"))
+        .filter((d) => (d.textContent ?? "").startsWith("History Probe Item"))
+        .pop();
+      await act(async () => {
+        option?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      });
+      await settleMs(220);
+      return vis().map((el) => el.value);
+    };
+    const before = CompanyRepo.get();
+    CompanyRepo.save({ ...before, partyWiseRate: false });
+    const off = await run();
+    assert(
+      off.includes("99") && !off.includes("130"),
+      `party rate off: the line starts at the sale price — ${JSON.stringify(off)}`,
+    );
+    CompanyRepo.save({ ...before, partyWiseRate: true });
+    const on = await run();
+    assert(
+      on.includes("130"),
+      `party rate on: the line starts at what this party last paid — ${JSON.stringify(on)}`,
+    );
+    CompanyRepo.save({ ...before, partyWiseRate: before.partyWiseRate });
+  }
+
   /* ── The last-prices popup: whose prices, and when ──────────────────
      Reported from the counter: "sometimes it comes, sometimes it doesn't,
      and when it comes it is sometimes wrong". Three causes, each pinned:

@@ -168,6 +168,8 @@ export function fifoCosts(input: FifoInput, opts: FifoOptions = {}): FifoResult 
     }
   }
   const openingRate = (it: Item) => {
+    // The rate the shop gave its opening stock, where it gave one.
+    if (num(it.openingStockRate) > 0) return num(it.openingStockRate);
     const fp = firstPurchase.get(it.id);
     if (!fp) return num(it.purchasePrice);
     return fp.cost > 0 ? fp.cost : fp.rate;
@@ -361,7 +363,8 @@ export function fifoCosts(input: FifoInput, opts: FifoOptions = {}): FifoResult 
       run: () => {
         const b = bookFor(a.itemId, 0);
         if (found) {
-          const rate = averageOnHand(b);
+          // At the price it was entered at, else the average on hand.
+          const rate = num(a.rate) > 0 ? num(a.rate) : averageOnHand(b);
           adjustmentCost.set(a.id, r2(qty * rate));
           receive(b, qty, rate);
         } else {

@@ -628,13 +628,18 @@ export function InvoiceForm({ mode, existing }: Props) {
     // This party's own last price wins; otherwise what the item last
     // actually went out at; only then the catalogue figure.
     const historicalPrice = lastPartyPrice(it.id) ?? lastAnyPrice(it.id);
+    /* Vyapar's "Party wise item rate", when the shop turns it on in Settings:
+       a sale starts at what THIS party last paid for the item. Off (the
+       default), it starts at the item's sale price, as the shop asked when a
+       party's old price kept overriding the catalogue. */
+    const partyRate = isSale && company.partyWiseRate ? lastPartyPrice(it.id) : undefined;
     const line: LineItem = {
       id: genId(),
       itemId: it.id,
       name: it.name,
       qty: 1,
       unit: it.unit,
-      price: isSale ? (it.salePrice ?? 0) : (historicalPrice ?? it.purchasePrice),
+      price: isSale ? (partyRate ?? it.salePrice ?? 0) : (historicalPrice ?? it.purchasePrice),
       discountPct: 0,
       gstRate: it.gstRate,
       amount: 0,
@@ -771,12 +776,17 @@ export function InvoiceForm({ mode, existing }: Props) {
     // This party's own last price wins; otherwise what the item last
     // actually went out at; only then the catalogue figure.
     const historicalPrice = lastPartyPrice(it.id) ?? lastAnyPrice(it.id);
+    /* Vyapar's "Party wise item rate", when the shop turns it on in Settings:
+       a sale starts at what THIS party last paid for the item. Off (the
+       default), it starts at the item's sale price, as the shop asked when a
+       party's old price kept overriding the catalogue. */
+    const partyRate = isSale && company.partyWiseRate ? lastPartyPrice(it.id) : undefined;
     updateLine(lineId, {
       itemId: it.id,
       name: it.name,
       unit: it.unit,
       gstRate: it.gstRate,
-      price: isSale ? (it.salePrice ?? 0) : (historicalPrice ?? it.purchasePrice),
+      price: isSale ? (partyRate ?? it.salePrice ?? 0) : (historicalPrice ?? it.purchasePrice),
       costPrice: it.purchasePrice,
       // The old item's foreign price must not survive the swap — a later
       // exchange-rate change re-prices every line that still has one, which
