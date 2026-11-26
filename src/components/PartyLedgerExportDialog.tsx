@@ -1,4 +1,4 @@
-import { fileName, periodLabel as periodText } from "@/lib/fileName";
+import { fileName, periodLabel as periodText, statementFileName } from "@/lib/fileName";
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -102,7 +102,7 @@ export function PartyLedgerExportDialog({
             ? partySimpleLedgerSheet(p, rowsFor(p), company, periodLabel)
             : partyStatementSheet(p, rowsFor(p), company, periodLabel);
         await downloadXlsx(
-          fileName("Statement", p.name, wholeLedger ? "Full Ledger" : periodText(dateFrom, dateTo)),
+          statementFileName(p.name, wholeLedger ? "Full Ledger" : periodText(dateFrom, dateTo)),
           [sheet],
         );
         setBusy({ kind: "excel", done: i + 1 });
@@ -191,7 +191,7 @@ export function PartyLedgerExportDialog({
         downloadFile(
           new File(
             [blobs[i]],
-            `${fileName("Statement", docs[i].party.name, wholeLedger ? "Full Ledger" : periodText(dateFrom, dateTo))}.pdf`,
+            `${statementFileName(docs[i].party.name, wholeLedger ? "Full Ledger" : periodText(dateFrom, dateTo))}.pdf`,
             {
               type: "application/pdf",
             },

@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { billFileName } from "@/lib/fileName";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -37,8 +38,6 @@ const FORMATS: { key: PrintFormat; label: string; hint: string }[] = [
   { key: "thermal58", label: "Thermal 58mm", hint: "Narrow counter roll" },
 ];
 
-/** Filenames must survive a file system: no slashes, colons or quotes. */
-const safeName = (s: string) => s.replace(/[\\/:*?"<>|]+/g, "-").trim();
 
 export function InvoiceBulkExportDialog({
   open,
@@ -111,9 +110,13 @@ export function InvoiceBulkExportDialog({
         // Named from the bill carried with the document, never from a second
         // list walked by the same index.
         downloadFile(
-          new File([blobs[i]], `${safeName(docs[i].inv.number)}.pdf`, {
-            type: "application/pdf",
-          }),
+          new File(
+            [blobs[i]],
+            `${billFileName(docs[i].inv.partyName, mode === "sale" ? "Invoice" : "Purchase Bill", docs[i].inv.number)}.pdf`,
+            {
+              type: "application/pdf",
+            },
+          ),
         );
         if (i < blobs.length - 1) await pause(DOWNLOAD_GAP_MS);
       }

@@ -1,4 +1,4 @@
-import { fileName } from "@/lib/fileName";
+import { fileName, billFileName } from "@/lib/fileName";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useGoBack } from "@/hooks/useGoBack";
 import { useEffect, useRef, useState } from "react";
@@ -37,7 +37,7 @@ function SaleReturnDetailPage() {
     try {
       await downloadElementAsPdf(
         printRef.current,
-        fileName(`Credit Note ${ret.number}`, ret.partyName),
+        billFileName(ret.partyName, "Credit Note", ret.number),
         "portrait",
       );
       toast.success("Credit note downloaded as PDF");
@@ -99,7 +99,7 @@ function SaleReturnDetailPage() {
           <button
             onClick={() =>
               printOrEscapeStandalone(
-                fileName(`Credit Note ${ret.number}`, ret.partyName),
+                billFileName(ret.partyName, "Credit Note", ret.number),
                 undefined,
                 handleDownloadPdf,
               )

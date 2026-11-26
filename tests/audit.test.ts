@@ -55,7 +55,13 @@ import { userNoteOf } from "@/lib/transferLegs";
 import { planNameSync } from "@/lib/nameSync";
 import type { Party, Payee } from "@/types";
 import { removalForBankTxn, removalForCashAdjustment, balanceReversal } from "@/lib/entryRemoval";
-import { fileName, periodLabel, safeFileName } from "@/lib/fileName";
+import {
+  billFileName,
+  fileName,
+  periodLabel,
+  safeFileName,
+  statementFileName,
+} from "@/lib/fileName";
 import { withDiscount, linkOldestFirst, trimNewestFirst } from "@/lib/paymentEdit";
 import { correctedOpening } from "@/lib/stock";
 import {
@@ -4162,8 +4168,61 @@ console.log(`\n═════════════════════�
   }
   const sale = read("src/routes/sales.$id.tsx");
   assert(
-    sale.split("fileName(`Invoice ${inv.number}`, inv.partyName)").length - 1 === 5,
+    sale.split('billFileName(inv.partyName, "Invoice", inv.number)').length - 1 === 5,
     "FN12: a sale invoice is named the same when printed (both ways), downloaded, shared and sent",
+  );
+
+  /* FN13 — the shop asked (2026-11-26): every bill and statement file starts
+     with the PARTY's name, so Downloads and WhatsApp sort by customer. */
+  assert(
+    billFileName("I-BELL MOBILE", "Invoice", "INV-0747") === "I-BELL MOBILE - Invoice INV-0747",
+    "FN13: a bill's file starts with the party — " +
+      billFileName("I-BELL MOBILE", "Invoice", "INV-0747"),
+  );
+  assert(
+    statementFileName("LOTUS", periodLabel("2026-10-01", "2026-10-31")) ===
+      "LOTUS - Statement - 01 Oct 2026 to 31 Oct 2026",
+    "FN13: a statement's file starts with the party",
+  );
+  assert(
+    statementFileName("Ravi", "", "Payee Ledger") === "Ravi - Payee Ledger",
+    "FN13: a payee ledger too, with no dangling dash",
+  );
+  const partyFirst: [string, string, number][] = [
+    ["src/routes/sales.$id.tsx", 'billFileName(inv.partyName, "Invoice", inv.number)', 5],
+    ["src/routes/purchase.$id.tsx", 'billFileName(inv.partyName, "Purchase Bill", inv.number)', 4],
+    ["src/routes/sale-return.$id.tsx", 'billFileName(ret.partyName, "Credit Note", ret.number)', 2],
+    [
+      "src/routes/purchase-return.$id.tsx",
+      'billFileName(ret.partyName, "Debit Note", ret.number)',
+      2,
+    ],
+    ["src/routes/parties_.$id.tsx", "statementFileName(party?.name", 1],
+    ["src/routes/payees_.$id.tsx", "statementFileName(payee?.name", 1],
+    ["src/components/PartyLedgerExportDialog.tsx", "statementFileName(", 2],
+    ["src/components/InvoiceBulkExportDialog.tsx", "billFileName(docs[i].inv.partyName,", 1],
+  ];
+  for (const [f, call, n] of partyFirst) {
+    const got = read(f).split(call).length - 1;
+    assert(got === n, `FN14: ${f} names its files party-first (${got} of ${n})`);
+  }
+  const anySrc = [
+    "src/routes/sales.$id.tsx",
+    "src/routes/purchase.$id.tsx",
+    "src/routes/sale-return.$id.tsx",
+    "src/routes/purchase-return.$id.tsx",
+    "src/routes/parties_.$id.tsx",
+    "src/routes/payees_.$id.tsx",
+    "src/components/PartyLedgerExportDialog.tsx",
+    "src/components/InvoiceBulkExportDialog.tsx",
+  ]
+    .map(read)
+    .join("\n");
+  assert(
+    !/fileName\(\s*["`](Statement|Payee Ledger|Invoice|Purchase Bill|Credit Note|Debit Note)/.test(
+      anySrc,
+    ),
+    "FN15: no bill or statement is named type-first any more",
   );
 }
 

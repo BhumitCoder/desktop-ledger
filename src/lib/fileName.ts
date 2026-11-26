@@ -40,6 +40,22 @@ export function fileName(...parts: (string | null | undefined | false)[]): strin
 }
 
 /** "01 Oct 2026 to 31 Oct 2026", "Up to …", "From …", or "" for all time. */
+/** A bill's file: the party first — that is how the shop looks for it in
+ *  Downloads and WhatsApp — then what it is and its number.
+ *  "I-BELL MOBILE - Invoice INV-0747". */
+export function billFileName(partyName: string | undefined, kind: string, number: string): string {
+  return fileName(partyName, `${kind} ${number}`);
+}
+
+/** A ledger's file, party first: "LOTUS - Statement - 01 Oct 2026 to 31 Oct 2026". */
+export function statementFileName(
+  partyName: string | undefined,
+  period?: string | null | false,
+  what = "Statement",
+): string {
+  return fileName(partyName, what, period);
+}
+
 export function periodLabel(from?: string | null, to?: string | null): string {
   if (from && to) return `${fmtDate(from)} to ${fmtDate(to)}`;
   if (to) return `Up to ${fmtDate(to)}`;

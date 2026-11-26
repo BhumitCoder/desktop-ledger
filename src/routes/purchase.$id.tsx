@@ -1,4 +1,4 @@
-import { fileName } from "@/lib/fileName";
+import { fileName, billFileName } from "@/lib/fileName";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useGoBack } from "@/hooks/useGoBack";
 import { useEffect, useRef, useState } from "react";
@@ -73,7 +73,7 @@ function BillDetailPage() {
     if (print && inv) {
       const t = setTimeout(() => {
         if (isStandalone()) handleDownloadPdf();
-        else printWithName(fileName(`Purchase Bill ${inv.number}`, inv.partyName));
+        else printWithName(billFileName(inv.partyName, "Purchase Bill", inv.number));
       }, 500);
       return () => clearTimeout(t);
     }
@@ -89,7 +89,7 @@ function BillDetailPage() {
     try {
       await downloadElementAsPdf(
         printRef.current,
-        fileName(`Purchase Bill ${inv.number}`, inv.partyName),
+        billFileName(inv.partyName, "Purchase Bill", inv.number),
         "portrait",
       );
       toast.success("Bill downloaded as PDF");
@@ -106,7 +106,7 @@ function BillDetailPage() {
     try {
       await share(
         printRef.current,
-        fileName(`Purchase Bill ${inv.number}`, inv.partyName),
+        billFileName(inv.partyName, "Purchase Bill", inv.number),
         "portrait",
       );
     } catch {
@@ -195,7 +195,7 @@ function BillDetailPage() {
           <button
             onClick={() =>
               printOrEscapeStandalone(
-                fileName(`Purchase Bill ${inv.number}`, inv.partyName),
+                billFileName(inv.partyName, "Purchase Bill", inv.number),
                 undefined,
                 handleDownloadPdf,
               )

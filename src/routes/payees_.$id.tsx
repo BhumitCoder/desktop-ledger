@@ -1,4 +1,4 @@
-import { fileName, periodLabel } from "@/lib/fileName";
+import { fileName, periodLabel, statementFileName } from "@/lib/fileName";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useGoBack } from "@/hooks/useGoBack";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -77,7 +77,7 @@ function PayeeLedgerPage() {
   const allTimeTotal = allRows.reduce((s, r) => s + r.amount, 0);
 
   const pdfName = () =>
-    fileName("Payee Ledger", payee?.name ?? "Payee", periodLabel(dateFrom, dateTo));
+    statementFileName(payee?.name ?? "Payee", periodLabel(dateFrom, dateTo), "Payee Ledger");
 
   // Re-entry point for printOrEscapeStandalone's standalone-app escape (see
   // lib/print.ts) — this tab opened fresh with ?print=1, so print

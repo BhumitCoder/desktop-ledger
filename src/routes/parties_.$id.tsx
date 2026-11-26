@@ -1,4 +1,4 @@
-import { fileName, periodLabel as periodText } from "@/lib/fileName";
+import { fileName, periodLabel as periodText, statementFileName } from "@/lib/fileName";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useGoBack } from "@/hooks/useGoBack";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -155,7 +155,7 @@ function PartyStatementPage() {
     else navigate({ to: "/purchase-return/$id", params: { id: e.docId } });
   };
 
-  const pdfName = () => fileName("Statement", party?.name ?? "Party", periodText(dateFrom, dateTo));
+  const pdfName = () => statementFileName(party?.name ?? "Party", periodText(dateFrom, dateTo));
 
   // Re-entry point for printOrEscapeStandalone's standalone-app escape (see
   // lib/print.ts) — this tab opened fresh with ?print=1, so print immediately

@@ -1,4 +1,4 @@
-import { fileName } from "@/lib/fileName";
+import { fileName, billFileName } from "@/lib/fileName";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useGoBack } from "@/hooks/useGoBack";
 import { useEffect, useRef, useState } from "react";
@@ -91,7 +91,7 @@ function InvoiceDetailPage() {
     if (print && inv) {
       const t = setTimeout(() => {
         if (isStandalone()) handleDownloadPdf();
-        else printWithName(fileName(`Invoice ${inv.number}`, inv.partyName));
+        else printWithName(billFileName(inv.partyName, "Invoice", inv.number));
       }, 500);
       return () => clearTimeout(t);
     }
@@ -116,7 +116,7 @@ function InvoiceDetailPage() {
     try {
       await downloadElementAsPdf(
         printRef.current,
-        fileName(`Invoice ${inv.number}`, inv.partyName),
+        billFileName(inv.partyName, "Invoice", inv.number),
         fmt === "a4-2up" ? "landscape" : "portrait",
         thermalWidthMm,
       );
@@ -134,7 +134,7 @@ function InvoiceDetailPage() {
     try {
       await share(
         printRef.current,
-        fileName(`Invoice ${inv.number}`, inv.partyName),
+        billFileName(inv.partyName, "Invoice", inv.number),
         fmt === "a4-2up" ? "landscape" : "portrait",
         thermalWidthMm,
       );
@@ -155,7 +155,7 @@ function InvoiceDetailPage() {
         message:
           `Hi ${inv.partyName}, here's your invoice ${inv.number}` +
           `${co ? ` from ${co.name}` : ""} — Total ${fmtMoney(inv.total)}. Thank you!`,
-        fileName: fileName(`Invoice ${inv.number}`, inv.partyName),
+        fileName: billFileName(inv.partyName, "Invoice", inv.number),
         label: inv.number,
         orientation: fmt === "a4-2up" ? "landscape" : "portrait",
         pageWidthMm: thermalWidthMm,
@@ -282,7 +282,7 @@ function InvoiceDetailPage() {
             <button
               onClick={() =>
                 printOrEscapeStandalone(
-                  fileName(`Invoice ${inv.number}`, inv.partyName),
+                  billFileName(inv.partyName, "Invoice", inv.number),
                   undefined,
                   handleDownloadPdf,
                 )
