@@ -2976,11 +2976,13 @@ console.log(`\n═════════════════════�
      "picker shows 7,000, line comes in at 6,105" surprise now is the picker
      showing that party rate itself (PickerPrice). Without a party rate, or
      with the setting off, a sale still starts at the item selling price. */
-  const want =
-    "if (isSale) return (partyWise ? lastPartyPrice(it.id) : undefined) ?? it.salePrice ?? 0;";
+  /* And (2026-11-26) with no party price, the item's last price to anyone
+     before its own sale price: "the price I set kept coming". */
   assert(
-    form.split(want).length - 1 === 1,
-    "SP1: a sale starts at the party rate, else the selling price",
+    form.includes("const party = lastPartyPrice(itemId);") &&
+      form.includes("const last = lastAnyPrice(itemId);") &&
+      form.includes("startRate(it.id)?.price ?? (isSale ? it.salePrice : it.purchasePrice) ?? 0;"),
+    "SP1: a line starts at the party rate, else the last price, else the item's own price",
   );
   const n = form.split("const price = defaultPriceFor(it);").length - 1;
   assert(
@@ -2988,8 +2990,10 @@ console.log(`\n═════════════════════�
     "SP1b: adding, changing and re-pricing a line all use that one rule — found " + n + " of 3",
   );
   assert(
-    form.split("partyRate={partyWise ? lastPartyPrice : undefined}").length - 1 === 4,
-    "SP1c: every item picker shows the party rate the line will start at",
+    // Four pickers on the bill, and each of the two picker kinds passing it
+    // on to the PickerPrice that draws it.
+    form.split("startRate={startRate}").length - 1 === 6,
+    "SP1c: every item picker shows the rate the line will start at",
   );
   assert(
     !form.includes("it.salePrice || it.purchasePrice"),

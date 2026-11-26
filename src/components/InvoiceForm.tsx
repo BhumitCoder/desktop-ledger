@@ -590,40 +590,50 @@ export function InvoiceForm({ mode, existing }: Props) {
   const lastPartyPrice = (itemId: string): number | undefined =>
     (partyHistoryIndex.get(itemId) ?? []).find((r) => r.price > 0)?.price;
 
-  /** What this item last went out at to ANYONE, newest first.
+  /** What each item last went out at to ANYONE (a real price, newest bill
+   *  first) — indexed once per data change rather than scanned per item, since
+   *  the item dropdown asks for every item it lists on every keystroke.
    *
-   * A brand-new customer has no history of their own, and the catalogue
-   * price can be months stale — so without this the counter is quoted a
-   * price nobody has charged in a long time. Party-specific history still
-   * wins when it exists; this only fills the gap behind it. */
-  const lastAnyPrice = (itemId: string): number | undefined => {
-    let best: { date: string; created: string; price: number } | undefined;
+   * A brand-new customer, or one buying this item for the first time, has no
+   * history of their own, and the catalogue price can be months stale — so
+   * without this the counter is quoted a price nobody has charged in a long
+   * time. Party-specific history still wins when it exists. */
+  const lastAnyIndex = useRepoMemo(() => {
+    const best = new Map<string, { date: string; created: string; price: number }>();
     for (const doc of repo.all()) {
       if (editingId && doc.id === editingId) continue;
+      const created = doc.createdAt || "";
       for (const l of doc.lineItems) {
-        if (l.itemId !== itemId || !(l.price > 0)) continue;
-        const created = doc.createdAt || "";
-        if (!best || doc.date > best.date || (doc.date === best.date && created > best.created)) {
-          best = { date: doc.date, created, price: l.price };
-        }
+        if (!(l.price > 0)) continue;
+        const b = best.get(l.itemId);
+        if (!b || doc.date > b.date || (doc.date === b.date && created > b.created))
+          best.set(l.itemId, { date: doc.date, created, price: l.price });
       }
     }
-    return best?.price;
-  };
+    return best;
+  }, [editingId, repo]);
+  const lastAnyPrice = (itemId: string): number | undefined => lastAnyIndex.get(itemId)?.price;
 
   /* Vyapar's "Party wise item rate" — ON unless the shop turns it off in
      Settings. A line starts at the price THIS party was last billed for the
      item: a sale at what the customer last paid, a purchase at what this
-     supplier last charged. With no history for the party, a sale starts at
-     the item's sale price, a purchase at the last price paid to anyone (the
-     catalogue cost goes stale), then the item's purchase price.
+     supplier last charged. When this party has never had the item, it starts
+     at the item's LAST price to anyone (the shop asked, 2026-11-26: "the
+     price I set kept coming — we want the last sale price"), and only for an
+     item never billed at all, at the item's own sale / purchase price.
      Off, every line starts at the item's own sale / purchase price. */
   const partyWise = company.partyWiseRate !== false;
-  const defaultPriceFor = (it: Item): number => {
-    if (isSale) return (partyWise ? lastPartyPrice(it.id) : undefined) ?? it.salePrice ?? 0;
-    if (!partyWise) return it.purchasePrice ?? 0;
-    return lastPartyPrice(it.id) ?? lastAnyPrice(it.id) ?? it.purchasePrice ?? 0;
+  /** Where a line's starting price comes from, for the item list to show. */
+  const startRate = (itemId: string): { price: number; from: "party" | "last" } | undefined => {
+    if (!partyWise) return undefined;
+    const party = lastPartyPrice(itemId);
+    if (party != null) return { price: party, from: "party" };
+    const last = lastAnyPrice(itemId);
+    if (last != null) return { price: last, from: "last" };
+    return undefined;
   };
+  const defaultPriceFor = (it: Item): number =>
+    startRate(it.id)?.price ?? (isSale ? it.salePrice : it.purchasePrice) ?? 0;
 
   /* The price each line was STARTED at, by line id. A line whose price is
      still that figure was never touched by hand, so when the party is picked
@@ -1699,7 +1709,7 @@ export function InvoiceForm({ mode, existing }: Props) {
                     <td className="px-3 py-1.5 text-muted-foreground text-[11px]">{idx + 1}</td>
                     <td className="px-3 py-1.5">
                       <ItemNameCell
-                        partyRate={partyWise ? lastPartyPrice : undefined}
+                        startRate={startRate}
                         name={l.name}
                         items={items}
                         isSale={isSale}
@@ -1787,7 +1797,7 @@ export function InvoiceForm({ mode, existing }: Props) {
                 ))}
                 {pendingRowIds.map((id) => (
                   <ItemEntryRow
-                    partyRate={partyWise ? lastPartyPrice : undefined}
+                    startRate={startRate}
                     key={id}
                     items={items}
                     gstOn={gstOn}
@@ -1859,7 +1869,7 @@ export function InvoiceForm({ mode, existing }: Props) {
                       was the first thing to scroll off the side. */}
                   <div className="min-w-0 flex-1 text-[14px] leading-snug break-words">
                     <ItemNameCell
-                      partyRate={partyWise ? lastPartyPrice : undefined}
+                      startRate={startRate}
                       name={l.name}
                       items={items}
                       isSale={isSale}
@@ -1956,7 +1966,7 @@ export function InvoiceForm({ mode, existing }: Props) {
 
             {pendingRowIds.map((id) => (
               <ItemEntryRow
-                partyRate={partyWise ? lastPartyPrice : undefined}
+                startRate={startRate}
                 key={id}
                 layout="card"
                 items={items}
@@ -2367,10 +2377,11 @@ function ItemEntryRow({
   showDisc,
   registerInput,
   layout = "row",
-  partyRate,
+  startRate,
 }: {
-  /** This party's last rate per item, when Party-wise item rate is on. */
-  partyRate?: (itemId: string) => number | undefined;
+  /** The price a line will start at and where from, when Party-wise item
+   *  rate is on and the item has been billed before. */
+  startRate?: (itemId: string) => { price: number; from: "party" | "last" } | undefined;
   items: Item[];
   onAdd: (i: Item) => void;
   onAddNew: (name: string) => void;
@@ -2544,7 +2555,7 @@ function ItemEntryRow({
                       Stock: {it.stock} {it.unit}
                     </div>
                   </div>
-                  <PickerPrice it={it} isSale={isSale} gstOn={gstOn} partyRate={partyRate} />
+                  <PickerPrice it={it} isSale={isSale} gstOn={gstOn} startRate={startRate} />
                 </div>
               ))}
               {showAddNew && (
@@ -2656,10 +2667,11 @@ function ItemNameCell({
   onAddNew,
   openNow,
   onOpened,
-  partyRate,
+  startRate,
 }: {
-  /** This party's last rate per item, when Party-wise item rate is on. */
-  partyRate?: (itemId: string) => number | undefined;
+  /** The price a line will start at and where from, when Party-wise item
+   *  rate is on and the item has been billed before. */
+  startRate?: (itemId: string) => { price: number; from: "party" | "last" } | undefined;
   name: string;
   items: Item[];
   isSale: boolean;
@@ -2839,7 +2851,7 @@ function ItemNameCell({
                       Stock: {it.stock} {it.unit}
                     </div>
                   </div>
-                  <PickerPrice it={it} isSale={isSale} gstOn={gstOn} partyRate={partyRate} />
+                  <PickerPrice it={it} isSale={isSale} gstOn={gstOn} startRate={startRate} />
                 </div>
               ))}
               {showAddNew && (
@@ -2988,14 +3000,15 @@ function PickerPrice({
   it,
   isSale,
   gstOn,
-  partyRate,
+  startRate,
 }: {
   it: Item;
   isSale: boolean;
   gstOn: boolean;
-  partyRate?: (itemId: string) => number | undefined;
+  startRate?: (itemId: string) => { price: number; from: "party" | "last" } | undefined;
 }) {
-  const pr = partyRate?.(it.id);
+  const start = startRate?.(it.id);
+  const pr = start?.price;
   return (
     <div className="text-right">
       {isSale ? (
@@ -3006,7 +3019,11 @@ function PickerPrice({
                 MIX HISAB as "cost ₹1,50,500". */}
             cost {fmtMoney(unitCostOf(it, currentFifo()))}
           </div>
-          {pr != null && <div className="font-semibold tabular-nums">party {fmtMoney(pr)}</div>}
+          {start && (
+            <div className="font-semibold tabular-nums">
+              {start.from} {fmtMoney(start.price)}
+            </div>
+          )}
           <div
             className={
               pr != null
@@ -3023,7 +3040,11 @@ function PickerPrice({
         </>
       ) : (
         <>
-          {pr != null && <div className="font-semibold tabular-nums">party {fmtMoney(pr)}</div>}
+          {start && (
+            <div className="font-semibold tabular-nums">
+              {start.from} {fmtMoney(start.price)}
+            </div>
+          )}
           <div
             className={
               pr != null

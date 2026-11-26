@@ -467,7 +467,7 @@ function SettingsPage() {
                     checked={c.partyWiseRate !== false}
                     onChange={(v) => setC({ ...c, partyWiseRate: v })}
                     label="Party-wise item rate"
-                    hint="On: in a sale or purchase, an item starts at the price last billed to this party. Off: at the item's sale / purchase price."
+                    hint="On: an item starts at the price last billed to this party; if they never had it, at its last sale / purchase price. Off: at the item's own sale / purchase price."
                   />
                 </div>
               </div>

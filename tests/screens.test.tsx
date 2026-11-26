@@ -1118,7 +1118,62 @@ async function runAll(): Promise<Results> {
       paymentMode: "credit",
       gstEnabled: false,
     } as never);
+    /* The item's last sale to ANYONE: Other Probe Party at 125, after every
+       History Probe Party bill. A party with no history of its own starts
+       there, not at the item's own 99 — the shop's ask of 2026-11-26. */
+    PartyRepo.add({
+      id: "PHO",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "Other Probe Party",
+      type: "customer",
+      openingBalance: 0,
+    } as never);
+    PartyRepo.add({
+      id: "PHN",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "New Probe Customer",
+      type: "customer",
+      openingBalance: 0,
+    } as never);
+    SalesRepo.add({
+      id: "PH-OTHER",
+      createdAt: "2026-03-10T09:00:00Z",
+      number: "PH-OTHER",
+      date: "2026-03-10",
+      partyId: "PHO",
+      partyName: "Other Probe Party",
+      lineItems: [
+        {
+          id: "PH-OTHER-L0",
+          itemId: "PHI",
+          name: "History Probe Item",
+          unit: "pcs",
+          qty: 1,
+          price: 125,
+          discountPct: 0,
+          gstRate: 0,
+          amount: 125,
+        },
+      ],
+      subtotal: 125,
+      discount: 0,
+      shippingCharge: 0,
+      taxAmount: 0,
+      total: 125,
+      paid: 125,
+      paymentMode: "cash",
+      gstEnabled: false,
+    } as never);
     setRate(undefined);
+    const fresh = await run("/sales/new", "New Probe Customer");
+    assert(
+      fresh.includes("125") && !fresh.includes("99"),
+      `party rate: a party new to the item starts at its LAST sale price (125), not the item's 99 — ${JSON.stringify(fresh)}`,
+    );
+    assert(
+      /last\s*₹\s*125/.test(shown) && /sells\s*₹\s*99/.test(shown),
+      `party rate: the item list says it is the last sale price — ${shown}`,
+    );
     const dflt = await run("/sales/new", "History Probe Party");
     assert(
       dflt.includes("130") && !dflt.includes("99"),
@@ -1148,7 +1203,7 @@ async function runAll(): Promise<Results> {
     setRate(undefined);
     const late = await run("/sales/new", "History Probe Party", true);
     assert(
-      late.includes("130") && !late.includes("99"),
+      late.includes("130") && !late.includes("125") && !late.includes("99"),
       `party rate: party picked after the item re-prices the line — ${JSON.stringify(late)}`,
     );
 
@@ -1156,7 +1211,7 @@ async function runAll(): Promise<Results> {
     await renderRoute("/sales/new");
     await settleMs(120);
     await pickItem();
-    const priceBox = vis().find((el) => el.value === "99");
+    const priceBox = vis().find((el) => el.value === "125");
     await act(async () => {
       priceBox?.focus();
       setInput(priceBox, "105");
@@ -1195,6 +1250,9 @@ async function runAll(): Promise<Results> {
     PurchaseRepo.remove("PHP-B");
     PartyRepo.remove("PHS");
     SalesRepo.remove("PH-FREE");
+    SalesRepo.remove("PH-OTHER");
+    PartyRepo.remove("PHO");
+    PartyRepo.remove("PHN");
   }
 
   /* ── The last-prices popup: whose prices, and when ──────────────────
