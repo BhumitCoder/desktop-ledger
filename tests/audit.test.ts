@@ -2965,13 +2965,25 @@ console.log(`\n═════════════════════�
    fail is not evidence. */
 {
   const form = readFileSync(process.cwd() + "/src/components/InvoiceForm.tsx", "utf8");
-  // The party's own last price only when the shop turns on Party-wise item rate.
+  /* Since 2026-11-26 the shop asked for Party-wise item rate ON: a sale starts
+     at this party's own last price when there is one. What stops the
+     "picker shows 7,000, line comes in at 6,105" surprise now is the picker
+     showing that party rate itself (PickerPrice). Without a party rate, or
+     with the setting off, a sale still starts at the item selling price. */
   const want =
-    "price: isSale ? (partyRate ?? it.salePrice ?? 0) : (historicalPrice ?? it.purchasePrice),";
-  const n = form.split(want).length - 1;
+    "if (isSale) return (partyWise ? lastPartyPrice(it.id) : undefined) ?? it.salePrice ?? 0;";
   assert(
-    n === 2,
-    "SP1: both places that build a line start a sale at the selling price — found " + n + " of 2",
+    form.split(want).length - 1 === 1,
+    "SP1: a sale starts at the party rate, else the selling price",
+  );
+  const n = form.split("const price = defaultPriceFor(it);").length - 1;
+  assert(
+    n === 3,
+    "SP1b: adding, changing and re-pricing a line all use that one rule — found " + n + " of 3",
+  );
+  assert(
+    form.split("partyRate={partyWise ? lastPartyPrice : undefined}").length - 1 === 4,
+    "SP1c: every item picker shows the party rate the line will start at",
   );
   assert(
     !form.includes("it.salePrice || it.purchasePrice"),
@@ -3613,7 +3625,9 @@ console.log(`\n═════════════════════�
      cost the books use, not the last bill's rate (MIX HISAB: ₹1,50,500). */
   const form = readFileSync(process.cwd() + "/src/components/InvoiceForm.tsx", "utf8");
   assert(
-    form.split("cost {fmtMoney(unitCostOf(it, currentFifo()))}").length - 1 === 2 &&
+    // Both pickers render their price side through the one PickerPrice.
+    form.split("cost {fmtMoney(unitCostOf(it, currentFifo()))}").length - 1 === 1 &&
+      form.split("<PickerPrice ").length - 1 === 2 &&
       !form.includes("cost {fmtMoney(it.purchasePrice)}"),
     "F15: both sale item pickers show FIFO cost, not the last purchase rate",
   );
@@ -4649,12 +4663,10 @@ console.log(`\n═════════════════════�
     "AP7: Party-wise item rate is a setting",
   );
   assert(
-    read("src/components/InvoiceForm.tsx").split(
-      "const partyRate = isSale && company.partyWiseRate ? lastPartyPrice(it.id) : undefined;",
-    ).length -
-      1 ===
-      2,
-    "AP8: both places that build a sale line honour it",
+    read("src/components/InvoiceForm.tsx").includes(
+      "const partyWise = company.partyWiseRate !== false;",
+    ),
+    "AP8: Party-wise item rate is on unless the shop turns it off",
   );
 }
 

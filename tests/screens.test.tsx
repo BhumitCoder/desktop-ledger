@@ -947,8 +947,11 @@ async function runAll(): Promise<Results> {
         option?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
       });
       await settleMs(220);
-      const price = visible().find((el) => el.value === "99");
-      assert(!!price, "last 3: the line is on the bill at its selling price");
+      const price = visible().find((el) => el.value === "130");
+      assert(
+        !!price,
+        "last 3: the line starts at this party's last price (party-wise rate on by default)",
+      );
       if (price) {
         await act(async () => {
           price.focus();
@@ -988,24 +991,69 @@ async function runAll(): Promise<Results> {
     }
   }
 
-  /* ── Party-wise item rate (Vyapar's setting) ──────────────────────────
-     Off, a sale line starts at the item's sale price (99). On, it starts at
-     what THIS party last paid — PH-4 at 130 for History Probe Party. */
+  /* ── Party-wise item rate (Vyapar's setting, ON unless turned off) ─────
+     A line starts at what THIS party was last billed for the item: a sale
+     at PH-4's 130 for History Probe Party, a purchase at PHP-B's 61 from
+     History Probe Supplier. Off, the item's own sale (99) / purchase (50)
+     price. Picking the party AFTER the item re-prices the untouched line;
+     a price typed by hand is never overwritten. */
   {
-    const run = async () => {
-      await renderRoute("/sales/new");
-      await settleMs(120);
-      const vis = () =>
-        Array.from(host.querySelectorAll<HTMLInputElement>("input")).filter(
-          (el) => el.offsetParent !== null,
-        );
+    PartyRepo.add({
+      id: "PHS",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "History Probe Supplier",
+      type: "supplier",
+      openingBalance: 0,
+    } as never);
+    for (const [id, date, price] of [
+      ["PHP-A", "2026-03-01", 55],
+      ["PHP-B", "2026-03-05", 61],
+    ] as const)
+      PurchaseRepo.add({
+        id,
+        createdAt: `${date}T09:00:00Z`,
+        number: id,
+        date,
+        partyId: "PHS",
+        partyName: "History Probe Supplier",
+        lineItems: [
+          {
+            id: `${id}-L0`,
+            itemId: "PHI",
+            name: "History Probe Item",
+            unit: "pcs",
+            qty: 1,
+            price,
+            discountPct: 0,
+            gstRate: 0,
+            amount: price,
+            costPrice: price,
+          },
+        ],
+        subtotal: price,
+        discount: 0,
+        shippingCharge: 0,
+        taxAmount: 0,
+        total: price,
+        paid: 0,
+        paymentMode: "credit",
+        gstEnabled: false,
+      } as never);
+    const vis = () =>
+      Array.from(host.querySelectorAll<HTMLInputElement>("input")).filter(
+        (el) => el.offsetParent !== null,
+      );
+    const typeParty = async (name: string) => {
       const party = vis().find((el) => el.placeholder === "Type name or search…");
-      const addItem = vis().find((el) => el.placeholder === "Type item name to add…");
       await act(async () => {
         party?.focus();
-        setInput(party, "History Probe Party");
+        setInput(party, name);
       });
-      await settleMs(60);
+      await settleMs(120);
+    };
+    let shown = "";
+    const pickItem = async () => {
+      const addItem = vis().find((el) => el.placeholder === "Type item name to add…");
       await act(async () => {
         addItem?.focus();
         setInput(addItem, "History Probe Item");
@@ -1014,26 +1062,139 @@ async function runAll(): Promise<Results> {
       const option = Array.from(document.body.querySelectorAll<HTMLElement>("[data-opt]"))
         .filter((d) => (d.textContent ?? "").startsWith("History Probe Item"))
         .pop();
+      shown = option?.textContent ?? "";
       await act(async () => {
         option?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
       });
       await settleMs(220);
+    };
+    const run = async (path: string, party: string, itemFirst = false) => {
+      await renderRoute(path);
+      await settleMs(120);
+      if (itemFirst) {
+        await pickItem();
+        await typeParty(party);
+      } else {
+        await typeParty(party);
+        await pickItem();
+      }
       return vis().map((el) => el.value);
     };
     const before = CompanyRepo.get();
-    CompanyRepo.save({ ...before, partyWiseRate: false });
-    const off = await run();
+    const setRate = (v: boolean | undefined) => {
+      const c = { ...before } as Record<string, unknown>;
+      if (v === undefined) delete c.partyWiseRate;
+      else c.partyWiseRate = v;
+      CompanyRepo.save(c as never);
+    };
+
+    // A newer bill where the item went FREE (₹0) is not a rate to start at.
+    SalesRepo.add({
+      id: "PH-FREE",
+      createdAt: "2026-03-09T09:00:00Z",
+      number: "PH-FREE",
+      date: "2026-03-09",
+      partyId: "PHP",
+      partyName: "History Probe Party",
+      lineItems: [
+        {
+          id: "PH-FREE-L0",
+          itemId: "PHI",
+          name: "History Probe Item",
+          unit: "pcs",
+          qty: 1,
+          price: 0,
+          discountPct: 0,
+          gstRate: 0,
+          amount: 0,
+        },
+      ],
+      subtotal: 0,
+      discount: 0,
+      shippingCharge: 0,
+      taxAmount: 0,
+      total: 0,
+      paid: 0,
+      paymentMode: "credit",
+      gstEnabled: false,
+    } as never);
+    setRate(undefined);
+    const dflt = await run("/sales/new", "History Probe Party");
+    assert(
+      dflt.includes("130") && !dflt.includes("99"),
+      `party rate default ON: a sale starts at what this party last paid (skipping a ₹0 free line) — ${JSON.stringify(dflt)}`,
+    );
+    assert(
+      /party\s*₹\s*130/.test(shown) && /sells\s*₹\s*99/.test(shown),
+      `party rate: the item list shows the party rate the line starts at — ${shown}`,
+    );
+    setRate(false);
+    const off = await run("/sales/new", "History Probe Party");
+    assert(
+      !/party\s*₹/.test(shown),
+      `party rate off: the item list shows no party rate — ${shown}`,
+    );
     assert(
       off.includes("99") && !off.includes("130"),
       `party rate off: the line starts at the sale price — ${JSON.stringify(off)}`,
     );
-    CompanyRepo.save({ ...before, partyWiseRate: true });
-    const on = await run();
+    setRate(true);
+    const on = await run("/sales/new", "History Probe Party");
     assert(
       on.includes("130"),
       `party rate on: the line starts at what this party last paid — ${JSON.stringify(on)}`,
     );
-    CompanyRepo.save({ ...before, partyWiseRate: before.partyWiseRate });
+
+    setRate(undefined);
+    const late = await run("/sales/new", "History Probe Party", true);
+    assert(
+      late.includes("130") && !late.includes("99"),
+      `party rate: party picked after the item re-prices the line — ${JSON.stringify(late)}`,
+    );
+
+    // A price typed by hand stays when the party is picked afterwards.
+    await renderRoute("/sales/new");
+    await settleMs(120);
+    await pickItem();
+    const priceBox = vis().find((el) => el.value === "99");
+    await act(async () => {
+      priceBox?.focus();
+      setInput(priceBox, "105");
+    });
+    await settleMs(60);
+    await typeParty("History Probe Party");
+    const typed = vis().map((el) => el.value);
+    assert(
+      !!priceBox && typed.includes("105") && !typed.includes("130"),
+      `party rate: a hand-typed price is never overwritten — ${JSON.stringify(typed)}`,
+    );
+
+    const buy = await run("/purchase/new", "History Probe Supplier");
+    assert(
+      /party\s*₹\s*61/.test(shown),
+      `party rate: the purchase item list shows this supplier's rate — ${shown}`,
+    );
+    assert(
+      buy.includes("61") && !buy.includes("55") && !buy.includes("50"),
+      `party rate: a purchase starts at what this supplier last charged — ${JSON.stringify(buy)}`,
+    );
+    const buyLate = await run("/purchase/new", "History Probe Supplier", true);
+    assert(
+      buyLate.includes("61"),
+      `party rate: purchase re-priced when the supplier is picked after — ${JSON.stringify(buyLate)}`,
+    );
+    setRate(false);
+    const buyOff = await run("/purchase/new", "History Probe Supplier");
+    assert(
+      buyOff.includes("50") && !buyOff.includes("61"),
+      `party rate off: a purchase starts at the item's purchase price — ${JSON.stringify(buyOff)}`,
+    );
+    CompanyRepo.save(before);
+    // Leave no supplier balance behind for the payables tests further down.
+    PurchaseRepo.remove("PHP-A");
+    PurchaseRepo.remove("PHP-B");
+    PartyRepo.remove("PHS");
+    SalesRepo.remove("PH-FREE");
   }
 
   /* ── The last-prices popup: whose prices, and when ──────────────────

@@ -464,10 +464,10 @@ function SettingsPage() {
                     hint="Turn off to block sales/returns that would take stock negative"
                   />
                   <ToggleRow
-                    checked={c.partyWiseRate === true}
+                    checked={c.partyWiseRate !== false}
                     onChange={(v) => setC({ ...c, partyWiseRate: v })}
                     label="Party-wise item rate"
-                    hint="On: a sale line starts at the price this party last paid for the item. Off: at the item's sale price."
+                    hint="On: in a sale or purchase, an item starts at the price last billed to this party. Off: at the item's sale / purchase price."
                   />
                 </div>
               </div>

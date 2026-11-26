@@ -585,8 +585,10 @@ export function InvoiceForm({ mode, existing }: Props) {
       .slice(0, 3)
       .map(({ date, number, qty, price }) => ({ date, number, qty, price }));
 
+  /* The newest bill with a real price. A line given away free once (₹0) is
+     shown in the popup, but is not a rate to start the next bill at. */
   const lastPartyPrice = (itemId: string): number | undefined =>
-    partyHistoryIndex.get(itemId)?.[0]?.price;
+    (partyHistoryIndex.get(itemId) ?? []).find((r) => r.price > 0)?.price;
 
   /** What this item last went out at to ANYONE, newest first.
    *
@@ -609,6 +611,45 @@ export function InvoiceForm({ mode, existing }: Props) {
     return best?.price;
   };
 
+  /* Vyapar's "Party wise item rate" — ON unless the shop turns it off in
+     Settings. A line starts at the price THIS party was last billed for the
+     item: a sale at what the customer last paid, a purchase at what this
+     supplier last charged. With no history for the party, a sale starts at
+     the item's sale price, a purchase at the last price paid to anyone (the
+     catalogue cost goes stale), then the item's purchase price.
+     Off, every line starts at the item's own sale / purchase price. */
+  const partyWise = company.partyWiseRate !== false;
+  const defaultPriceFor = (it: Item): number => {
+    if (isSale) return (partyWise ? lastPartyPrice(it.id) : undefined) ?? it.salePrice ?? 0;
+    if (!partyWise) return it.purchasePrice ?? 0;
+    return lastPartyPrice(it.id) ?? lastAnyPrice(it.id) ?? it.purchasePrice ?? 0;
+  };
+
+  /* The price each line was STARTED at, by line id. A line whose price is
+     still that figure was never touched by hand, so when the party is picked
+     (or changed) after the items, it moves to the new party's rate. A price
+     typed by hand is never overwritten. New bills only — a saved bill being
+     edited keeps the prices it was billed at. */
+  const autoPrice = useRef(new Map<string, number>());
+  useEffect(() => {
+    if (existing) return;
+    let touched = false;
+    const lines = inv.lineItems.map((l) => {
+      if (l.foreignPrice != null || autoPrice.current.get(l.id) !== l.price) return l;
+      const it = items.find((i) => i.id === l.itemId);
+      if (!it) return l;
+      const price = defaultPriceFor(it);
+      if (price === l.price) return l;
+      autoPrice.current.set(l.id, price);
+      touched = true;
+      const gstMult = gstOn ? 1 + l.gstRate / 100 : 1;
+      return { ...l, price, amount: r2(r2(l.qty * price * (1 - l.discountPct / 100)) * gstMult) };
+    });
+    if (touched) setInv({ ...inv, lineItems: lines, ...recalc(lines) });
+    // Only a change of party re-prices; everything else it reads is current.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyPartyId]);
+
   // Returns the id of the line that was added/updated, so the caller can move
   // focus straight to that row's Qty field for fast entry.
   const addLineItem = (it: Item): string => {
@@ -625,21 +666,15 @@ export function InvoiceForm({ mode, existing }: Props) {
        Merging was the old behaviour and it was deliberate; the shop asked for
        it to go. Nothing is lost by it — a genuine repeat is still one keystroke
        away from becoming quantity 2 by hand. */
-    // This party's own last price wins; otherwise what the item last
-    // actually went out at; only then the catalogue figure.
-    const historicalPrice = lastPartyPrice(it.id) ?? lastAnyPrice(it.id);
-    /* Vyapar's "Party wise item rate", when the shop turns it on in Settings:
-       a sale starts at what THIS party last paid for the item. Off (the
-       default), it starts at the item's sale price, as the shop asked when a
-       party's old price kept overriding the catalogue. */
-    const partyRate = isSale && company.partyWiseRate ? lastPartyPrice(it.id) : undefined;
+    // Party-wise rate — see defaultPriceFor.
+    const price = defaultPriceFor(it);
     const line: LineItem = {
       id: genId(),
       itemId: it.id,
       name: it.name,
       qty: 1,
       unit: it.unit,
-      price: isSale ? (partyRate ?? it.salePrice ?? 0) : (historicalPrice ?? it.purchasePrice),
+      price,
       discountPct: 0,
       gstRate: it.gstRate,
       amount: 0,
@@ -647,6 +682,7 @@ export function InvoiceForm({ mode, existing }: Props) {
     };
     const gstMult = gstOn ? 1 + line.gstRate / 100 : 1;
     line.amount = r2(r2(line.qty * line.price * (1 - line.discountPct / 100)) * gstMult);
+    autoPrice.current.set(line.id, price);
     const lines = [...inv.lineItems, line];
     setInv({ ...inv, lineItems: lines, ...recalc(lines) });
     return line.id;
@@ -773,20 +809,15 @@ export function InvoiceForm({ mode, existing }: Props) {
        the bill arrived at them. Reaching that state by changing a line used
        to silently delete the line being edited, which is a surprising way to
        lose a row. */
-    // This party's own last price wins; otherwise what the item last
-    // actually went out at; only then the catalogue figure.
-    const historicalPrice = lastPartyPrice(it.id) ?? lastAnyPrice(it.id);
-    /* Vyapar's "Party wise item rate", when the shop turns it on in Settings:
-       a sale starts at what THIS party last paid for the item. Off (the
-       default), it starts at the item's sale price, as the shop asked when a
-       party's old price kept overriding the catalogue. */
-    const partyRate = isSale && company.partyWiseRate ? lastPartyPrice(it.id) : undefined;
+    // Party-wise rate — see defaultPriceFor.
+    const price = defaultPriceFor(it);
+    autoPrice.current.set(lineId, price);
     updateLine(lineId, {
       itemId: it.id,
       name: it.name,
       unit: it.unit,
       gstRate: it.gstRate,
-      price: isSale ? (partyRate ?? it.salePrice ?? 0) : (historicalPrice ?? it.purchasePrice),
+      price,
       costPrice: it.purchasePrice,
       // The old item's foreign price must not survive the swap — a later
       // exchange-rate change re-prices every line that still has one, which
@@ -1668,6 +1699,7 @@ export function InvoiceForm({ mode, existing }: Props) {
                     <td className="px-3 py-1.5 text-muted-foreground text-[11px]">{idx + 1}</td>
                     <td className="px-3 py-1.5">
                       <ItemNameCell
+                        partyRate={partyWise ? lastPartyPrice : undefined}
                         name={l.name}
                         items={items}
                         isSale={isSale}
@@ -1755,6 +1787,7 @@ export function InvoiceForm({ mode, existing }: Props) {
                 ))}
                 {pendingRowIds.map((id) => (
                   <ItemEntryRow
+                    partyRate={partyWise ? lastPartyPrice : undefined}
                     key={id}
                     items={items}
                     gstOn={gstOn}
@@ -1826,6 +1859,7 @@ export function InvoiceForm({ mode, existing }: Props) {
                       was the first thing to scroll off the side. */}
                   <div className="min-w-0 flex-1 text-[14px] leading-snug break-words">
                     <ItemNameCell
+                      partyRate={partyWise ? lastPartyPrice : undefined}
                       name={l.name}
                       items={items}
                       isSale={isSale}
@@ -1922,6 +1956,7 @@ export function InvoiceForm({ mode, existing }: Props) {
 
             {pendingRowIds.map((id) => (
               <ItemEntryRow
+                partyRate={partyWise ? lastPartyPrice : undefined}
                 key={id}
                 layout="card"
                 items={items}
@@ -2332,7 +2367,10 @@ function ItemEntryRow({
   showDisc,
   registerInput,
   layout = "row",
+  partyRate,
 }: {
+  /** This party's last rate per item, when Party-wise item rate is on. */
+  partyRate?: (itemId: string) => number | undefined;
   items: Item[];
   onAdd: (i: Item) => void;
   onAddNew: (name: string) => void;
@@ -2506,32 +2544,7 @@ function ItemEntryRow({
                       Stock: {it.stock} {it.unit}
                     </div>
                   </div>
-                  <div className="text-right">
-                    {isSale ? (
-                      <>
-                        <div className="text-[11px] text-muted-foreground tabular-nums">
-                          {/* What a unit on the shelf cost, FIFO — the figure
-                              profit is measured against. Not the last bill's
-                              rate: that showed MIX HISAB as "cost ₹1,50,500". */}
-                          cost {fmtMoney(unitCostOf(it, currentFifo()))}
-                        </div>
-                        <div className="font-semibold tabular-nums">
-                          {it.salePrice ? (
-                            <>sells {fmtMoney(it.salePrice)}</>
-                          ) : (
-                            <span className="text-[11px] font-normal text-amber-600">
-                              No sale price
-                            </span>
-                          )}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="font-semibold tabular-nums">{fmtMoney(it.purchasePrice)}</div>
-                    )}
-                    {gstOn && (
-                      <div className="text-[11px] text-muted-foreground">GST {it.gstRate}%</div>
-                    )}
-                  </div>
+                  <PickerPrice it={it} isSale={isSale} gstOn={gstOn} partyRate={partyRate} />
                 </div>
               ))}
               {showAddNew && (
@@ -2643,7 +2656,10 @@ function ItemNameCell({
   onAddNew,
   openNow,
   onOpened,
+  partyRate,
 }: {
+  /** This party's last rate per item, when Party-wise item rate is on. */
+  partyRate?: (itemId: string) => number | undefined;
   name: string;
   items: Item[];
   isSale: boolean;
@@ -2823,32 +2839,7 @@ function ItemNameCell({
                       Stock: {it.stock} {it.unit}
                     </div>
                   </div>
-                  <div className="text-right">
-                    {isSale ? (
-                      <>
-                        <div className="text-[11px] text-muted-foreground tabular-nums">
-                          {/* What a unit on the shelf cost, FIFO — the figure
-                              profit is measured against. Not the last bill's
-                              rate: that showed MIX HISAB as "cost ₹1,50,500". */}
-                          cost {fmtMoney(unitCostOf(it, currentFifo()))}
-                        </div>
-                        <div className="font-semibold tabular-nums">
-                          {it.salePrice ? (
-                            <>sells {fmtMoney(it.salePrice)}</>
-                          ) : (
-                            <span className="text-[11px] font-normal text-amber-600">
-                              No sale price
-                            </span>
-                          )}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="font-semibold tabular-nums">{fmtMoney(it.purchasePrice)}</div>
-                    )}
-                    {gstOn && (
-                      <div className="text-[11px] text-muted-foreground">GST {it.gstRate}%</div>
-                    )}
-                  </div>
+                  <PickerPrice it={it} isSale={isSale} gstOn={gstOn} partyRate={partyRate} />
                 </div>
               ))}
               {showAddNew && (
@@ -2985,6 +2976,67 @@ function PriceHistoryCell({
           document.body,
         )}
     </>
+  );
+}
+
+/** The price side of an item in the pickers. With Party-wise item rate on
+ *  and this party billed for the item before, the bold figure is THAT rate —
+ *  the one the line will start at — and the catalogue price sits under it.
+ *  The list once read "sells 7,000" and the line came in at 6,105; the two
+ *  must always agree. */
+function PickerPrice({
+  it,
+  isSale,
+  gstOn,
+  partyRate,
+}: {
+  it: Item;
+  isSale: boolean;
+  gstOn: boolean;
+  partyRate?: (itemId: string) => number | undefined;
+}) {
+  const pr = partyRate?.(it.id);
+  return (
+    <div className="text-right">
+      {isSale ? (
+        <>
+          <div className="text-[11px] text-muted-foreground tabular-nums">
+            {/* What a unit on the shelf cost, FIFO — the figure profit is
+                measured against. Not the last bill's rate: that showed
+                MIX HISAB as "cost ₹1,50,500". */}
+            cost {fmtMoney(unitCostOf(it, currentFifo()))}
+          </div>
+          {pr != null && <div className="font-semibold tabular-nums">party {fmtMoney(pr)}</div>}
+          <div
+            className={
+              pr != null
+                ? "text-[11px] text-muted-foreground tabular-nums"
+                : "font-semibold tabular-nums"
+            }
+          >
+            {it.salePrice ? (
+              <>sells {fmtMoney(it.salePrice)}</>
+            ) : (
+              <span className="text-[11px] font-normal text-amber-600">No sale price</span>
+            )}
+          </div>
+        </>
+      ) : (
+        <>
+          {pr != null && <div className="font-semibold tabular-nums">party {fmtMoney(pr)}</div>}
+          <div
+            className={
+              pr != null
+                ? "text-[11px] text-muted-foreground tabular-nums"
+                : "font-semibold tabular-nums"
+            }
+          >
+            {fmtMoney(it.purchasePrice)}
+          </div>
+        </>
+      )}
+      {gstOn && <div className="text-[11px] text-muted-foreground">GST {it.gstRate}%</div>}
+    </div>
   );
 }
 
